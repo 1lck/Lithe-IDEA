@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -161,14 +162,15 @@ func (a *App) presentEditorActions(p *project, snapshot editorActionSnapshot, ac
 }
 
 // annotateEditorActions puts icons in the gutter. The icon area has one slot per lane in use, left to
-// right in editorActionLanes order, so the run, debug, test and navigation icons of a line sit side by
+// right in editorActionLanes order, so the navigation, run, debug and test icons of a line sit side by
 // side. A line shows the first action of each lane; a press on that icon opens the lane's menu, or
 // runs the only choice it has. The icons are the editor's own, so they never overlap the blame
 // annotations of the line.
 func (a *App) annotateEditorActions(d *document) {
+	dark := a.colors.Dark
 	inUse := map[string]bool{}
 	for _, action := range d.actions {
-		lane, _, ok := editorActionPresentation(action.Icon)
+		lane, _, ok := editorActionPresentation(action.Icon, dark)
 		if ok && action.Range.StartLine-1 >= 0 {
 			inUse[lane] = true
 		}
@@ -189,7 +191,7 @@ func (a *App) annotateEditorActions(d *document) {
 	var marks []editorview.LineIcon
 	for _, action := range d.actions {
 		line := action.Range.StartLine - 1
-		lane, icon, ok := editorActionPresentation(action.Icon)
+		lane, icon, ok := editorActionPresentation(action.Icon, dark)
 		if !ok || line < 0 || seen[cell{line, lane}] {
 			continue
 		}
@@ -215,14 +217,30 @@ func (a *App) annotateEditorActions(d *document) {
 	d.actionAnnotated = len(titles) > 0
 }
 
+// refreshEditorActionIcons re-applies gutter icons after a light/dark theme change.
+func (a *App) refreshEditorActionIcons() {
+	if a.project == nil {
+		return
+	}
+	for _, d := range a.project.docs.list {
+		if len(d.actions) > 0 {
+			a.annotateEditorActions(d)
+		}
+	}
+}
+
 // editorActionLanes are the lanes of the gutter's icon area, in the order they are drawn from left to
-// right: navigation, then run, debug and the test status.
-var editorActionLanes = []string{"navigate", "run", "debug", "test"}
+// right: upward navigation, downward navigation, then run, debug and test status.
+var editorActionLanes = []string{"navigate-up", "navigate-down", "run", "debug", "test"}
+
+func isNavigationLane(lane string) bool {
+	return lane == "navigate-up" || lane == "navigate-down"
+}
 
 // editorActionPresentation maps the host's action icon names to the lane they belong to and the icon
 // the host draws for them. The host never starts anything because of an icon; the names only pick a
 // picture. An unknown name has no lane and no icon, so its action is shown as a title.
-func editorActionPresentation(name string) (string, gfx.Icon, bool) {
+func editorActionPresentation(name string, dark bool) (string, gfx.Icon, bool) {
 	switch name {
 	case "run", "run-all":
 		return "run", icons.Play, true
@@ -236,16 +254,24 @@ func editorActionPresentation(name string) (string, gfx.Icon, bool) {
 		return "test", icons.CircleX, true
 	case "test-skipped":
 		return "test", icons.Minus, true
+	case "navigate-implementing":
+		return "navigate-up", icons.GutterImplementing(dark), true
+	case "navigate-overriding":
+		return "navigate-up", icons.GutterOverriding(dark), true
 	case "navigate-super":
-		return "navigate", icons.ArrowUp, true
+		return "navigate-up", icons.GutterNavigateUp(dark), true
+	case "navigate-implemented":
+		return "navigate-down", icons.GutterImplemented(dark), true
+	case "navigate-overridden":
+		return "navigate-down", icons.GutterOverridden(dark), true
 	case "navigate-implementations":
-		return "navigate", icons.ArrowDown, true
+		return "navigate-down", icons.GutterNavigateDown(dark), true
 	}
 	return "", gfx.Icon{}, false
 }
 
 // editorActionPanel is the state of a document's action icons beyond the actions themselves: the lane
-// of each slot of the icon area, and the lane menu a press has opened.
+// of each slot of the icon area, the lane menu a press has opened, and the hovered icon tooltip.
 type editorActionPanel struct {
 	lanes    []string
 	menuOpen bool
@@ -253,6 +279,12 @@ type editorActionPanel struct {
 	menuLane string
 	// menuAt is the cell of the icon pressed; the menu opens under it.
 	menuAt gfx.Rect
+
+	hoverOpen bool
+	hoverLine int
+	hoverSlot int
+	hoverAt   gfx.Rect
+	hoverText string
 }
 
 // editorActionChoice is one row of a lane menu: an action, or one of its alternatives (alternative is
@@ -271,7 +303,7 @@ func editorActionChoices(actions []pluginservice.EditorAction, line int, lane st
 		if action.Range.StartLine-1 != line {
 			continue
 		}
-		if actionLane, _, ok := editorActionPresentation(action.Icon); !ok || actionLane != lane {
+		if actionLane, _, ok := editorActionPresentation(action.Icon, false); !ok || actionLane != lane {
 			continue
 		}
 		choices = append(choices, editorActionChoice{title: action.Title, action: action, alternative: -1})
@@ -285,6 +317,7 @@ func editorActionChoices(actions []pluginservice.EditorAction, line int, lane st
 // pressEditorActionLane handles a press on the icon of a lane on a line. A lane with one choice runs it
 // at once; with several, the lane's menu opens and lists them.
 func (a *App) pressEditorActionLane(d *document, line, slot int, cell gfx.Rect) {
+	d.actionPanel.hoverOpen = false
 	p := a.project
 	if p == nil || p.docs.find(d.id) != d || slot < 0 || slot >= len(d.actionPanel.lanes) {
 		return
@@ -295,7 +328,7 @@ func (a *App) pressEditorActionLane(d *document, line, slot int, cell gfx.Rect) 
 	case 0:
 		return
 	case 1:
-		a.runEditorAction(p, d, choices[0].action, choices[0].alternative)
+		a.runEditorActionAt(p, d, choices[0].action, choices[0].alternative, &cell)
 	default:
 		d.actionPanel.menuLine, d.actionPanel.menuLane, d.actionPanel.menuOpen = line, lane, true
 		d.actionPanel.menuAt = cell
@@ -303,18 +336,165 @@ func (a *App) pressEditorActionLane(d *document, line, slot int, cell gfx.Rect) 
 }
 
 // editorActionLaneMenu declares the menu a lane's icon opened: one row per choice of the lane. Choosing
-// a row closes the menu and calls the plugin through runEditorAction.
+// a row closes the menu and calls the plugin through runEditorActionAt.
 func (a *App) editorActionLaneMenu(c ui.C, p *project, d *document) func(*ui.MenuItems) {
 	return func(menu *ui.MenuItems) {
 		menu.WidthRange(240, 280)
+		anchor := d.actionPanel.menuAt
 		for _, choice := range editorActionChoices(d.actions, d.actionPanel.menuLine, d.actionPanel.menuLane) {
 			choice := choice
 			if menu.Item(choice.title).Clicked() {
 				d.actionPanel.menuOpen = false
-				c.After(func() { a.runEditorAction(p, d, choice.action, choice.alternative) })
+				c.After(func() {
+					anchor := anchor
+					a.runEditorActionAt(p, d, choice.action, choice.alternative, &anchor)
+				})
 			}
 		}
 	}
+}
+
+func editorActionTooltipText(choices []editorActionChoice) string {
+	var parts []string
+	seen := make(map[string]bool, len(choices))
+	for _, choice := range choices {
+		title := truncateDisplayText(choice.title, 120)
+		if title == "" || seen[title] {
+			continue
+		}
+		seen[title] = true
+		parts = append(parts, title)
+		if len(parts) == 4 {
+			break
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+func (a *App) clearEditorActionHover(d *document) bool {
+	if d == nil || !d.actionPanel.hoverOpen {
+		return false
+	}
+	d.actionPanel.hoverOpen = false
+	d.actionPanel.hoverText = ""
+	return true
+}
+
+// trackEditorActionHover closes any open gutter action tooltip as soon as the pointer moves
+// off its gutter icon cell, presses a button, or leaves the window. Running at the window
+// root catches moves onto sibling widgets or the tooltip card itself that give no editor exit.
+func (a *App) trackEditorActionHover(event gfx.PointerEvent) {
+	p := a.project
+	if p == nil {
+		return
+	}
+	switch event.Kind {
+	case gfx.PointerMove:
+		changed := false
+		for _, d := range p.docs.list {
+			if d.actionPanel.hoverOpen && !pointInRect(d.actionPanel.hoverAt, event.X, event.Y) {
+				if a.clearEditorActionHover(d) {
+					changed = true
+				}
+			}
+		}
+		if changed {
+			a.invalidator.Invalidate()
+		}
+	case gfx.PointerDown, gfx.PointerExit:
+		changed := false
+		for _, d := range p.docs.list {
+			if a.clearEditorActionHover(d) {
+				changed = true
+			}
+		}
+		if changed {
+			a.invalidator.Invalidate()
+		}
+	}
+}
+
+// editorActionHoverPointer updates the gutter icon tooltip on pointer motion and clears it
+// when leaving the icon or pressing a button. It requests a repaint only when visibility or target changes.
+func (a *App) editorActionHoverPointer(event gfx.PointerEvent, p *project, d *document) (gfx.EventResult, bool) {
+	if p == nil || d == nil {
+		return gfx.EventResult{}, false
+	}
+	switch event.Kind {
+	case gfx.PointerMove:
+		if d.actionPanel.menuOpen || len(d.actions) == 0 {
+			if a.clearEditorActionHover(d) {
+				a.invalidator.Invalidate()
+			}
+			return gfx.EventResult{}, false
+		}
+		line, slot, cell, ok := d.view.LineIconAt(event.X, event.Y)
+		if !ok || slot < 0 || slot >= len(d.actionPanel.lanes) {
+			if a.clearEditorActionHover(d) {
+				a.invalidator.Invalidate()
+			}
+			return gfx.EventResult{}, false
+		}
+		text := editorActionTooltipText(editorActionChoices(d.actions, line, d.actionPanel.lanes[slot]))
+		if text == "" {
+			if a.clearEditorActionHover(d) {
+				a.invalidator.Invalidate()
+			}
+			return gfx.EventResult{}, false
+		}
+		panel := &d.actionPanel
+		if !panel.hoverOpen || panel.hoverLine != line || panel.hoverSlot != slot || panel.hoverAt != cell || panel.hoverText != text {
+			panel.hoverOpen = true
+			panel.hoverLine = line
+			panel.hoverSlot = slot
+			panel.hoverAt = cell
+			panel.hoverText = text
+			a.invalidator.Invalidate()
+		}
+		return gfx.EventResult{}, false
+	case gfx.PointerDown:
+		if a.clearEditorActionHover(d) {
+			a.invalidator.Invalidate()
+		}
+	case gfx.PointerExit:
+		if a.clearEditorActionHover(d) {
+			a.invalidator.Invalidate()
+		}
+	}
+	return gfx.EventResult{}, false
+}
+
+func (a *App) editorActionHoverPopup(c ui.C, p *project, d *document) {
+	if p == nil || d == nil || a.project != p || !d.actionPanel.hoverOpen || d.actionPanel.menuOpen || d.actionPanel.hoverText == "" {
+		return
+	}
+	anchor := d.actionPanel.hoverAt
+	bounds := c.Bounds()
+	canvas := c.Canvas()
+	maxTextWidth := float32(340)
+	textWidth := float32(0)
+	for _, line := range strings.Split(d.actionPanel.hoverText, "\n") {
+		textWidth = max(textWidth, canvas.TextWidth(line, 11.5))
+	}
+	width := min(max(textWidth+18, 110), maxTextWidth)
+	if width > bounds.Width-8 {
+		width = bounds.Width - 8
+	}
+	x, y := popupOrigin(anchor.Right()+6, anchor.Y, width, bounds)
+	lang := a.language()
+	label := i18n.Shared(lang, "desktop.editorActions.tooltip")
+	ui.Stack(c.Part("editor-action-hover-layer")).Fill().Children(func() {
+		hc := c.Part("editor-action-hover-card")
+		ui.Column(hc).Absolute().Left(x).Top(y).Width(width).PadX(8).PadY(5).Gap(2).
+			Background(a.theme.Popover).Border(1, a.theme.Border).
+			Radius(a.theme.Metrics.RadiusPopup()).Shadow(gfx.ShadowMD).
+			HitWith(ui.ID(hc), label, gfx.HitOptions{Role: gfx.RoleGroup, SkipFocus: true}).
+			Children(func() {
+				for _, line := range strings.Split(d.actionPanel.hoverText, "\n") {
+					ui.Wrap(hc, line).FontSize(11.5).Color(a.colors.Text)
+				}
+			})
+	})
 }
 
 // editorActionMenuItems declares the actions that start on the caret line as menu entries, each
@@ -449,7 +629,7 @@ func currentFileEditorChoice(actions []pluginservice.EditorAction, revision int,
 		if action.Version() != revision {
 			continue
 		}
-		lane, _, _ := editorActionPresentation(action.Icon)
+		lane, _, _ := editorActionPresentation(action.Icon, false)
 		switch lane {
 		case "run":
 			run = first(run, action)
@@ -473,10 +653,15 @@ func currentFileEditorChoice(actions []pluginservice.EditorAction, revision int,
 	return nil
 }
 
-// runEditorAction calls the plugin for one action or alternative. The call is refused when the
-// document changed since the action was collected. Locations the result asks to reveal are opened;
-// only the first is opened for now, the others wait for the navigation list.
+// runEditorAction calls the plugin for one action or alternative without an explicit popup anchor.
 func (a *App) runEditorAction(p *project, d *document, action pluginservice.EditorAction, alternative int) {
+	a.runEditorActionAt(p, d, action, alternative, nil)
+}
+
+// runEditorActionAt calls the plugin for one action or alternative. The call is refused when the
+// document changed since the action was collected. Locations the result asks to reveal are opened
+// directly when there is one, or listed in a navigation popup anchored near anchor (or the caret).
+func (a *App) runEditorActionAt(p *project, d *document, action pluginservice.EditorAction, alternative int, anchor *gfx.Rect) {
 	if a.plugins == nil {
 		return
 	}
@@ -484,15 +669,26 @@ func (a *App) runEditorAction(p *project, d *document, action pluginservice.Edit
 		a.notify(i18n.Shared(a.language(), "desktop.editorActions.stale"))
 		return
 	}
+	lane, _, _ := editorActionPresentation(action.Icon, false)
+	if alternative >= 0 && alternative < len(action.Alternatives) {
+		if altLane, _, ok := editorActionPresentation(action.Alternatives[alternative].Icon, false); ok {
+			lane = altLane
+		}
+	}
 	label := action.Title
 	if alternative >= 0 && alternative < len(action.Alternatives) {
 		label = action.Alternatives[alternative].Title
 	}
 	a.performed("editor.action.invoke", surfaceButton)
-	if label != "" {
+	if label != "" && !isNavigationLane(lane) {
 		a.notifyInfo(i18n.SharedFormat(a.language(), "desktop.editorActions.starting", map[string]string{"label": label}))
 	}
 	plugins, root := a.plugins, p.root
+	var anchorCopy *gfx.Rect
+	if anchor != nil {
+		rect := *anchor
+		anchorCopy = &rect
+	}
 	a.background(p, 100*time.Second, func(ctx context.Context) func(*App) {
 		locations, err := plugins.InvokeEditorAction(ctx, action, alternative)
 		return func(a *App) {
@@ -502,17 +698,28 @@ func (a *App) runEditorAction(p *project, d *document, action pluginservice.Edit
 				return
 			}
 			if len(locations) == 0 {
+				switch lane {
+				case "navigate-down":
+					a.notifyInfo(i18n.Shared(a.language(), "desktop.semantics.noImplementations"))
+				case "navigate-up":
+					a.notifyInfo(i18n.Shared(a.language(), "desktop.semantics.noSuperDeclaration"))
+				}
 				return
 			}
-			a.revealEditorLocations(p, d, root, locations)
+			a.revealEditorLocationsAt(p, d, root, locations, lane, anchorCopy)
 		}
 	})
 }
 
-// revealEditorLocations shows the locations a result named. One opens directly; several go to the
-// definition list, the same popup a language server's several definitions use. Files and other URIs
-// both qualify: a URI the host cannot serve is dropped by the usable filter.
+// revealEditorLocations shows the locations a result named, anchored at the caret.
 func (a *App) revealEditorLocations(p *project, d *document, root string, locations []pluginservice.EditorLocation) {
+	a.revealEditorLocationsAt(p, d, root, locations, "", nil)
+}
+
+// revealEditorLocationsAt shows the locations a result named. One opens directly; several go to the
+// definition/implementation list anchored beside anchor (or the caret). Files and other URIs both
+// qualify: a URI the host cannot serve is dropped by the usable filter.
+func (a *App) revealEditorLocationsAt(p *project, d *document, root string, locations []pluginservice.EditorLocation, lane string, anchor *gfx.Rect) {
 	targets := make([]core.PluginSemanticLocation, 0, len(locations))
 	for _, location := range locations {
 		item := core.PluginSemanticLocation{
@@ -522,43 +729,14 @@ func (a *App) revealEditorLocations(p *project, d *document, root string, locati
 				End:   core.PluginDocumentPosition{Line: location.EndLine, UTF16Column: location.EndCharacter},
 			},
 		}
-		if parsed, err := url.Parse(location.URI); err == nil && parsed.Scheme == "file" {
-			item.FilePath = parsed.Path
+		if parsed, err := url.Parse(location.URI); err == nil && strings.EqualFold(parsed.Scheme, "file") {
+			item.FilePath = fileURIPath(parsed)
 		}
 		targets = append(targets, item)
 	}
-	if len(targets) == 1 && targets[0].FilePath != "" {
-		a.revealEditorLocation(p, root, locations[0])
-		return
+	kind := semanticKind(pluginSemanticDefinition)
+	if lane == "navigate-down" {
+		kind = pluginSemanticImplementation
 	}
-	a.presentDefinitionTargets(p, d, pluginSemanticDefinition, a.usableDefinitionTargets(targets, maxDefinitionTargets), len(targets), d.view.Revision())
-}
-
-// revealEditorLocation opens a location a result named: a file opens at its position, another URI
-// goes through the plugin's content provider.
-func (a *App) revealEditorLocation(p *project, root string, location pluginservice.EditorLocation) {
-	parsed, err := url.Parse(location.URI)
-	if err != nil {
-		// The plugin named a location that is not a URI; the error would repeat it, so only the
-		// refusal is recorded.
-		a.operationRejected("editor_action_reveal", "invalid_uri")
-		a.notifyError(i18n.Shared(a.language(), "desktop.editorActions.failed"))
-		return
-	}
-	if parsed.Scheme == "file" {
-		a.openFileAtPosition(p, parsed.Path, location.StartLine, location.StartCharacter)
-		return
-	}
-	if a.plugins != nil {
-		uri, line, column := location.URI, location.StartLine, location.StartCharacter
-		a.background(p, 30*time.Second, func(ctx context.Context) func(*App) {
-			if err := a.plugins.OpenContentURI(ctx, root, uri, line, column); err != nil {
-				return func(a *App) {
-					a.operationFailed("editor_action_reveal", err)
-					a.notifyError(i18n.Shared(a.language(), "desktop.editorActions.failed"))
-				}
-			}
-			return nil
-		})
-	}
+	a.presentDefinitionTargetsAt(p, d, kind, a.usableDefinitionTargets(targets, maxDefinitionTargets), len(locations), d.view.Revision(), anchor)
 }

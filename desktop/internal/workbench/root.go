@@ -85,6 +85,7 @@ func (a *App) sessionConfig() app.Config {
 	pointer := config.OnPointer
 	config.OnPointer = func(event gfx.PointerEvent) gfx.EventResult {
 		a.hoverTrackPointer(event)
+		a.trackEditorActionHover(event)
 		return pointer(event)
 	}
 	wheel := config.OnScroll

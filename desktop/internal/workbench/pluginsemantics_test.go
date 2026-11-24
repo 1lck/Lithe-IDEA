@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -1142,4 +1143,233 @@ func TestRenameCancelClosesDialogWithoutRequest(t *testing.T) {
 	if f.h.app.semantics.rename.open || f.kernel.requestCount() != 0 {
 		t.Fatal("cancel left state or sent a request")
 	}
+}
+
+func TestImplementationShortcutAndModifierClickAndEmptyBanner(t *testing.T) {
+	f := newSemanticFixture(t)
+	f.server.features = map[string]bool{featureImplementation: true}
+	implA := filepath.Join(f.p.root, "ImplA.java")
+	implB := filepath.Join(f.p.root, "ImplB.java")
+	for _, path := range []string{implA, implB} {
+		if err := os.WriteFile(path, []byte("class Impl {}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	f.d.view.GoToNavigation(0, 1, false)
+	f.h.settle()
+	handled, err := f.h.driver.ShortcutChord(primaryModifier()|gfx.ModifierAlt, 'b')
+	if err != nil || !handled {
+		t.Fatalf("implementation shortcut handled=%v err=%v", handled, err)
+	}
+	f.waitForRequests(t, 1)
+	if got := f.kernel.request(0); got.Operation != pluginSemanticImplementation {
+		t.Fatalf("operation = %q, want %q", got.Operation, pluginSemanticImplementation)
+	}
+	f.deliver(t, "op-1", pluginMethodImplementation, locationsResult(t,
+		locationAt(implA, 0, 0),
+		locationAt(implB, 0, 0),
+	))
+	if !f.h.app.semantics.definition.open || f.h.app.semantics.definition.kind != pluginSemanticImplementation {
+		t.Fatalf("implementation popup = %+v", f.h.app.semantics.definition)
+	}
+	if !f.h.shows("ImplA.java:1:1") || !f.h.shows("ImplB.java:1:1") {
+		t.Fatalf("implementation targets missing: %v", f.h.driver.Snapshot().Labels)
+	}
+	if err := f.h.driver.Key(gfx.KeyEnter, 0); err != nil {
+		t.Fatal(err)
+	}
+	awaitDocumentState(t, f.h, func() bool { return f.p.docs.byPath(implA) != nil })
+
+	// Empty implementation result announces noImplementations.
+	f.h.app.selectDocument(f.p, f.d.id)
+	f.d.view.GoToNavigation(0, 1, false)
+	f.h.settle()
+	if _, err := f.h.driver.ShortcutChord(primaryModifier()|gfx.ModifierAlt, 'b'); err != nil {
+		t.Fatal(err)
+	}
+	f.waitForRequests(t, 2)
+	f.deliver(t, "op-2", pluginMethodImplementation, locationsResult(t))
+	awaitDocumentState(t, f.h, func() bool { return f.h.shows(f.h.shared("desktop.semantics.noImplementations")) })
+
+	// Primary+Alt+Click asks for implementation; Primary+Click still asks for definition.
+	f.d.view.GoToNavigation(0, 2, false)
+	cell, ok := f.d.view.CaretRect()
+	if !ok {
+		t.Fatal("caret rect unavailable")
+	}
+	f.h.app.documentPointer(f.p, f.d, gfx.PointerEvent{
+		Kind:      gfx.PointerDown,
+		Button:    gfx.PointerButtonPrimary,
+		X:         cell.X + 1,
+		Y:         cell.Y + cell.Height/2,
+		Modifiers: primaryModifier() | gfx.ModifierAlt,
+	})
+	f.waitForRequests(t, 3)
+	if got := f.kernel.request(2); got.Operation != pluginSemanticImplementation {
+		t.Fatalf("Primary+Alt+Click operation = %q, want %q", got.Operation, pluginSemanticImplementation)
+	}
+	f.h.app.documentPointer(f.p, f.d, gfx.PointerEvent{
+		Kind:      gfx.PointerDown,
+		Button:    gfx.PointerButtonPrimary,
+		X:         cell.X + 1,
+		Y:         cell.Y + cell.Height/2,
+		Modifiers: primaryModifier(),
+	})
+	f.waitForRequests(t, 4)
+	if got := f.kernel.request(3); got.Operation != pluginSemanticDefinition {
+		t.Fatalf("Primary+Click operation = %q, want %q", got.Operation, pluginSemanticDefinition)
+	}
+}
+
+func TestImplementationFallbackToGutterAndSuperShortcutAndContextMenu(t *testing.T) {
+	collected := json.RawMessage(`{
+		"actions": [
+			{
+				"id": "line1-down",
+				"range": {"start": {"line": 1, "column": 1}, "end": {"line": 1, "column": 8}},
+				"title": "Implemented by Impl",
+				"icon": "navigate-implemented",
+				"invoke": {"functionID": "nav.invoke", "params": {"target": "impl"}}
+			},
+			{
+				"id": "line1-up",
+				"range": {"start": {"line": 1, "column": 1}, "end": {"line": 1, "column": 8}},
+				"title": "Implements Service",
+				"icon": "navigate-implementing",
+				"invoke": {"functionID": "nav.invoke", "params": {"target": "super"}}
+			},
+			{
+				"id": "line2-up",
+				"range": {"start": {"line": 2, "column": 1}, "end": {"line": 2, "column": 6}},
+				"title": "Overrides Base.step",
+				"icon": "navigate-overriding",
+				"invoke": {"functionID": "nav.invoke", "params": {"target": "super"}},
+				"alternatives": [
+					{"id": "line2-up-iface", "title": "Implements Service.step", "icon": "navigate-implementing", "invoke": {"functionID": "nav.invoke", "params": {"target": "impl"}}}
+				]
+			}
+		]
+	}`)
+	var implTarget, superTarget string
+	h, kernel := openNavActionHarness(t, collected, func(arg json.RawMessage) json.RawMessage {
+		var req struct {
+			Data struct {
+				Target string `json:"target"`
+			} `json:"data"`
+		}
+		_ = json.Unmarshal(arg, &req)
+		path := superTarget
+		if req.Data.Target == "impl" {
+			path = implTarget
+		}
+		uri := (&url.URL{Scheme: "file", Path: filepath.ToSlash(path)}).String()
+		data, _ := json.Marshal(map[string]any{"reveal": map[string]any{"locations": []any{map[string]any{
+			"uri":   uri,
+			"range": map[string]any{"start": map[string]int{"line": 0, "character": 0}, "end": map[string]int{"line": 0, "character": 4}},
+		}}}})
+		return data
+	})
+	f := openSemanticFixture(t, h, kernel.semanticTestKernel)
+	implTarget = filepath.Join(f.p.root, "Impl.java")
+	superTarget = filepath.Join(f.p.root, "Service.java")
+	for _, path := range []string{implTarget, superTarget} {
+		if err := os.WriteFile(path, []byte("class T {}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !f.d.view.ApplyEdit(editorview.Edit{StartLine: 0, StartColumn: 0, EndLine: 0, EndColumn: 3, Text: "line one\nline two\nline three"}, false) {
+		t.Fatal("could not prepare multiline document text")
+	}
+	f.h.settle()
+	installCollectedNavActions(t, f.h, kernel, f.p, f.d)
+
+	// Without featureImplementation, Primary+Alt+B falls back to navigate-down action on line 0.
+	f.server.features = map[string]bool{}
+	f.d.view.GoToNavigation(0, 1, false)
+	f.h.settle()
+	if _, err := f.h.driver.ShortcutChord(primaryModifier()|gfx.ModifierAlt, 'b'); err != nil {
+		t.Fatal(err)
+	}
+	awaitDocumentState(t, f.h, func() bool { return f.p.docs.byPath(implTarget) != nil })
+	for i := range f.kernel.requestCount() {
+		if f.kernel.request(i).Operation == pluginSemanticImplementation {
+			t.Fatal("unexpected LSP implementation request when server lacks capability")
+		}
+	}
+
+	// Primary+U on line 0 triggers single navigate-up action.
+	f.h.app.selectDocument(f.p, f.d.id)
+	f.d.view.GoToNavigation(0, 1, false)
+	f.h.settle()
+	handled, err := f.h.driver.ShortcutChord(primaryModifier(), 'u')
+	if err != nil || !handled {
+		t.Fatalf("super shortcut handled=%v err=%v", handled, err)
+	}
+	awaitDocumentState(t, f.h, func() bool { return f.p.docs.byPath(superTarget) != nil })
+
+	// Primary+U on line 1 (2 choices) opens the navigate-up lane menu.
+	f.h.app.selectDocument(f.p, f.d.id)
+	f.d.view.GoToNavigation(1, 1, false)
+	f.h.settle()
+	if _, err := f.h.driver.ShortcutChord(primaryModifier(), 'u'); err != nil {
+		t.Fatal(err)
+	}
+	f.h.settle()
+	if !f.d.actionPanel.menuOpen || f.d.actionPanel.menuLane != "navigate-up" || !f.h.shows("Overrides Base.step") || !f.h.shows("Implements Service.step") {
+		t.Fatalf("expected navigate-up lane menu, state=%+v labels=%v", f.d.actionPanel, f.h.driver.Snapshot().Labels)
+	}
+	_ = f.h.driver.Key(gfx.KeyEscape, 0)
+	f.h.settle()
+
+	// Line 2 has no navigation actions: shortcuts notify empty messages; context menu items stay disabled.
+	f.d.view.GoToNavigation(2, 1, false)
+	f.h.settle()
+	if _, err := f.h.driver.ShortcutChord(primaryModifier()|gfx.ModifierAlt, 'b'); err != nil {
+		t.Fatal(err)
+	}
+	awaitDocumentState(t, f.h, func() bool { return f.h.shows(f.h.shared("desktop.semantics.noImplementations")) })
+	if _, err := f.h.driver.ShortcutChord(primaryModifier(), 'u'); err != nil {
+		t.Fatal(err)
+	}
+	awaitDocumentState(t, f.h, func() bool { return f.h.shows(f.h.shared("desktop.semantics.noSuperDeclaration")) })
+
+	cell2, ok := f.d.view.CaretRect()
+	if !ok {
+		t.Fatal("caret rect unavailable on line 2")
+	}
+	if err := f.h.driver.ClickButton(cell2.X+1, cell2.Y+cell2.Height/2, gfx.PointerButtonSecondary); err != nil {
+		t.Fatal(err)
+	}
+	f.h.settle()
+	if !f.h.shows(f.h.shared("desktop.editorMenu.goToImplementation")) || !f.h.shows(f.h.shared("desktop.editorMenu.goToSuper")) {
+		t.Fatalf("context menu missing navigation entries: %v", f.h.driver.Snapshot().Labels)
+	}
+	beforeCount := f.kernel.requestCount()
+	f.h.clickNamed(f.h.shared("desktop.editorMenu.goToImplementation"))
+	f.h.settle()
+	if f.kernel.requestCount() != beforeCount {
+		t.Fatal("disabled Go to Implementation menu item sent a request")
+	}
+	_ = f.h.driver.Key(gfx.KeyEscape, 0)
+	f.h.settle()
+
+	// With featureImplementation on line 0, clicking Go to Implementation via context menu sends LSP request.
+	f.server.features = map[string]bool{featureImplementation: true}
+	f.d.view.GoToNavigation(0, 1, false)
+	f.h.settle()
+	cell0, _ := f.d.view.CaretRect()
+	if err := f.h.driver.ClickButton(cell0.X+1, cell0.Y+cell0.Height/2, gfx.PointerButtonSecondary); err != nil {
+		t.Fatal(err)
+	}
+	f.h.settle()
+	f.h.clickNamed(f.h.shared("desktop.editorMenu.goToImplementation"))
+	awaitDocumentState(t, f.h, func() bool {
+		for i := beforeCount; i < f.kernel.requestCount(); i++ {
+			if f.kernel.request(i).Operation == pluginSemanticImplementation {
+				return true
+			}
+		}
+		return false
+	})
 }
