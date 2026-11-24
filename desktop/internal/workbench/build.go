@@ -1761,6 +1761,18 @@ func (a *App) runBuildEntry(p *project, entryID string) {
 	if instance == nil {
 		return
 	}
+	for index := range instance.Model.Run {
+		entry := &instance.Model.Run[index]
+		if entry.ID == entryID && entry.RunType != nil {
+			if id, ok := p.generatedRunTypeConfigurationID(*entry); ok {
+				a.runConfiguration(p, id)
+				return
+			}
+			a.operationRejected("build_run_entry", "target_missing")
+			a.notifyError(a.text.Build.TargetMissing)
+			return
+		}
+	}
 	instanceID := instance.ID
 	a.startRun(p, "entry:"+instanceID+"/"+entryID, func(a *App, p *project) { a.startBuildEntry(p, instanceID, entryID) })
 }

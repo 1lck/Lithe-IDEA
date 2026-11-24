@@ -109,8 +109,11 @@ type Capabilities map[string][]int
 //   - runConfigurationTypes: the Run/Debug Configurations dialog lists the
 //     kinds a build system declares after the built-in ones, edits them with the
 //     form Core describes in the plugin's translation, saves them and runs them
-//     with the command Core plans for the detected instance. A declared kind has
-//     no debugger.
+//     with the command Core plans for the detected instance. buildSystems[].run[]
+//     may also target a declared kind via configurationType and values so
+//     discovered model targets materialize generated configurations under the
+//     same group, icon, editor form and launch plan. A declared kind has no
+//     debugger.
 //   - beforeLaunchTasks: the Add New Task menu of every configuration's Before
 //     launch list offers the tasks a build system declares, edits each with the
 //     form Core describes in the plugin's translation, and runs the step with

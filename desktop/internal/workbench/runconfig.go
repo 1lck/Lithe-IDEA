@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path"
 	"slices"
+	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -86,7 +87,8 @@ func (s *runConfigState) configuration(id string) *core.RunConfiguration {
 }
 
 // providerRuns is the providerRuns snapshot of the instances whose model has loaded:
-// each target a run declaration applies to, under its workspace-relative project path.
+// each target a provider run declaration applies to, plus each model run entry targeting
+// a declared runConfigurationType, under its workspace-relative project path.
 // ok is false while no model has loaded, so a refresh does not withdraw every detected
 // run before the models answer.
 func providerRuns(instances []buildInstance) ([]core.RunProviderRun, bool) {
@@ -110,15 +112,81 @@ func providerRuns(instances []buildInstance) ([]core.RunProviderRun, bool) {
 				runs = append(runs, core.RunProviderRun{
 					ProjectPath: path.Clean(path.Join(instance.Root, project.Path)),
 					Name:        run.EntryName(target.Name),
-					Reference: core.RunProviderReference{
+					Reference: &core.RunProviderReference{
 						PluginID: instance.PluginID, BuildSystemID: instance.BuildSystemID, Root: instance.Root,
 						Run: run.ID, ProjectID: project.ID, TargetID: target.ID, Execution: run.Execution, UserArguments: []string{},
 					},
 				})
 			}
 		}
+		for _, entry := range instance.Model.Run {
+			if entry.RunType == nil {
+				continue
+			}
+			cwd := entry.WorkingDirectory
+			if cwd == "" {
+				cwd = instance.Root
+			}
+			cwd = path.Clean(cwd)
+			projectPath := cwd
+			if project, ok := buildProjectByID(instance.Model, entry.BuildSystem.ProjectID); ok && project.Path != "" {
+				candidate := path.Clean(project.Path)
+				if cwd == "." || candidate == cwd || strings.HasPrefix(candidate, cwd+"/") {
+					projectPath = candidate
+				} else {
+					projectPath = path.Clean(path.Join(instance.Root, candidate))
+				}
+			}
+			runType := *entry.RunType
+			runs = append(runs, core.RunProviderRun{
+				ProjectPath: projectPath,
+				Name:        entry.Name,
+				CWD:         cwd,
+				Execution:   entry.Execution,
+				Selector:    entry.ID,
+				RunType:     &runType,
+			})
+		}
 	}
 	return runs, loaded
+}
+
+// generatedRunTypeConfigurationID finds the resolved generated `build.run-type`
+// configuration corresponding to a decoded BuildRunEntry.
+func (p *project) generatedRunTypeConfigurationID(entry core.BuildRunEntry) (string, bool) {
+	if entry.RunType == nil {
+		return "", false
+	}
+	wantKey := core.RunTypeKey{
+		PluginID:      entry.RunType.PluginID,
+		BuildSystemID: entry.RunType.BuildSystemID,
+		Type:          entry.RunType.Type,
+	}
+	wantJSON, _ := json.Marshal(entry.RunType)
+	fallback := ""
+	for index := range p.runConfigs.list {
+		cfg := &p.runConfigs.list[index]
+		if !strings.HasPrefix(cfg.ID, "generated:run-type:") {
+			continue
+		}
+		key, ok := cfg.RunTypeReference()
+		if !ok || key != wantKey {
+			continue
+		}
+		if cfg.Cwd == entry.WorkingDirectory {
+			var ref core.RunTypeReference
+			if json.Unmarshal(cfg.Extensions["build"], &ref) == nil {
+				gotJSON, _ := json.Marshal(&ref)
+				if string(gotJSON) == string(wantJSON) {
+					return cfg.ID, true
+				}
+			}
+		}
+		if fallback == "" && (cfg.Name == entry.Name || cfg.Name == entry.Name+" ("+entry.WorkingDirectory+")") {
+			fallback = cfg.ID
+		}
+	}
+	return fallback, fallback != ""
 }
 
 // refreshRunConfigurations has Core generate the runs the loaded models declare and
