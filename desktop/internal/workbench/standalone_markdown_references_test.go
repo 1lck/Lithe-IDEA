@@ -11,6 +11,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/webpreview"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/winpath"
 )
 
 func standaloneMarkdownReferenceHarness(t *testing.T, path string) *harness {
@@ -25,13 +26,18 @@ func standaloneMarkdownReferenceHarness(t *testing.T, path string) *harness {
 	return newHarnessWithOptions(t, options)
 }
 
-func canonicalTestPath(t *testing.T, path string) string {
-	t.Helper()
-	resolved, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		t.Fatal(err)
+// Core's canonical path to a served resource may resolve macOS TempDir symlinks (/private/var)
+// or use Windows' \\?\ extended-length spelling.
+func sameResolvedFile(got, want string) bool {
+	if want == "" || !filepath.IsAbs(got) {
+		return false
 	}
-	return resolved
+	if got == want || winpath.Equal(got, want) {
+		return true
+	}
+	actual, actualErr := os.Stat(got)
+	expected, expectedErr := os.Stat(want)
+	return actualErr == nil && expectedErr == nil && os.SameFile(actual, expected)
 }
 
 func TestPreviewWorkspaceRootReturnsEmptyOnlyForNilOrStandalone(t *testing.T) {
@@ -228,10 +234,10 @@ func TestStandaloneMarkdownWebPreviewKeepsScopeAndLifecycle(t *testing.T) {
 	h.await("Core Markdown HTML", func() bool { return s.web.html != "" })
 	ctx, cancel := context.WithTimeout(context.Background(), kernelCallTimeout)
 	defer cancel()
-	wantNestedPNG := canonicalTestPath(t, filepath.Join(folder, "local.png"))
+	wantNestedPNG := filepath.Join(folder, "local.png")
 	for _, ref := range []string{"local.png", "/local.png"} {
 		resolved, err := page.config.Resolve(ctx, ref)
-		if err != nil || resolved.Kind != "file" || resolved.Path != wantNestedPNG || resolved.MIME != "image/png" {
+		if err != nil || resolved.Kind != "file" || !sameResolvedFile(resolved.Path, wantNestedPNG) || resolved.MIME != "image/png" {
 			t.Errorf("web image %q: %+v, %v (want %s)", ref, resolved, err, wantNestedPNG)
 		}
 		loaded, mime, err := webpreview.LoadResource(ctx, resolved, nil)
@@ -267,8 +273,8 @@ func TestStandaloneMarkdownWebPreviewKeepsScopeAndLifecycle(t *testing.T) {
 	}
 	otherPage := otherDoc.markdown.web.entry.view.(*fakePreview)
 	resolvedOther, err := otherPage.config.Resolve(ctx, "/local.png")
-	wantOtherPNG := canonicalTestPath(t, filepath.Join(otherDir, "local.png"))
-	if err != nil || resolvedOther.Kind != "file" || resolvedOther.Path != wantOtherPNG {
+	wantOtherPNG := filepath.Join(otherDir, "local.png")
+	if err != nil || resolvedOther.Kind != "file" || !sameResolvedFile(resolvedOther.Path, wantOtherPNG) {
 		t.Errorf("unrelated web image /local.png: %+v, %v (want %s)", resolvedOther, err, wantOtherPNG)
 	}
 	otherPage.load()
@@ -330,11 +336,10 @@ func TestProjectMarkdownKeepsWorkspaceRootForNestedDocuments(t *testing.T) {
 	page := (*pages)[0]
 	ctx, cancel := context.WithTimeout(context.Background(), kernelCallTimeout)
 	defer cancel()
-	wantLogo := canonicalTestPath(t, logo)
 	for _, ref := range []string{"/assets/logo.png", "../assets/logo.png"} {
 		resolved, err := page.config.Resolve(ctx, ref)
-		if err != nil || resolved.Kind != "file" || resolved.Path != wantLogo || resolved.MIME != "image/png" {
-			t.Errorf("project web image %q: %+v, %v (want %s)", ref, resolved, err, wantLogo)
+		if err != nil || resolved.Kind != "file" || !sameResolvedFile(resolved.Path, logo) || resolved.MIME != "image/png" {
+			t.Errorf("project web image %q: %+v, %v (want %s)", ref, resolved, err, logo)
 		}
 	}
 	if secret, err := page.config.Resolve(ctx, "../../secret.png"); err != nil || secret.Kind != "none" {
@@ -344,6 +349,6 @@ func TestProjectMarkdownKeepsWorkspaceRootForNestedDocuments(t *testing.T) {
 	page.config.OnMessage(webpreview.Message{Type: "link", Href: "/README.md"})
 	h.await("project root-relative link", func() bool {
 		shown := p.selectedDocument(p.docs.group)
-		return shown != nil && filepath.Clean(shown.path) == filepath.Clean(readme)
+		return shown != nil && winpath.Equal(filepath.Clean(shown.path), filepath.Clean(readme))
 	})
 }
