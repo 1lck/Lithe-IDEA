@@ -14,7 +14,10 @@
       "desktop/internal/workbench/terminal_env.go",
       "desktop/internal/workbench/terminals.go",
       "desktop/internal/settingswindow/terminal_reset_test.go",
-      "desktop/internal/settingswindow/terminal_reset_visual_test.go"
+      "desktop/internal/settingswindow/terminal_reset_visual_test.go",
+      "desktop/internal/atomicfile/atomicfile.go",
+      "desktop/internal/atomicfile/atomicfile_test.go",
+      "desktop/internal/localshell/conpty/conpty.go"
     ]
   },
   "windows": {
@@ -33,11 +36,14 @@
       "desktop/internal/localshell/backend_windows.go",
       "desktop/internal/localshell/integration_windows.go",
       "desktop/internal/settingswindow/terminal_reset_test.go",
-      "desktop/internal/settingswindow/terminal_reset_visual_test.go"
+      "desktop/internal/settingswindow/terminal_reset_visual_test.go",
+      "desktop/internal/atomicfile/atomicfile.go",
+      "desktop/internal/atomicfile/atomicfile_test.go",
+      "desktop/internal/localshell/conpty/conpty.go"
     ]
   },
   "owner": "Terminal",
-  "verification": "验证设置页默认 Shell 选项与终端「新建终端」菜单检测到的 Shell 一致、可选 Git Bash 并生效；macOS 新建终端下拉框复用 Project 下拉框的共享菜单样式，菜单操作与原有 Shell 选择、重新检测功能一致；验证环境变量、工作目录和不可用 Shell 的提示。 设置页终端分组新增回滚行数配置(默认 2000,范围 100–50000,步进 500),读取、写入、恢复默认均做上下限夹取,对新建会话生效(TerminalScrollbackSettingsTests);设置搜索按界面名称 Terminal scrollback/终端回滚行数/行数 均可命中终端页(SettingsSearchVocabularyTests)。 macOS 终端环境随 TERM_PROGRAM=Lithe 一并导出 TERM_PROGRAM_VERSION（取应用打包版本，无法取得时不写入），与 Windows 端一致，供工具按版本门控终端能力（TerminalModuleTests）；按当前外观导出 COLORFGBG（浅色 0;15、深色 15;0，宿主无法判定时不写入），TUI 无需 OSC 查询即可选择配色（TerminalModuleTests）。终端会话在启动前剥离从宿主进程继承的 NO_COLOR、FORCE_COLOR、CLICOLOR_FORCE、CI、GITHUB_ACTIONS 和 CONTINUOUS_INTEGRATION，并设置 CLICOLOR=1；显式 environmentChanges 仍可覆盖，避免 Codex 和 Claude Code 因父进程环境退化为黑白。 Windows 运行 TestWindowsShellsMarkTheirPromptsUnderTheToken：cmd.exe、powershell.exe、pwsh.exe 各自启动后带本次令牌标记提示符，进入含中文、空格、分号和百分号的目录后再次标记；等第一个提示符的期限是 45 秒（Windows PowerShell 5.1 在 CI 上冷启动约 9 秒，偶尔超过 12 秒），进入目录后的提示符仍是 12 秒。 Windows 从 Microsoft Store 安装的 PowerShell 7 不加 PATH 项，只在 %LOCALAPPDATA%\\Microsoft\\WindowsApps 根目录和 Microsoft.PowerShell_8wekyb3d8bbwe 子目录注册应用执行别名；Shell 发现把它列为 PowerShell 7，PATH 中没有 pwsh.exe 时默认 Shell 优先选它而不是 Windows PowerShell 5.1（TestWindowsShellDiscoveryFindsTheStorePowerShellAlias、TestWindowsDefaultShellPrefersTheStorePowerShell）。PowerShell 提示符集成不再传 -NoLogo，保留版本横幅（TestPowerShellIntegrationKeepsTheBanner）。Windows 实机验收 pending。 #2019：回滚行数改为非默认值或保存了无法识别的值后，点击全局「恢复默认设置」，设置所有方收到 2000 行，输入框里未提交的草稿也被丢弃并回显 2000；打开页面或选回相同的值不写设置（TestTerminalRestoreDefaultsReachesOwnerAndPage、TestTerminalRestoreDoesNotReviveScrollbackDraft、TestTerminalUnchangedChoicesDoNotWrite）。原生窗口验收 pending。",
+  "verification": "验证设置页默认 Shell 选项与终端「新建终端」菜单检测到的 Shell 一致、可选 Git Bash 并生效；macOS 新建终端下拉框复用 Project 下拉框的共享菜单样式，菜单操作与原有 Shell 选择、重新检测功能一致；验证环境变量、工作目录和不可用 Shell 的提示。 设置页终端分组新增回滚行数配置(默认 2000,范围 100–50000,步进 500),读取、写入、恢复默认均做上下限夹取,对新建会话生效(TerminalScrollbackSettingsTests);设置搜索按界面名称 Terminal scrollback/终端回滚行数/行数 均可命中终端页(SettingsSearchVocabularyTests)。 macOS 终端环境随 TERM_PROGRAM=Lithe 一并导出 TERM_PROGRAM_VERSION（取应用打包版本，无法取得时不写入），与 Windows 端一致，供工具按版本门控终端能力（TerminalModuleTests）；按当前外观导出 COLORFGBG（浅色 0;15、深色 15;0，宿主无法判定时不写入），TUI 无需 OSC 查询即可选择配色（TerminalModuleTests）。终端会话在启动前剥离从宿主进程继承的 NO_COLOR、FORCE_COLOR、CLICOLOR_FORCE、CI、GITHUB_ACTIONS 和 CONTINUOUS_INTEGRATION，并设置 CLICOLOR=1；显式 environmentChanges 仍可覆盖，避免 Codex 和 Claude Code 因父进程环境退化为黑白。 Windows 运行 TestWindowsShellsMarkTheirPromptsUnderTheToken：cmd.exe、powershell.exe、pwsh.exe 各自启动后带本次令牌标记提示符，进入含中文、空格、分号和百分号的目录后再次标记；等第一个提示符的期限是 45 秒（Windows PowerShell 5.1 在 CI 上冷启动约 9 秒，偶尔超过 12 秒），进入目录后的提示符仍是 12 秒。 Windows 从 Microsoft Store 安装的 PowerShell 7 不加 PATH 项，只在 %LOCALAPPDATA%\\Microsoft\\WindowsApps 根目录和 Microsoft.PowerShell_8wekyb3d8bbwe 子目录注册应用执行别名；Shell 发现把它列为 PowerShell 7，PATH 中没有 pwsh.exe 时默认 Shell 优先选它而不是 Windows PowerShell 5.1（TestWindowsShellDiscoveryFindsTheStorePowerShellAlias、TestWindowsDefaultShellPrefersTheStorePowerShell）。PowerShell 提示符集成不再传 -NoLogo，保留版本横幅（TestPowerShellIntegrationKeepsTheBanner）。Windows 实机验收 pending。 #2019：回滚行数改为非默认值或保存了无法识别的值后，点击全局「恢复默认设置」，设置所有方收到 2000 行，输入框里未提交的草稿也被丢弃并回显 2000；打开页面或选回相同的值不写设置（TestTerminalRestoreDefaultsReachesOwnerAndPage、TestTerminalRestoreDoesNotReviveScrollbackDraft、TestTerminalUnchangedChoicesDoNotWrite）。原生窗口验收 pending。 #2257：本机 Go 1.27 + 固定 Core 9ab2336 运行 ./scripts/desktop/desktop-go.sh test -race -tags 'dev vivahead' -count=1 ./internal/atomicfile ./internal/localshell/conpty（含字节复用、符号链接替换、同字节并发容错、非 rename 错误不吞没、失败无残留与 installedpackagetest）通过；Windows 原生 ConPTY DLL 安装与占用竞争仍待 CI/Windows 实机验收。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
@@ -67,5 +73,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：默认 Shell 发现和选择（localshell/discovery.go 含 Git Bash，设置页有 automatic 选项，新建菜单列出可用 Shell）；设置 › 终端可调回滚行数（默认 2000，新终端生效）；terminal_env.go 导出 TERM_PROGRAM、TERM_PROGRAM_VERSION、CLICOLOR 与按主题的 COLORFGBG，并继承 NO_COLOR、FORCE_COLOR、CLICOLOR_FORCE、CI 等变量。 2026-11-16：同步 Motty 2f73c352（Store PowerShell 7 别名）、02916ed5（保留 PowerShell 横幅），见 termview/NOTICE。"
+  "notes": "Viva：默认 Shell 发现和选择（localshell/discovery.go 含 Git Bash，设置页有 automatic 选项，新建菜单列出可用 Shell）；设置 › 终端可调回滚行数（默认 2000，新终端生效）；terminal_env.go 导出 TERM_PROGRAM、TERM_PROGRAM_VERSION、CLICOLOR 与按主题的 COLORFGBG，并继承 NO_COLOR、FORCE_COLOR、CLICOLOR_FORCE、CI 等变量。 2026-11-16：同步 Motty 2f73c352（Store PowerShell 7 别名）、02916ed5（保留 PowerShell 横幅），见 termview/NOTICE。 #2257：ConPTY 嵌入文件安装（conpty.place）已统一为共享 atomicfile.Install，严格按常规文件字节复用、同目录临时文件 chmod/fsync、原子改名替换和 Windows 已有同字节并发安装容错，未变更可见入口。"
 }

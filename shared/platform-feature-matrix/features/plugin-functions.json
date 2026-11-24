@@ -13,6 +13,9 @@
       "desktop/internal/pluginservice/pluginservice.go",
       "desktop/internal/pluginservice/activation.go",
       "desktop/internal/pluginservice/pages.go",
+      "desktop/internal/pluginservice/pages_test.go",
+      "desktop/internal/atomicfile/atomicfile.go",
+      "desktop/internal/atomicfile/atomicfile_test.go",
       "desktop/internal/pluginservice/hostview.go"
     ]
   },
@@ -26,12 +29,15 @@
       "desktop/internal/pluginservice/pluginservice.go",
       "desktop/internal/pluginservice/activation.go",
       "desktop/internal/pluginservice/pages.go",
+      "desktop/internal/pluginservice/pages_test.go",
+      "desktop/internal/atomicfile/atomicfile.go",
+      "desktop/internal/atomicfile/atomicfile_test.go",
       "desktop/internal/pluginservice/hostview.go"
     ]
   },
   "owner": "Extensions",
-  "verification": "macOS Core 桥接测试覆盖声明校验、启动计划、进程协商、函数结果、插件归属拒绝、取消及迟到结果隔离、停止销毁；需接通可信插件宿主后在 macOS 与 Windows 验收完整工作流和进程清理。",
-  "notes": "Viva：pluginFunctions 已声明；宿主按插件归属调用后端函数（插件视图事件、编辑器动作、设置页按钮、插件页面），调用带上下文以支持取消与超时，页面调用可接收进度；跨插件调用经 Core 的函数中转（lsp.configureFunctionRelay）。尚未用三个官方 SDK 的真实插件在 Viva 上验收。",
+  "verification": "macOS Core 桥接测试覆盖声明校验、启动计划、进程协商、函数结果、插件归属拒绝、取消及迟到结果隔离、停止销毁；#2257：desktop-go.sh test -race -tags 'dev vivahead' -count=1 ./internal/atomicfile ./internal/pluginservice 覆盖页面状态 0600 原子写入、fsync 与无临时文件残留；需接通可信插件宿主后在 macOS 与 Windows 验收完整工作流和进程清理。",
+  "notes": "Viva：pluginFunctions 已声明；宿主按插件归属调用后端函数（插件视图事件、编辑器动作、设置页按钮、插件页面），调用带上下文以支持取消与超时，页面调用可接收进度；跨插件调用经 Core 的函数中转（lsp.configureFunctionRelay）。尚未用三个官方 SDK 的真实插件在 Viva 上验收。 #2257：pluginservice.SetPageState 改用共享 atomicfile.Write 并补齐 fsync。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

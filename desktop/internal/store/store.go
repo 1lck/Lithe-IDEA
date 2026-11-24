@@ -23,6 +23,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/atomicfile"
 )
 
 // Directory is the name of the client's folder inside the user configuration directory.
@@ -263,28 +265,11 @@ func (store *Store) Remove(name string) error {
 	return nil
 }
 
-// WriteFile replaces the file name with data atomically, as Save does for JSON. It keeps a
-// file the client owns that is not JSON, such as the workbench background image.
+// WriteFile replaces the file name with data atomically, as Save does for JSON.
+// It keeps a file the client owns that is not JSON, such as a background image.
 func (store *Store) WriteFile(name string, data []byte) error {
 	if err := os.MkdirAll(store.dir, 0o755); err != nil {
 		return err
 	}
-	file, err := os.CreateTemp(store.dir, "."+name+".*.tmp")
-	if err != nil {
-		return err
-	}
-	temporary := file.Name()
-	defer os.Remove(temporary) // no-op once the rename succeeded
-	if _, err := file.Write(data); err != nil {
-		file.Close()
-		return err
-	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	return os.Rename(temporary, filepath.Join(store.dir, name))
+	return atomicfile.Write(filepath.Join(store.dir, name), data, 0o600)
 }
