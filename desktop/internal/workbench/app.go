@@ -440,6 +440,8 @@ type settings struct {
 	DisableAutoCompletion bool `json:"disableAutoCompletion,omitempty"`
 	// VimMode turns on the Vim keys of every editor; off by default (vim_mode.go).
 	VimMode bool `json:"vimMode,omitempty"`
+	// RunPerformanceCollapsed keeps the CPU/memory graph hidden while showing its summary.
+	RunPerformanceCollapsed bool `json:"runPerformanceCollapsed,omitempty"`
 	// DisableAutoSave stops saving changed files a moment after typing stops
 	// (document_autosave.go); auto-save is on by default.
 	DisableAutoSave bool `json:"disableAutoSave,omitempty"`
@@ -658,13 +660,14 @@ type App struct {
 	// savedBackground is the window background last stored (window_background.go).
 	savedBackground gfx.Color
 	focus           focusTarget
-	// debugHostedPort and debugInitializeWindow replace, in tests, asking the
-	// language server for a debug port and Core's initialize deadline. Production
-	// leaves both zero.
-	debugHostedPort       func(ctx context.Context, p *project, adapter debugAdapter) (int, error)
-	debugInitializeWindow time.Duration
-	kernel                Kernel
-	store                 *store.Store
+	// debugHostedPort, debugInitializeWindow, and debugInitializeTrigger replace,
+	// in tests, asking the language server for a debug port and Core's initialize
+	// deadline. Production leaves all three zero.
+	debugHostedPort        func(ctx context.Context, p *project, adapter debugAdapter) (int, error)
+	debugInitializeWindow  time.Duration
+	debugInitializeTrigger <-chan struct{}
+	kernel                 Kernel
+	store                  *store.Store
 	// startupPath is the project folder the window opens once it exists (Options.OpenPath).
 	startupPath      string
 	startupFile      string

@@ -133,6 +133,8 @@ Viva 由 `desktop/go.mod` 的 `replace` 固定到 [Lithe-IDEA/viva](https://gith
 
 ## 插件契约只在 Rust Core
 
+新增或修改插件 API、决定是否引入新能力或协议版本前，必须先读 [develop-lithe 的“API 复用与版本演进”](.agents/skills/develop-lithe/SKILL.md#api-复用与版本演进)，其中规定 API-01–44 的领域扩展、所有系统 API 的升版限制，以及日志、错误码和四语 SDK 的交付要求；不能只凭旧文档或已有升版先例决定。
+
 插件契约、插件开发指南与参考、四个官方插件后端 SDK（Rust、Go、Node、Java）和它们的端到端测试只有一份，
 在 Rust Core 仓库 [Lithe-IDEA/Lithe-core-rust](https://github.com/Lithe-IDEA/Lithe-core-rust) 的
 [`shared/plugins/`](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins)，和执行契约的

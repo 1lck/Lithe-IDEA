@@ -27201,8 +27201,7 @@
       "id": "git.diff.oneDifference",
       "description": "Windows UI: git.diff.oneDifference",
       "platforms": [
-        "windows",
-        "desktop"
+        "windows"
       ]
     },
     {

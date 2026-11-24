@@ -30,8 +30,8 @@
     ]
   },
   "owner": "Settings",
-  "verification": "在 macOS 和 Windows 的真实检出运行生成一致性与源码检查；夹具目录含空格和中文时写入未注册key仍须拒绝，Windows桌面模板/硬编码/参数/包装函数回归须实际扫描。两端分别切换英文/简体中文，重开窗口和应用，核对菜单、设置、错误、辅助标签及参数值；插件、上游及用户内容保持原文。当前脚本与原生设置局部证据不代替完整整机验收。",
-  "notes": "Viva 从 shared/i18n 生成 Go 字典，使用共享查找与格式参数接口；当前10742条中英共享译文完整，生成检查只读。源码检查覆盖未注册key、参数、硬编码文案及包装函数；使用 Node fileURLToPath 定位真实目录，修复 Windows 盘符或空格/中文目录导致漏扫却报告通过的问题。Mac原生设置窗口已验证中文文案，完整产品两语言切换与跨平台整机验收仍未完成；legacy仅是迁移前参考。",
+  "verification": "在 macOS 和 Windows 的真实检出运行生成一致性与源码检查；夹具目录含空格和中文时写入未注册key仍须拒绝，Windows桌面模板/硬编码/参数/包装函数回归须实际扫描。两端分别切换英文/简体中文，重开窗口和应用，核对菜单、设置、错误、辅助标签及参数值；插件、上游及用户内容保持原文。#2317：运行 generate-i18n.mjs --check、verify-app-language-localization.mjs、test-i18n.mjs 与 desktop/internal/i18n（TestCountNoticesUseNumberNeutralEnglish、TestNumberNeutralEnglishKeepsExistingChineseTranslations、TestDesktopSharedCatalogHasNoUnguardedCountPluralMismatches、TestSingularBranchedCatalogHelpersKeepSingularForOne），核对计数为 1 与多条时均无复数语法错配且中文译文保留。当前脚本与无头回归不代替完整整机原生验收。",
+  "notes": "Viva 从 shared/i18n 生成 Go 字典，使用共享查找与格式参数接口；当前 12628 条中英共享译文完整，生成检查只读。源码检查覆盖未注册key、参数、硬编码文案及包装函数；使用 Node fileURLToPath 定位真实目录，修复 Windows 盘符或空格/中文目录导致漏扫却报告通过的问题。#2317 已完成桌面端全量英文计数中性化收口（含 59 条英文共享词条更新、移除 git.diff.oneDifference 的 desktop 平台声明并在 difftab_view.go 统一调用 git.diff.differences），并加入全目录复数错配静态守护回归。Mac原生设置窗口已验证中文文案，完整产品两语言切换与跨平台整机验收仍未完成；legacy仅是迁移前参考。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
