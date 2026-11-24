@@ -54,6 +54,10 @@ func TestInstallWritesTheHelperOnceAndReplacesAnotherVersion(t *testing.T) {
 	if err != nil || string(data) != "second helper" {
 		t.Fatalf("helper = %q, %v", data, err)
 	}
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("temporary helper files left behind: %v, %v", entries, err)
+	}
 }
 
 func TestInstallRefusesABuildWithoutTheHelper(t *testing.T) {

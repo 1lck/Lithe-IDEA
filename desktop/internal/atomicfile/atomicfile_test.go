@@ -157,3 +157,68 @@ func TestWriteWithCheckCancellationBeforeRenameKeepsOriginal(t *testing.T) {
 		t.Fatalf("temporary file remained: %v, %v", entries, err)
 	}
 }
+
+func TestInstallDoesNotSwallowNonRenameErrorsEvenWhenTargetMatches(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "binary")
+	wantErr := errors.New("disk write error")
+	err := writeWithRename(path, 0o600, func(w io.Writer) error {
+		if err := os.WriteFile(path, []byte("right"), 0o600); err != nil {
+			return err
+		}
+		return wantErr
+	}, os.Rename, nil, func() bool {
+		return holds(path, []byte("right"))
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("non-rename error swallowed or replaced: %v, want %v", err, wantErr)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("temporary file remained: %v, %v", entries, err)
+	}
+}
+
+func TestWriteAndInstallRejectInvalidPaths(t *testing.T) {
+	for _, invalid := range []string{"", ".", ".."} {
+		if err := Write(invalid, []byte("x"), 0o600); err == nil {
+			t.Fatalf("Write(%q) succeeded", invalid)
+		}
+		if err := Install(invalid, []byte("x"), 0o600); err == nil {
+			t.Fatalf("Install(%q) succeeded", invalid)
+		}
+	}
+	if err := WriteWith(filepath.Join(t.TempDir(), "file"), 0o600, nil); err == nil {
+		t.Fatal("WriteWith(nil) succeeded")
+	}
+}
+
+func TestWriteWithStreamsToFileDirectly(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "streamed.bin")
+	err := WriteWith(path, 0o600, func(w io.Writer) error {
+		f, ok := w.(*os.File)
+		if !ok {
+			return fmt.Errorf("writer is %T, want *os.File", w)
+		}
+		if _, err := w.Write([]byte("chunk-1-")); err != nil {
+			return err
+		}
+		info, err := f.Stat()
+		if err != nil {
+			return err
+		}
+		if info.Size() != int64(len("chunk-1-")) {
+			return fmt.Errorf("size after first write = %d, want incremental write without buffering", info.Size())
+		}
+		_, err = w.Write([]byte("chunk-2"))
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != "chunk-1-chunk-2" {
+		t.Fatalf("streamed file = %q, %v", got, err)
+	}
+}

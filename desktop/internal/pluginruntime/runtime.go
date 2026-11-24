@@ -352,7 +352,7 @@ func removeAbandoned(ctx context.Context, base string) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if strings.HasPrefix(entry.Name(), ".staging-") || strings.HasPrefix(entry.Name(), ".archive-") {
+		if strings.HasPrefix(entry.Name(), ".staging-") || strings.HasPrefix(entry.Name(), ".archive.") || strings.HasPrefix(entry.Name(), ".archive-") {
 			if err := os.RemoveAll(filepath.Join(base, entry.Name())); err != nil {
 				return err
 			}
