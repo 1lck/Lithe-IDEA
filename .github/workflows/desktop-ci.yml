@@ -293,6 +293,25 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Capture new project field descriptions
+        id: new-project-visual
+        if: ${{ !cancelled() && steps.rust.outcome == 'success' }}
+        timeout-minutes: 5
+        env:
+          LITHE_VISUAL_OUTPUT_DIR: ${{ github.workspace }}/.artifacts/new-project-visual
+        run: |
+          ./scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/workbench \
+            -run '^TestVisualNewProjectFieldDescriptions$' -count=1 -timeout=120s
+
+      - name: Upload new project screenshots
+        if: ${{ !cancelled() && steps.new-project-visual.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: new-project-visual-${{ runner.os }}-${{ runner.arch }}
+          path: .artifacts/new-project-visual/*.png
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Upload native verification reports
         if: always()
         uses: actions/upload-artifact@v7
