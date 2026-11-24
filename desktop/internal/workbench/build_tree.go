@@ -497,7 +497,7 @@ func (a *App) appendBuildNodes(rows []buildRow, p *project, index int, tree *bui
 		}
 		switch node.Kind {
 		case core.BuildTreeDependencies:
-			rows = append(rows, a.buildDependencyRows(p, index, node.ProjectID, level+1)...)
+			rows = a.appendBuildDependencyRows(rows, p, index, node.ProjectID, level+1)
 		case core.BuildTreeTests:
 			if tests == nil {
 				tests = a.buildTestRows(p, index, "", "", level+1)

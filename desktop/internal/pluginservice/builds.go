@@ -58,6 +58,8 @@ type BuildDependenciesDeclaration struct {
 // BuildTestDeclaration is one build system's declared test entry.
 type BuildTestDeclaration struct {
 	Scopes []string
+	// Filters lists the narrower test selectors the declaration accepts, such as "suite" and "case".
+	Filters []string
 	// TargetTags are the tags a target must carry for a target-scope test run; none accept
 	// every target. Core refuses a target without them; the window only hides the entry.
 	TargetTags []string
@@ -195,6 +197,7 @@ type rawBuildManifest struct {
 		} `json:"run"`
 		Test *struct {
 			Scopes           []string  `json:"scopes"`
+			Filters          []string  `json:"filters"`
 			TargetTags       []string  `json:"targetTags"`
 			Source           string    `json:"source"`
 			Discovery        bool      `json:"discovery"`
@@ -263,6 +266,7 @@ func parseBuildSystems(manifest json.RawMessage) (map[string]BuildSystemDeclarat
 		if raw.Test != nil {
 			system.Test = &BuildTestDeclaration{
 				Scopes:           append([]string(nil), raw.Test.Scopes...),
+				Filters:          append([]string(nil), raw.Test.Filters...),
 				TargetTags:       append([]string(nil), raw.Test.TargetTags...),
 				Source:           raw.Test.Source,
 				Discovery:        raw.Test.Discovery || raw.Test.DiscoveryCommand != nil,

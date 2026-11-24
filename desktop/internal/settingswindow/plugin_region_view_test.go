@@ -551,3 +551,54 @@ func TestRegionToolRowOpensTheToolchainsPage(t *testing.T) {
 		}
 	}
 }
+
+func TestRegionViewSettingsHashTracksStateAndDraftChanges(t *testing.T) {
+	p := regionForm()
+	base := p.viewSettingsHash()
+	if again := p.viewSettingsHash(); again != base {
+		t.Fatalf("viewSettingsHash was not deterministic: %d != %d", again, base)
+	}
+	if allocs := testing.AllocsPerRun(50, func() { _ = p.viewSettingsHash() }); allocs != 0 {
+		t.Fatalf("viewSettingsHash allocated %.1f times per call, want 0", allocs)
+	}
+
+	p.controls[0][regionName].text = "app"
+	if p.viewSettingsHash() == base {
+		t.Fatal("viewSettingsHash did not change on text draft edit")
+	}
+	p.controls[0][regionName].text = "core"
+
+	p.controls[0][regionWatch].input.On = false
+	if p.viewSettingsHash() == base {
+		t.Fatal("viewSettingsHash did not change on boolean draft edit")
+	}
+	p.controls[0][regionWatch].input.On = true
+
+	p.controls[0][regionMode].input.Selected = 1
+	if p.viewSettingsHash() == base {
+		t.Fatal("viewSettingsHash did not change on enum draft edit")
+	}
+	p.controls[0][regionMode].input.Selected = 0
+
+	p.controls[0][regionChecks].input.Checks[1] = true
+	if p.viewSettingsHash() == base {
+		t.Fatal("viewSettingsHash did not change on multiSelect draft edit")
+	}
+	p.controls[0][regionChecks].input.Checks[1] = false
+
+	p.controls[0][regionThreads].reset = true
+	if p.viewSettingsHash() == base {
+		t.Fatal("viewSettingsHash did not change on reset flag change")
+	}
+	p.controls[0][regionThreads].reset = false
+
+	p.scope = 1
+	if p.viewSettingsHash() == base {
+		t.Fatal("viewSettingsHash did not change on scope switch")
+	}
+	p.scope = 0
+
+	if restored := p.viewSettingsHash(); restored != base {
+		t.Fatalf("viewSettingsHash after restoring state = %d, want %d", restored, base)
+	}
+}
