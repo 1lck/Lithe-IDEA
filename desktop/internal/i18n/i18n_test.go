@@ -286,7 +286,7 @@ func TestLogMessagesPreserveCountsAndLiteralValues(t *testing.T) {
 		filter    string
 		operation string
 	}{
-		{English, "Filter error at 2–5: {start}", "Op {count} · 7 records · {op}"},
+		{English, "Filter error at 2–5: {start}", "Op {count} · Records: 7 · {op}"},
 		{Chinese, "过滤错误，位置 2–5：{start}", "操作 {count} · 7 条 · 共 {op}"},
 	} {
 		logs := For(test.language).Logs

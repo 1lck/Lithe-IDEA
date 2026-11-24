@@ -4,8 +4,8 @@
   "group": "文档编辑",
   "capability": "文件内查找替换，支持正则、匹配选项、选区、定位、高亮和单步撤销批量替换",
   "owner": "Editor / Core",
-  "notes": "Viva 共享实现；匹配、顺序和恢复决策在外部 Rust Core。macOS 无头流程与截图已覆盖；macOS 原生窗口和 Windows 原生验收未执行。",
-  "verification": "查找 Unicode/emoji、正则捕获组、零宽匹配、选区与批量替换；编辑后旧结果不能修改新版本，关闭后释放定时器。 自动化：editor_essentials_test.go 与 editor_essentials_visual_test.go。",
+  "notes": "Viva 共享实现；匹配、顺序和恢复决策在外部 Rust Core。macOS 无头流程与截图已覆盖；macOS 原生窗口和 Windows 原生验收未执行。 #2317：文件内查找替换 4 条英文提示改为数量中性写法，保留“N matches”复数避免 1 时错配；中文不变，原生端待验收。",
+  "verification": "查找 Unicode/emoji、正则捕获组、零宽匹配、选区与批量替换；编辑后旧结果不能修改新版本，关闭后释放定时器。 自动化：editor_essentials_test.go 与 editor_essentials_visual_test.go。 #2317：desktop.findInFile.matchCount/matches/noMatches/replaceAllConfirm 改为数量中性英文，由 desktop/internal/i18n、workbench 全量测试及 TestVisualEditorEssentials 无头截图验证，原生端待验收。",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",

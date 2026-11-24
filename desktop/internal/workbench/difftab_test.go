@@ -307,6 +307,9 @@ func TestDiffTabSidesScrollInStep(t *testing.T) {
 	if d.before == nil || d.after == nil || d.differences() != 1 {
 		t.Fatalf("split diff has editors %v and %v and %d differences", d.before, d.after, d.differences())
 	}
+	if diffCount := i18n.SharedFormat(h.app.language(), "git.diff.differences", map[string]string{"count": "1"}); !h.shows(diffCount) {
+		t.Fatalf("split diff with 1 difference does not show %q", diffCount)
+	}
 	lineH := d.after.view.LineHeight()
 	if lineH <= 0 {
 		t.Fatal("the after editor was not painted")
