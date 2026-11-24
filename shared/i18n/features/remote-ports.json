@@ -848,7 +848,7 @@
       "desktop.remote.ports.loading": "Reading the host's listening ports…",
       "desktop.remote.ports.disconnected": "Not connected. Forwards end with the connection; the local forwards you left running start again when you reconnect.",
       "desktop.remote.ports.readFailed": "Could not read the host's listening ports: {reason}",
-      "desktop.remote.ports.limit": "This connection already forwards {maximum} ports, the most allowed. Stop one first.",
+      "desktop.remote.ports.limit": "Forwarding limit reached for this connection ({maximum}). Stop an active forward first.",
       "desktop.remote.ports.invalidTarget": "The host or port is not valid.",
       "desktop.remote.ports.confirmTitle": "Forward to Another Address?",
       "desktop.remote.ports.confirmBody": "{target} is not the loopback address of {name}. Forwarding it lets every program on this computer reach that address through the host. Continue only if you trust it.",
