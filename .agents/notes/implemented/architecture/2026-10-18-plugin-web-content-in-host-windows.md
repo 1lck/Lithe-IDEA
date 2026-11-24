@@ -69,7 +69,7 @@ Viva 的 Web 视图目前有四处达不到契约，已记录为上游缺口，�
 - 数据存储是持久的，与契约“网页存储不持久”不符；状态仍然只走桥接。
 - 包资源回调在窗口线程上同步执行，所以读包文件要有大小上限，Core 判断要设本地期限。
 
-另外，本宿主不向页面提供构建系统（`build.*` 返回 `plugin.web.unknownMethod`），也还不支持摄像头、麦克风和插件声明的窗口图标（暂用通用工具窗口图标）。
+另外，本宿主不向页面提供构建系统（`build.*` 返回 `plugin.web.unknownMethod`），也还不支持摄像头和麦克风。2026-11-24 起工具窗口读取声明的包内 SVG 图标：后台重载时复用 `pluginicons` 的只读加载和内存缓存，工具栏、隐藏入口列表和拖动预览在绘制时选择主题变体。缺失、被拒绝或当前绘制器不支持的资源记录一次降级，继续显示通用图标；PNG 仍不在当前矢量图标绘制器的支持范围内。
 
 ### 启动进程前的确认
 
@@ -110,7 +110,7 @@ Viva 的 Web 视图目前有四处达不到契约，已记录为上游缺口，�
 - `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：确认没有新增写入 bundle 的路径。
 - `./scripts/agent-notes/verify-agent-notes.sh`：Note 格式与路径。
 
-2026-11-24 的层级修复在用户停止验证前已运行定向回归：修复前悬停弹层与正文同为 0 层，修复后层级断言通过；`TestVisualPointerHover` 生成浅色、深色和中英文的悬停与导航截图。网页错误回归 `TestPagePreservesBackendFunctionFailure` 在修复前丢失 `pluginErrorCode`，修复后保留三个结构化字段。组件结果不代替原生 WebView 遮挡验收。用户随后要求自行验收，此后的矩阵、Note 和提交收尾没有再运行验证，原生 macOS 与 Windows 状态仍为 pending。
+2026-11-24 的层级修复在用户停止验证前已运行定向回归：修复前悬停弹层与正文同为 0 层，修复后层级断言通过；`TestVisualPointerHover` 生成浅色、深色和中英文的悬停与导航截图。网页错误回归 `TestPagePreservesBackendFunctionFailure` 在修复前丢失 `pluginErrorCode`，修复后保留三个结构化字段。组件结果不代替原生 WebView 遮挡验收。用户随后要求自行验收，此后的图标接线、矩阵、Note 和提交收尾没有再运行验证，原生 macOS 与 Windows 状态仍为 pending。图标用例 `TestInstalledToolWindowKeepsPackageIconDeclaration` 与 `TestPluginToolWindowUsesPackageIconAcrossThemes` 已编写，尚未执行。
 
 ## 适用范围
 

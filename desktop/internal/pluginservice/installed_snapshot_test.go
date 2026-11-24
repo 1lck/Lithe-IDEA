@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 )
@@ -56,6 +57,21 @@ const snapshotManifest = `{
 	"ui":{"toolWindows":[{"id":"snapshot-window","title":"Before","text":"Snapshot"}],"commands":[{"id":"snapshot-command","title":"Before","toolWindowID":"snapshot-window"}]},
 	"outputLinkMatchers":[{"id":"snapshot-link","pattern":"snapshot"}]
 }`
+
+func TestInstalledToolWindowKeepsPackageIconDeclaration(t *testing.T) {
+	manifest := strings.Replace(snapshotManifest, `"title":"Before","text":"Snapshot"`,
+		`"title":"Before","text":"Snapshot","icon":{"path":"icons/light.svg","darkPath":"icons/dark.svg","mode":"original"}`, 1)
+	entry := snapshotEntry(t, "dev.lithe.test.snapshot", "1.0.0", manifest)
+	service := &Service{kernel: &fakeKernel{}}
+	windows, err := service.ToolWindows(context.Background(), []pluginmanager.Entry{entry})
+	want := pluginicons.Declaration{Path: "icons/light.svg", DarkPath: "icons/dark.svg", Mode: "original"}
+	if err != nil || len(windows) != 1 {
+		t.Fatalf("tool windows = %+v, %v", windows, err)
+	}
+	if windows[0].Icon != want || windows[0].IconHost != "" || windows[0].Package != entry.Installed.Path {
+		t.Fatalf("package icon declaration = %+v, want %+v in its installed package", windows[0], want)
+	}
+}
 
 func TestInstalledSnapshotKeepsOneManifestAcrossConsumers(t *testing.T) {
 	ctx := context.Background()

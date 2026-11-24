@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
 )
 
@@ -34,9 +35,9 @@ type ToolWindow struct {
 	// View is the backend view function that draws the window's body for each view event
 	// (pluginview); empty for the other kinds.
 	View string
-	// IconHost is the declared host icon ID ("database", "git", ...), empty when the window
-	// declares none. Package resources are not read as icons.
+	// IconHost names a host icon; Icon instead names read-only package resources.
 	IconHost string
+	Icon     pluginicons.Declaration
 }
 
 // ToolWindows reads the tool windows of every enabled plugin, ordered by
@@ -73,7 +74,10 @@ func (snapshot InstalledSnapshot) ToolWindows() ([]ToolWindow, error) {
 						Entry string `json:"entry"`
 					} `json:"web"`
 					Icon *struct {
-						Host string `json:"host"`
+						Host     string `json:"host"`
+						Path     string `json:"path"`
+						DarkPath string `json:"darkPath"`
+						Mode     string `json:"mode"`
 					} `json:"icon"`
 				} `json:"toolWindows"`
 			} `json:"ui"`
@@ -97,6 +101,9 @@ func (snapshot InstalledSnapshot) ToolWindows() ([]ToolWindow, error) {
 			}
 			if window.Icon != nil {
 				declaredWindow.IconHost = window.Icon.Host
+				declaredWindow.Icon = pluginicons.Declaration{
+					Path: window.Icon.Path, DarkPath: window.Icon.DarkPath, Mode: window.Icon.Mode,
+				}
 			}
 			if window.View != nil {
 				declaredWindow.View = window.View.Function
