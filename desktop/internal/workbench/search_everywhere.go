@@ -162,12 +162,20 @@ func (a *App) openEverywhere(p *project) {
 		a.focusEverywhere(p)
 		return
 	}
+	a.openEverywhereWithQuery(p, "")
+}
+
+// openEverywhereWithQuery opens Search Everywhere with query prefilled and focused.
+func (a *App) openEverywhereWithQuery(p *project, query string) {
+	if p == nil {
+		return
+	}
 	a.everywhereView.open = true
 	a.everywhereView.scope = 0
 	if p.everywhereActionsOnly() {
 		a.everywhereView.scope = everywhereScopeActions
 	}
-	a.everywhereView.query.SetText("")
+	a.everywhereView.query.SetText(query)
 	p.everywhere.selected = 0
 	a.focusEverywhere(p)
 }

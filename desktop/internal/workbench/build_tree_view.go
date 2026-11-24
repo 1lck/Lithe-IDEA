@@ -302,7 +302,7 @@ func (a *App) buildGroupRow(row ui.ListRow, p *project, instance *buildInstance,
 	}
 	ui.Spacer(c)
 	language := a.language()
-	options := len(declaredOptionFields(instance.Manifest, instance.BuildSystemID, instance.Options)) != 0
+	options := instance.hasDeclaredOptions()
 	if spec.selected {
 		if a.gitIconButton(c.Part("reload"), i18n.Shared(language, "native.reload"), icons.RefreshCw, false, instance.modelLoading || b.operation != nil) {
 			c.After(func() {
