@@ -657,13 +657,14 @@ type App struct {
 	// savedBackground is the window background last stored (window_background.go).
 	savedBackground gfx.Color
 	focus           focusTarget
-	// debugHostedPort and debugInitializeWindow replace, in tests, asking the
-	// language server for a debug port and Core's initialize deadline. Production
-	// leaves both zero.
-	debugHostedPort       func(ctx context.Context, p *project, adapter debugAdapter) (int, error)
-	debugInitializeWindow time.Duration
-	kernel                Kernel
-	store                 *store.Store
+	// debugHostedPort, debugInitializeWindow, and debugInitializeTrigger replace,
+	// in tests, asking the language server for a debug port and Core's initialize
+	// deadline. Production leaves all three zero.
+	debugHostedPort        func(ctx context.Context, p *project, adapter debugAdapter) (int, error)
+	debugInitializeWindow  time.Duration
+	debugInitializeTrigger <-chan struct{}
+	kernel                 Kernel
+	store                  *store.Store
 	// startupPath is the project folder the window opens once it exists (Options.OpenPath).
 	startupPath      string
 	startupFile      string
