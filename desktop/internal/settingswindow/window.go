@@ -79,6 +79,7 @@ const (
 // its window thread, but for the fields that say so.
 type window struct {
 	cli              cliRegistration
+	associations     associationRegistration
 	searchDraft      searchPreferencesDraft
 	editorDelay      ui.Field
 	editorDelayReady bool
@@ -102,8 +103,9 @@ type window struct {
 	inv  app.Invalidator
 	page *ui.Page
 
-	market  *marketplaceState
-	install *pluginInstallDialog
+	market      *marketplaceState
+	marketIcons marketplaceIcons
+	install     *pluginInstallDialog
 	// commands is the Installed tab's check of the commands plugins need and the dialog that
 	// installs them (command_install.go).
 	commands *commandInstalls
@@ -301,6 +303,7 @@ func newWindow(c *Controller, current Values) *window {
 		w.pluginTab = pluginTabMarketplace
 	}
 	w.market.search.report = c.opts.MarketplaceError
+	w.marketIcons = newMarketplaceIcons(c.opts.MarketplaceIcon, c.opts.MarketplaceIconError)
 	w.pluginSettings = newPluginSettingsForm(c.opts.PluginSettings)
 	w.pluginForms = make(map[string]*pluginSettingsForm)
 	w.settingsNotices = make(chan string, 64)
@@ -464,6 +467,7 @@ func (w *window) resized() (windowSize, bool) {
 // makes a new one, and a size the user gave the window is kept for that one. The Page has
 // cancelled its effects by then.
 func (w *window) closed() {
+	w.marketIcons.reset(0)
 	w.closeRegion()
 	w.dismissPluginInstall()
 	if w.ctrl.opts.PluginInstallsClosed != nil {
@@ -534,6 +538,7 @@ func (w *window) prepare(size gfx.Size) {
 
 // collect takes the result of each background request on the window thread.
 func (w *window) collect() {
+	w.marketIcons.take()
 	toolchainFailed := w.toolchains.take()
 	saved, err, done := w.stepping.take()
 	if done && err == nil {
@@ -582,6 +587,7 @@ func (w *window) reportMarket(ended bool, kept error) {
 // paint, and in every paint, so leaving a page does not cancel what it asked for.
 func (w *window) declareWork(c ui.C) {
 	w.declareCLI(c)
+	w.declareAssociations(c)
 	if d := &w.searchDraft; d.effect != nil && d.work != nil {
 		ui.Effect(c, d.effect, d.work)
 	}

@@ -111,7 +111,7 @@ func TestEditorEssentialsRecoveryRestartsAndProtectsChangedDisk(t *testing.T) {
 	if !reopened.conflicted || reopened.view.TextSnapshot().String() != entry.Text {
 		t.Fatal("changed disk was not presented as a recovered conflict")
 	}
-	h.app.saveDocumentMode(p, reopened.id, true)
+	h.app.saveDocumentMode(p, reopened.id, saveAuto)
 	h.settleChain()
 	disk, err := os.ReadFile(d.path)
 	if err != nil || string(disk) != "external change" {

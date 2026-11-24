@@ -5,31 +5,31 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 )
 
 // SearchLanguageSources reads selectors of enabled language-server contributions.
 // It does not load grammars, open source files or start unrelated servers.
 func (s *Service) SearchLanguageSources(ctx context.Context) ([]core.SearchLanguageSource, error) {
+	if s == nil || s.Manager == nil {
+		return nil, ErrAssembly
+	}
 	entries, err := s.Manager.Installed()
 	if err != nil {
 		return nil, err
 	}
-	entries, err = s.selectInstalled(ctx, entries, false)
+	snapshot, readErr := s.ReadInstalled(ctx, entries)
+	sources, err := snapshot.SearchLanguageSources()
+	return sources, errors.Join(readErr, err)
+}
+
+// SearchLanguageSources reads selectors without reopening the installed manifests.
+func (snapshot InstalledSnapshot) SearchLanguageSources() ([]core.SearchLanguageSource, error) {
 	var failures []error
-	if err != nil {
-		failures = append(failures, err)
-	}
 	var sources []core.SearchLanguageSource
-	for _, entry := range entries {
-		manifest, err := readBounded(filepath.Join(entry.Installed.Path, pluginpkg.ManifestFile), MaxManifestBytes)
-		if err != nil {
-			failures = append(failures, fmt.Errorf("%s: %w", entry.Installed.ID, err))
-			continue
-		}
+	for _, installed := range snapshot.manifests {
+		entry, manifest := installed.entry, installed.manifest
 		var declaration struct {
 			Languages []struct {
 				ID               string   `json:"id"`

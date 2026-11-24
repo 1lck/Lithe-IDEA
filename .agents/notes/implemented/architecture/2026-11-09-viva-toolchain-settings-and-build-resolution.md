@@ -42,6 +42,7 @@ Viva 桌面端现在把插件声明的工具链接进了设置和构建执行：
 - 选择只修改窗口草稿；Save 才把整批变化交给 Core。来源文件的路径、字节预算、缺失时默认值、完整 schema 与重复 JSON 键检查都由 Core 给出；没有已安装工具也必须校验 dormant pin。Go 使用已有 `configfile` 适配器按预算读取 UTF-8，不先解析或补默认文档。原生选项未指定平台时采用当前宿主，不能把空平台字符串交给 Core。
 - `toolchains.editPinSources` 同时返回本地文档与忽略文件的编辑计划。没有语义变化时保留原字节和缺失状态；例如对不存在的 pin 执行重置，不能创建 `.lithe`。旧 `editPins` 的选择与合并规则继续复用，不重写内核。
 - 忽略规则使用 Core 固定版本 `ignore` 的完整匹配器。只调用 `GitignoreBuilder` 的内存行解析和匹配，不启用目录遍历、全局规则发现或线程池；许可证为 MIT/Unlicense，资源开销仅发生在明确保存时。已经生效的通配规则保持原样；后续否定规则取消忽略时，在末尾追加明确规则，保留评论、已有行与换行风格。不在 Go 用“是否包含一行”代替 Git 规则。输入与输出都检查字节和行数预算，避免发布下次无法读取的来源。
+- 自动生成的 `.lithe/.gitignore` 也属于本机维护文件。Core 在维护 pin 来源时同时保证它自身与 `toolchains/local.json` 被忽略，只补齐尚未生效的根锚定规则 `/.gitignore` 和 `/toolchains/local.json`。不用 `*`，避免隐藏团队配置；自忽略规则也不影响嵌套目录中的 `.gitignore`。用户原有内容、UTF-8 BOM 和换行保留，无语义变化的 Save 不因缺少自忽略规则而写文件。规则跟随固定 Core 修订，宿主不维护另一份文本追加逻辑。
 - `configfile` 绑定私有字节快照和原生工作区身份，使用 `os.Root` 约束相对路径、保留原权限及 ACL，并在发布前重查来源。公开的 `Baseline` 只供显示或兼容调用方使用，不能作为设置草稿的授权基线。指向工作区外的符号链接或 Windows junction 无法让保存落到外部目录。
 - 写入先发布忽略文件，再发布 pin 文档。前置步骤失败不改 pin；其后 pin 发布失败只可能留下无害的忽略规则。无变化保存也在 Core 返回后再次校验字节和工作区身份，不能因为没有写入而接受过期草稿。此检查是乐观并发保护，不承诺锁住不遵守同一协议的外部写入者。
 - pin 已完成原子替换后，句柄清理或回读仍可能失败；这时返回要求重新加载的稳定状态，界面保留草稿但禁用再次保存，不能宣称“失败必然没有改文件”。正常成功则从确认的来源重新加载实际生效值。读取失败、冲突和无效来源走现有日志边界与共享 i18n。
@@ -86,6 +87,7 @@ Windows 的工具发现和构建模型测试要保留两条真实本机边界：
 - **单独为每次查询启动一份提供方进程。** 同一插件同时提供语言配置和工具链时，进程启动与初始化会重复。共享后端可在同一连接中区分操作，并由同一个插件生命周期释放。
 - **每次都重新向提供方请求。** 工具选择会在设置和多个运行入口反复执行。采用短期有界缓存和原生观察，输入变动时重查，空闲时无需轮询。
 - **在宿主 CI 下载真实插件和工具做 Windows 回归。** 会引入具体插件依赖、网络与安装布局，不能稳定控制失败形态；宿主只测试合成工具的通用流程，真实工具在插件仓库验收。
+- **忽略整个 `.lithe/`，或在每次读取时补写 `.gitignore`。** 前者会隐藏应由团队共享的配置，后者破坏只读加载和无变化保存的约束。自忽略只在既有的来源维护计划中补齐，并由现有原子写入适配器执行。
 
 ## 后果
 
@@ -124,3 +126,5 @@ Windows 运行 `./.agents/skills/write-stable-tests/scripts/test-stability-windo
 - `shared/platform-feature-matrix/features/plugin-injected-toolchains.json`
 
 原生存储回归位于 `toolchain/storage_test.go` 与 `configfile/configfile_test.go`：先复现外部链接写入和空重置创建状态，再验证有界读取、重复键/未知字段的 dormant 来源拒绝、后续否定规则、权限保留、私有基线与原生根身份。`core/toolchain_sources_test.go` 与 Core 同用 `Lithe-core-rust/rust/fixtures/toolchain-pin-storage.json`；设置页另外先复现保存后回读失败仍可重试，再验证草稿保留和强制 Reload。组件证据不等于原生 GUI 或发行包验收。
+
+`TestSavePinIgnoresGeneratedFileWithoutHidingSharedFiles` 从真实 Core 与 `SavePin` 写出文件，再让隔离配置的本机 Git 判断忽略结果：`.lithe/.gitignore` 和本机 pin 被忽略，团队配置与嵌套 `.gitignore` 保持可提交。Git 命令只执行空模板初始化和本地 `check-ignore`，有独立期限与管道回收上限；不读取全局 Git 规则或运行 hooks。该集成用例明确依赖 Git，缺少 Git 时不把它记作已通过。

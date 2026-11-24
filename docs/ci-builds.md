@@ -68,6 +68,18 @@ macOS 的本地手动打包可用 `package-desktop.sh --ad-hoc-sign` 生成有�
 
 ### 独立工作树的本地编译
 
+远程身份核验当前在平台临时目录创建随机的 `lithe-evidence-<random>/ssh.log`，目录仅当前用户可访问；它由这次连接尝试持有并在释放时清理，不是编译缓存，不跨工作树复制，也不写入 app bundle 或 Windows 安装目录。读取最多 64 KiB，但 OpenSSH 的持续写入尚未有界，连接仍持有已删除文件的情况也是待修复的发行阻塞。远端的 `<installRoot>/target-identity-v1` 是账户服务状态，由远端账户持有、随该状态目录删除；不得复制到另一目标作为缓存，否则可能复制目标身份。这些路径不属于本地签名或更新基线；新增 Core 临时证据路径的安装包内运行验证尚未完成。
+
+文件关联的打包声明由 `scripts/desktop/generate-file-associations.sh` 读取编辑器内置高亮元数据并调用 Core 生成，作为 `desktop/viva.toml` 的一部分由 Git 管理；打包前以 `--check` 拒绝目录漂移。生成器始终使用构建主机架构执行，即使包的目标架构不同；最终应用和辅助程序仍使用所选目标架构。它是构建输入，不是可跨工作树复制的缓存。运行期只读取系统默认应用，明确应用后写入 LaunchServices 或当前用户的 Windows 注册表，不生成偏好副本，也不改写 bundle、安装目录或插件资源，因此不影响签名和增量更新基线。`TestVisualFileAssociations` 的真实系统读取截图通过 `LITHE_VISUAL_OUTPUT_DIR` 写到当前检出的 `.artifacts/visual/file-associations/`，绑定本次源码、Core/Viva 修订、平台、语言和主题，不跨工作树复制、不进入发行包，由开发者或 CI 清理。
+
+插件市场 SVG 由网络适配器有界读取，在后台编译为 Viva 图标；下载字节只活到本次编译结束，编译结果与失败仅保存在当前市场页的内存缓存中（最多64项、同时读取最多4个、每次最多256 KiB和10秒）。滚动离屏取消未完成的读取，刷新索引、离开市场标签或关闭设置窗口释放缓存；没有磁盘缓存，不跨工作树复制，不写安装目录，也不影响代码签名或增量更新基线。`TestVisualMarketplaceSVG` 的中英文、明暗主题及加载前后截图写入本工作树的 `.artifacts/marketplace-icons-visual/`，绑定当前源码、固定 Viva/Core 修订、语言、主题和渲染环境，不跨工作树复制，由开发者清理，不进入发行包。
+
+插件市场的增量基线存放在 `<os.UserCacheDir()>/Lithe/PluginArchives/<sha256>.zip`。缓存由桌面市场下载层持有，只保留已校验的原始 ZIP，单包最多 64 MiB，总预算 256 MiB 和 128 项，按最早写入淘汰。删除缓存后下一次更新会下载完整包。补丁和重建 ZIP 位于平台临时目录的独占目录，操作结束即清理。批准的后台更新暂存在平台插件数据根的 `.pending-updates/`，启动时复核当前版本和审批后发布进版本目录。下载缓存和暂存属于用户运行时状态，均不跨工作树复制。所有写入都在应用安装目录之外，安装包签名和桌面增量更新基线保持完整。
+
+同一缓存目录内的 `.archive-cache.lock` 串行化各进程的淘汰、临时写入和发布。退出临界区时关闭文件句柄，进程退出时由操作系统释放锁。空锁文件留在缓存目录供其他进程使用。锁不可用时跳过归档缓存写入并保留已下载的包。锁属于用户缓存，与缓存一起清理，不跨工作树复制，也不影响代码签名或桌面增量更新基线。
+
+插件数据根下的 `.package-changes.lock` 由插件服务持有。激活、发布、禁用和卸载结束后关闭文件句柄，操作系统也会在进程退出时释放锁。空锁文件留在插件数据根供其他进程使用。它属于用户运行时状态，位置在发行目录外，无需在工作树间复制，也不影响代码签名或桌面增量更新基线。
+
 CLI 用户启动器由 `desktop/internal/cli` 在明确注册时生成到 `<os.UserConfigDir()>/Lithe/cli/bin/lithe`（Windows 为 `lithe.cmd`）。它绑定用户机器与当前应用可执行路径，随用户移除注册删除；它不是编译缓存，不跨工作树复制，不写安装目录，也不影响代码签名和增量更新基线。CLI 与单文件模式的无头截图可写入当前检出的 `.artifacts/cli-single-file/`；它们绑定本次源码、语言、主题、Viva/Core 修订和渲染环境，不跨工作树复制，由开发者或 CI 清理，不进入发行包。
 
 TextMate 首行元数据随各插件归档发布，从已安装版本目录只读加载。宿主的匹配缓存只保留当前进程内的编译结果，没有可跨工作树复用的状态。加载过程不写入应用或插件包，不改变签名和增量更新基线。
@@ -253,8 +265,7 @@ Go 构建在 windows/amd64 和 windows/arm64 上用 `go:embed` 把它们编译�
 
 - LSP workspace `-data`、运行时数据库、测试报告和其他会被进程修改的状态。
 
-可下载的官方插件包是声明式插件包（只含 `plugin.json` 和它声明的资源，不含宿主加载的代码，与架构无关），在 `.build/<triple>/<configuration>/OfficialPlugins` 中独立组装，`--triple` 只决定输出目录和签名工具的构建布局；组装后通过 `LitheOfficialPluginVerifier` 验证声明、打包的可执行文件和“Mach-O 原生代码只出现在清单声明的运行时目录内”；发布配置还要求 repository secret `LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`，由 `LithePluginPackageSigner` 对完整包生成 `lithe-plugin-signature.json`，客户端按宿主内置官方插件策略和 publisher 公钥验证后才允许安装。该 secret 的值是与客户端内置公钥匹配的 base64 编码 32 字节 Ed25519 私钥，可用 `gh secret set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY --repo 1lck/Lithe-IDEA < /secure/path/lithe-plugin-package-private-key.base64` 配置；私钥文件和 shell 历史都不得进入仓库或日志。没有该 key 时，普通 debug 全量构建会跳过 publisher 签名包，指定其中一个包 ID 的构建会失败，不会留下缺少签名文档的目录。本地调试插件时可以显式传入 `--development-unsigned`（仅 debug 配置可用），生成不含签名文档的开发包，只能由 debug 构建的 Lithe 从磁盘安装；这类开发包同样不跨工作树复用。无可靠 identity stamp，不跨工作树复制。插件安装后打包的语言服务器位于
-`<app-support>/Lithe/Plugins/<plugin-id>/versions/<version>/language-server`，由插件版本目录拥有，运行时只读，重装、回滚和卸载随插件一起处理，不是工作树构建缓存。以上项目都不跨工作树复制。
+已安装插件目录由 `desktop/internal/pluginpkg`（`pluginpkg.DefaultRoot()`）按平台管理：macOS 为 `~/Library/Application Support/Lithe Desktop/plugins`，Windows 为 `%LOCALAPPDATA%\Lithe Desktop\plugins`，Linux 为 `<os.UserConfigDir()>/lithe-desktop/plugins`。各个插件由自己的仓库负责构建、校验、签名与发布，桌面主仓库不内置插件打包器或签名密钥；宿主下载校验并经用户批准后，先在 `<plugin-root>/.staging/` 解压，再原子重命名到 `<plugin-root>/<plugin-id>/<version>/`，卸载时先移入 `<plugin-root>/.trash/` 再删除，可写状态统一落在 `<plugin-root>/.state/<plugin-id>/`。已安装版本目录在运行时只读，重装、回滚和卸载均由插件安装流程统一处理，且位于 app bundle 和 Windows 安装目录之外，不改变代码签名或桌面增量更新基线；它们属于用户运行时目录而非工作树构建缓存，任何情况下都不得跨 Git 工作树复制或共享。
 
 Build Provider 的模型与依赖快照位于插件根（`pluginpkg.DefaultRoot`）下的 `.state/<plugin-id>/<version>/build/<workspace-digest>/`。会话拥有其缓存、日志和临时输出；模型失效可重建，插件卸载随所属状态清理。工作区摘要只是归属键，不是构建身份。
 它属于具体插件、构建系统和工作区的可变上游状态，没有版本/平台/架构/工具链 identity stamp，

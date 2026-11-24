@@ -1,4 +1,5 @@
-package pluginruntime
+// Package filelock coordinates access to writable files across processes.
+package filelock
 
 import (
 	"context"
@@ -8,10 +9,15 @@ import (
 	"time"
 )
 
-// acquire uses an OS lock, not a pid or timestamp lease: process death releases
+var (
+	ErrInvalid = errors.New("lock path must name a regular file")
+	ErrBusy    = errors.New("file lock is busy")
+)
+
+// Acquire uses an OS lock, not a pid or timestamp lease: process death releases
 // ownership automatically. The file stays in place so another opener cannot
 // lock a different inode while a previous waiter still holds the old one.
-func acquire(ctx context.Context, name string) (unlock func() error, err error) {
+func Acquire(ctx context.Context, name string) (unlock func() error, err error) {
 	defer func() {
 		if err != nil && unlock != nil {
 			err = errors.Join(err, unlock())
@@ -46,7 +52,7 @@ func acquire(ctx context.Context, name string) (unlock func() error, err error) 
 		return nil, err
 	}
 	if !info.Mode().IsRegular() || !os.SameFile(info, opened) {
-		return nil, ErrArtifact
+		return nil, ErrInvalid
 	}
 	bounded, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
@@ -56,6 +62,9 @@ func acquire(ctx context.Context, name string) (unlock func() error, err error) 
 			return nil, err
 		}
 		if locked {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			owned = true
 			return file.Close, nil
 		}

@@ -74,12 +74,17 @@ func Sources() []string { return []string{"codex", "claude"} }
 // credential locator. A source that cannot be read or parsed contributes no provider; no error
 // carries a secret.
 func Discover(ctx context.Context, k Kernel) map[string][]Provider {
-	providers := map[string][]Provider{}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return providers
+		return map[string][]Provider{}
 	}
-	environment := Environment()
+	return discoverProviders(ctx, k, home, Environment())
+}
+
+// discoverProviders uses one explicit home and environment snapshot for file discovery,
+// parsing and credential resolution. It never supplements the snapshot with the real user environment.
+func discoverProviders(ctx context.Context, k Kernel, home string, environment map[string]string) map[string][]Provider {
+	providers := map[string][]Provider{}
 	for _, source := range Sources() {
 		if provider, ok := discover(ctx, k, source, home, environment); ok {
 			providers[source] = append(providers[source], provider)
@@ -184,7 +189,12 @@ func ConfigurationPath(ctx context.Context, k Kernel, source string) string {
 	if err != nil {
 		return ""
 	}
-	files, err := k.ConfigurationSources(ctx, source, home, Environment())
+	return configurationPath(ctx, k, source, home, Environment())
+}
+
+// configurationPath resolves the native file against the same explicit inputs as discovery.
+func configurationPath(ctx context.Context, k Kernel, source, home string, environment map[string]string) string {
+	files, err := k.ConfigurationSources(ctx, source, home, environment)
 	if err != nil || len(files) == 0 {
 		return ""
 	}

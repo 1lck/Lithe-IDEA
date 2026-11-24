@@ -11,7 +11,9 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugindiag"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/vivaui/viva/app"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/headless"
+	"github.com/vivaui/viva/ui"
 )
 
 // TestVisualProblemsToolWindow captures the Problems tool window over two files' diagnostics:
@@ -94,6 +96,19 @@ func TestVisualProblemsToolWindow(t *testing.T) {
 			h.settleChain()
 			h.clickNamed(problemsRowNamed(t, h, problemsDiagnosticRow(t, h, "The value of the local variable count is not used")))
 			h.await("the diagnostic's preview", func() bool { return v.preview.view != nil && v.preview.path == service })
+			h.settleChain()
+			// A refreshed tree has yet to declare its rows when focus clears. Keep
+			// the chosen diagnostic and the preview captured below.
+			selected := v.selected
+			v.focus = v.view.RowID(v.selectedRow)
+			if v.focus.IsZero() {
+				t.Fatal("the selected diagnostic has no painted identity")
+			}
+			v.view = ui.TreeState{}
+			h.app.syncProblemsSelection(new(gfx.Canvas))
+			if v.selected != selected {
+				t.Fatalf("cleared focus selected %q, want %q", v.selected, selected)
+			}
 			h.settleChain()
 			if err := session.Screenshot(filepath.Join(out, "problems-project-"+look.theme+"-"+look.language+".png")); err != nil {
 				t.Fatal(err)

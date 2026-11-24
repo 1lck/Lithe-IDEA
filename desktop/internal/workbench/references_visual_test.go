@@ -12,6 +12,7 @@ import (
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/headless"
+	"github.com/vivaui/viva/ui"
 )
 
 // TestVisualReferencesToolWindow captures the References tool window after Find Usages on a
@@ -90,6 +91,20 @@ func TestVisualReferencesToolWindow(t *testing.T) {
 			showVisualReferences(h.app, p, d, targets)
 			h.settleChain()
 			h.await("the usage's preview", func() bool { return visualReferencesReady(h.app) })
+			h.settleChain()
+			// Keep the chosen usage while the refreshed tree has not declared any
+			// rows and focus clears. The screenshot must still show its preview.
+			s := &h.app.editor.refs
+			selected := s.selected
+			s.focus = s.view.RowID(s.selectedRow)
+			if s.focus.IsZero() {
+				t.Fatal("the selected usage has no painted identity")
+			}
+			s.view = ui.TreeState{}
+			h.app.syncReferenceSelection(new(gfx.Canvas))
+			if s.selected != selected {
+				t.Fatalf("cleared focus selected %q, want %q", s.selected, selected)
+			}
 			h.settleChain()
 			if err := session.Screenshot(filepath.Join(out, "references-"+look.theme+"-"+look.language+".png")); err != nil {
 				t.Fatal(err)

@@ -34,11 +34,12 @@ type directoryRulesFile struct {
 // projectIndexing is the policy a project installed in Core: its rules as stored, the lease the
 // window holds and what Core answered.
 type projectIndexing struct {
-	owner     string
-	rules     json.RawMessage
-	gitIgnore bool
-	loaded    bool
-	status    core.IndexingStatus
+	owner      string
+	rules      json.RawMessage
+	gitIgnore  bool
+	loaded     bool
+	unreadable bool // saved rules could not be decoded; do not replace their file
+	status     core.IndexingStatus
 	// generation rejects an installation a newer one replaced; warned keeps the Git warning to once.
 	generation uint64
 	warned     bool
@@ -70,21 +71,34 @@ func (a *App) installIndexing(p *project, refresh bool) {
 	generation, root, owner, s := ix.generation, p.root, ix.owner, a.store
 	loaded, rules, gitIgnore := ix.loaded, ix.rules, ix.gitIgnore
 	a.background(p, kernelCallTimeout, func(ctx context.Context) func(*App) {
+		var readFailure error
 		if !loaded {
+			name := directoryRulesName(root)
 			var stored directoryRulesFile
-			if found, err := s.Load(directoryRulesName(root), &stored); err == nil && found {
+			found, err := s.Load(name, &stored)
+			if err == nil && found {
+				// A newer build may have saved a known field in a different shape.
+				// Store preserves it, but applying an edit could discard the user's rules.
+				err = s.Unread(name)
+			}
+			if err == nil && found {
 				rules, gitIgnore = stored.Rules, !stored.GitIgnoreDisabled
 			} else {
 				rules, gitIgnore = nil, true
+				readFailure = err
 			}
 		}
 		status, err := kernel.ConfigureIndexing(ctx, root, owner, core.IndexingPolicyOf(rules, gitIgnore), refresh)
 		return func(a *App) {
-			if !loaded && !ix.loaded {
-				ix.rules, ix.gitIgnore, ix.loaded = rules, gitIgnore, true
-			}
 			if ix.generation != generation {
 				return
+			}
+			if !loaded && !ix.loaded {
+				ix.rules, ix.gitIgnore, ix.loaded = rules, gitIgnore, true
+				ix.unreadable = readFailure != nil
+				if readFailure != nil {
+					a.storedStateFailed("directory_rules", readFailure)
+				}
 			}
 			if err != nil {
 				a.operationFailed("workspace_indexing", err)
@@ -169,6 +183,13 @@ func (a *App) setGitIgnoreIndexing(p *project, on bool) {
 // changeIndexingRules applies reduce to the project's rules off the window thread, stores the
 // result with gitIgnore and installs it.
 func (a *App) changeIndexingRules(p *project, reduce func(context.Context, json.RawMessage) (bool, json.RawMessage, error), gitIgnore bool) {
+	if p.indexing.unreadable {
+		// Never replace the unreadable rules with defaults after a failed load.
+		// Reopen the workspace once the saved file has been repaired externally.
+		a.operationRejected("workspace_exclude", "unreadable_stored_rules")
+		a.notifyError(i18n.Shared(a.language(), "indexing.configureFailed"))
+		return
+	}
 	root, s := p.root, a.store
 	rules := p.indexing.rules
 	if len(rules) == 0 {

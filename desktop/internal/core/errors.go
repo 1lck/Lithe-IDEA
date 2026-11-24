@@ -98,6 +98,12 @@ const (
 	// CodeRemoteProcessAttached means another remote.attachProcess request already receives the
 	// host process.
 	CodeRemoteProcessAttached ErrorCode = "remote_process_attached"
+	// CodeEntryNotFound means a file change named an entry, or the directory that would hold it,
+	// that does not exist.
+	CodeEntryNotFound ErrorCode = "entry_not_found"
+	// CodeEntryExists means a file change would have replaced an existing entry; nothing was
+	// written.
+	CodeEntryExists ErrorCode = "entry_exists"
 	// CodeUnknown means the failure fits no more specific category.
 	CodeUnknown ErrorCode = "unknown"
 )
