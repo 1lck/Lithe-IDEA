@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-Lithe 启动的运行、服务、预启动任务、测试、构建和插件进程，生命周期都绑定在 Lithe 上：关闭项目或退出时，由 Core 的进程生命周期规则决定哪些进程需要询问，再由所属模块停止自己的会话。Windows 上构建进程放进 Job Object，Lithe 崩溃时内核也会连带结束整组进程。忙碌终端和运行服务在关闭前统一询问，用户可以选择停止或取消。
+Lithe 启动的运行、服务、预启动任务、测试、构建和插件进程，生命周期都绑定在 Lithe 上：关闭项目或退出时，由 Core 的进程生命周期规则决定哪些进程需要询问，再由所属模块停止自己的会话。Windows 上构建进程放进 Job Object，Lithe 崩溃时内核也会连带结束整组进程。进程账本在 macOS 和 Windows 上都登记，崩溃后的残留在下一次启动时清扫；Windows 的账本只通过进程句柄调用系统接口，不启动任何外部程序。忙碌终端和运行服务在关闭前统一询问，用户可以选择停止或取消。
 
 ## 问题
 
@@ -34,6 +34,15 @@ Viva 客户端（`desktop/internal/workbench/process_exit.go`）把关闭时要�
 - **探测不在窗口线程上跑。** 窗口线程只取出每个终端的探测函数（`termview.View.BusyProbe`），真正的系统调用（Windows 上是一次进程快照）在后台任务里执行，避免关闭时界面卡住。
 - **不要这样做：** 不要在工作台里自己判断“忙碌终端要不要问”，也不要把 `confirm` 当成可以忽略的动作；这两件事由 Core 的规则和用户设置决定。也不要把 shell 有输出当作忙碌的依据：提示符本身也是输出。
 
+### Windows：账本不启动外部程序
+
+2026-11-25 修复：Windows 上每次构建、运行、测试、调试时都会闪出一个立刻关闭的控制台窗口。
+
+- **原因。** 账本核对进程身份时运行 `ps -o lstart= -o comm= -p <pid>`，结束进程时运行 `kill`，不分平台。Lithe 是没有控制台的图形程序，它不加隐藏标志启动的控制台程序会自己开一个控制台窗口。Windows 本来没有 `ps`，但 Git for Windows 的 `usr\bin`、MSYS2、Cygwin 等工具链会把它们的 `ps.exe` 放进 PATH；这些 `ps` 不认识 `-o`，打开窗口后马上报错退出，看起来就是一闪而过。找不到 `ps` 或 `ps` 报错时身份读不出来，所以账本在 Windows 上实际从来没有登记成功过。
+- **做法。** 平台差异放在 `processledger_unix.go` 和 `processledger_windows.go`，账本的记录、核对和清扫逻辑仍只有 `processledger.go` 一份。Windows 用 `OpenProcess`（`PROCESS_QUERY_LIMITED_INFORMATION`）打开进程，`GetProcessTimes` 的创建时间（100 纳秒精度的十进制数）作为启动时间，`QueryFullProcessImageName` 的完整路径作为命令名；已退出但仍有句柄未关闭的进程也能打开，所以先用 `WaitForSingleObject(handle, 0)` 确认它还在运行。结束用 `TerminateProcess`：Windows 没有可以发给任意进程的停止请求（与 `buildprocess.StopsGracefully` 为 false 一致），所以请求停止和强制结束都直接结束进程，不等宽限期。
+- **覆盖面。** 经 `buildprocess` 启动的构建、运行、测试、调试、项目生成和工具安装进程，插件发起的运行（`pluginservice/runs.go`）和终端 shell（`localshell/backend_windows.go`）都在 Windows 上登记。构建类进程本来就在 kill-on-close 的 Job Object 里，账本是第二道保险；ConPTY 终端不在 Job Object 里，崩溃后的残留只能靠账本在下次启动时清扫。
+- **不要这样做：** 不要在客户端里启动 `ps`、`kill`、`tasklist`、`taskkill` 之类的控制台程序来查询或结束进程：Windows 上它们会弹出控制台窗口，PATH 上同名的程序也不一定是你以为的那个（`ps`、`kill` 在 Windows 上来自第三方工具链，参数和输出格式都不一样）。也不要为了不闪窗口而在 Windows 上关掉账本：账本是崩溃后清扫残留的唯一依据。
+
 ### 反例
 
 - 只在所有者的停止函数里发信号就返回：所有者漏掉一类会话，或者进程在异步升级前退出，子进程都会变成孤儿。
@@ -54,9 +63,9 @@ Viva 客户端（`desktop/internal/workbench/process_exit.go`）把关闭时要�
 
 未覆盖的情况：
 
-- **Lithe 崩溃或被强制结束（macOS）。** 进程内兜底不会执行，崩溃后的残留由进程账本在下一次启动时清理（`startupSweep` 场景）。
+- **Lithe 崩溃或被强制结束。** 进程内兜底不会执行，崩溃后的残留由进程账本在下一次启动时清理（`startupSweep` 场景），macOS 和 Windows 相同；两个平台都还没有监护进程，崩溃当下不清理。
 - **不经过宿主进程管理的进程。** 语言服务器由 Core 的语言工具会话停止，内置终端由终端自身管理。
-- **Windows 终端和 Agent。** ConPTY 终端里启动的程序还没有放进 Job Object，Lithe 崩溃时仍可能残留；正常退出由各自的关闭流程处理。
+- **Windows 终端里启动的程序。** ConPTY 终端的 shell 已登记在账本中，但它启动的程序既不在 Job Object 里，也不在账本里；Lithe 崩溃后 shell 自己会在下次启动时被清扫，已脱离 shell 的程序仍可能残留。正常退出由终端的关闭流程处理。
 - **已知差异。** shell 被 `exec` 替换（如 `exec vim`）后进程号不变，会读作空闲；Windows 上 WSL 终端里的程序不是 Windows 进程，始终读作空闲。
 
 ## 验证
@@ -65,6 +74,8 @@ Viva 客户端（`desktop/internal/workbench/process_exit.go`）把关闭时要�
 - `desktop/internal/workbench/process_exit_test.go` 用 Core 规则验证关闭忙碌标签页先问、取消保留、确认关闭，空闲终端直接关闭，以及关闭项目时只列出忙碌终端。
 - `desktop/internal/core/plugin_session_test.go` 覆盖插件会话的启动与停止路径。
 - `desktop/internal/processledger/processledger_unix_test.go` 覆盖账本的身份匹配与只结束自己记录的进程。
+- `desktop/internal/processledger/processledger_windows_test.go` 在 PATH 最前面放记录调用的 `ps.bat`、`kill.bat`，覆盖 Windows 上登记创建时间和路径、取消登记、启动清扫立即结束残留、保留时只删记录、创建时间不符（PID 被复用）时不结束、已退出但句柄未关的进程不算残留，并断言账本从未调用这两个程序。
+- `desktop/internal/localshell/shell_windows_test.go` 的 `TestConPTYShellIsRecordedWhileItRuns` 覆盖 ConPTY 终端的 shell 运行期间在账本中、退出后记录被删除。
 - Core 的 `rust/fixtures/process-lifecycle/`（[链接](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/fixtures/process-lifecycle/)）：运行服务在退出、关闭项目、直接停止设置和崩溃恢复下的动作。
 - 实际应用（2026-10-14，macOS）：运行 Spring Boot 配置，Java 进程监听 8080 后从菜单退出 Lithe，1 秒内 Lithe、语言服务器和 Spring Boot 进程全部消失，端口释放。
 
@@ -74,6 +85,9 @@ Viva 客户端（`desktop/internal/workbench/process_exit.go`）把关闭时要�
 - `desktop/internal/core/plugin_session_test.go`
 - `desktop/internal/workbench/process_exit.go`
 - `desktop/internal/processledger/processledger.go`
+- `desktop/internal/processledger/processledger_unix.go`
+- `desktop/internal/processledger/processledger_windows.go`
+- `desktop/internal/localshell/backend_windows.go`
 - `desktop/internal/buildprocess/process_windows.go`
 - `shared/platform-feature-matrix/features/run-processes-end-with-ide.json`
 - Core 仓库的进程生命周期规则与进程树（Job Object）实现，以 [Lithe-core-rust](https://github.com/Lithe-IDEA/Lithe-core-rust) 当前固定的修订为准。

@@ -16,7 +16,6 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginicons"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/processledger"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
@@ -255,7 +254,6 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 			a.post(func(a *App) { a.setConsoleEncoding(value) })
 		},
 		ConsoleEncodings:         a.consoleEncodingsOption,
-		SweepsLeftovers:          processledger.Supported,
 		SteppingAdapters:         a.steppingAdapters,
 		NormalizeSteppingFilters: a.kernel.NormalizeSteppingFilters,
 		SetSteppingFilters: func(adapter string, filters *core.DebugSteppingFilters) {
