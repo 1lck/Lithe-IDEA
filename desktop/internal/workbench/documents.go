@@ -74,7 +74,9 @@ type document struct {
 	// title, and languageID the editor language a language server is selected
 	// by.
 	path, name string
-	languageID string
+	// previewKind explicitly enables safe read-only plugin content previews.
+	previewKind string
+	languageID  string
 	// grammar is the syntax selected on open, including any bundled fallback.
 	// Views of this document share it for the lifetime of the open document.
 	grammar *syntax.Syntax

@@ -119,6 +119,9 @@ type markdownPreviewState struct {
 
 // isMarkdownDocument reports whether d is a Markdown file by its language or name.
 func isMarkdownDocument(d *document) bool {
+	if d != nil && d.previewKind == "Markdown" {
+		return true
+	}
 	if d == nil || d.virtual {
 		return false
 	}

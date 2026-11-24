@@ -294,6 +294,11 @@ type PluginViewLoader interface {
 	View(ctx context.Context, editor pluginservice.SettingsEditor, region, function string, event, view json.RawMessage, closing bool) (json.RawMessage, bool, error)
 }
 
+// PluginViewWatcher connects backend invalidations to a visible settings region.
+type PluginViewWatcher interface {
+	WatchView(pluginID, instance string, refresh func()) func()
+}
+
 // PluginSourceSettingsLoader publishes only explicitly saved native-source drafts.
 type PluginSourceSettingsLoader interface {
 	SaveSources(context.Context, pluginservice.SettingsEditor, string, pluginsettings.SourceEditor, []core.SourceSettingsEdits) (pluginsettings.SourceEditor, error)

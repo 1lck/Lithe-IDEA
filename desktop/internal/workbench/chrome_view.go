@@ -516,6 +516,7 @@ func (a *App) statusBar(c ui.C) {
 		a.remoteStatus(c)
 		a.remotePortsStatusItem(c)
 		a.statusPathView(c)
+		a.pluginWorkflowStatus(c)
 		zone := ui.Row(c).Items(ui.Center).Gap(chromeStatusGap).Children(func() {
 			for _, i := range a.chrome.items[zoneStatus] {
 				if !a.vimStatusShown(i) {

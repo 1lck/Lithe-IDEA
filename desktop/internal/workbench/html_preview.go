@@ -66,6 +66,9 @@ type htmlPreviewState struct {
 
 // isHTMLDocument reports whether d is an HTML file, by its name.
 func isHTMLDocument(d *document) bool {
+	if d != nil && d.previewKind == "HTML" {
+		return true
+	}
 	if d == nil || d.virtual {
 		return false
 	}
@@ -159,7 +162,7 @@ func (a *App) htmlActions(c ui.C, p *project, d *document, s *htmlPreviewState, 
 			entry.view.Reload()
 		}
 	}
-	if a.viewerIconButton(c.Part("browser"), i18n.Shared(language, "desktop.editorMenu.openInBrowser"), icons.ExternalLink) {
+	if browserPreviewable(d) && a.viewerIconButton(c.Part("browser"), i18n.Shared(language, "desktop.editorMenu.openInBrowser"), icons.ExternalLink) {
 		c.After(func() { a.openInBrowser(p, d, surfaceButton) })
 	}
 }

@@ -77,7 +77,7 @@ func (a *App) diffToolbar(c ui.C, p *project, t *diffTab) {
 		if a.gitIconButton(c, i18n.Shared(lang, "git.diff.nextDifference"), icons.ArrowDown, false, n == 0 || t.current >= n-1) {
 			c.After(func() { t.step(1) })
 		}
-		if a.gitIconButton(c, i18n.Shared(lang, "git.openFile"), icons.Pencil, false, strings.Contains(t.change.Status, "D")) {
+		if a.gitIconButton(c, i18n.Shared(lang, "git.openFile"), icons.Pencil, false, strings.Contains(t.change.Status, "D") || t.saved != nil && t.saved.title != "") {
 			c.After(func() { a.openDiffFile(p, t) })
 		}
 		if len(t.files) > 1 {

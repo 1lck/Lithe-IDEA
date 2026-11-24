@@ -11682,7 +11682,15 @@
     "desktop.run.ports.open": "Open in browser",
     "desktop.run.ports.copy": "Copy URL",
     "desktop.run.ports.more": "+{count}",
-    "desktop.run.ports.openFailed": "Could not open {url}."
+    "desktop.run.ports.openFailed": "Could not open {url}.",
+    "desktop.pluginHost.backgroundTasks": "Plugin progress",
+    "desktop.pluginHost.commandFailed": "The plugin command failed. See the logs for details.",
+    "desktop.pluginHost.diff": "Text Comparison",
+    "desktop.pluginHost.inputLimit": "The input is too long or contains unsupported control characters.",
+    "desktop.pluginHost.modified": "Modified",
+    "desktop.pluginHost.noOutput": "No output channels",
+    "desktop.pluginHost.original": "Original",
+    "desktop.pluginHost.output": "Output"
   },
   "overrides": {
     "windows": {

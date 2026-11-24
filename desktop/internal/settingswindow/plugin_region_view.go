@@ -3,6 +3,7 @@ package settingswindow
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -139,6 +140,20 @@ func (w *window) openRegion(key regionKey, loader PluginViewLoader, p *pluginSet
 		},
 		Wake:   wake,
 		Failed: failed(pluginRegionViewOperation),
+		Page: func(ctx context.Context, request, result any) error {
+			if workflow, ok := loader.(interface {
+				PluginWorkflow(context.Context, any, any) error
+			}); ok {
+				return workflow.PluginWorkflow(ctx, request, result)
+			}
+			return errors.New("plugin workflow projection is unavailable")
+		},
+		Watch: func(instance string, refresh func()) func() {
+			if watcher, ok := loader.(PluginViewWatcher); ok {
+				return watcher.WatchView(key.plugin, instance, refresh)
+			}
+			return func() {}
+		},
 	})
 	v.host = pluginview.Host{Icon: pluginview.HostIcon, Images: v.images, Info: w.infoButton}
 	v.session.Open()

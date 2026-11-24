@@ -110180,6 +110180,62 @@
         "count": "string",
         "files": "string"
       }
+    },
+    {
+      "id": "desktop.pluginHost.backgroundTasks",
+      "description": "Native plugin workflow backgroundTasks",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginHost.commandFailed",
+      "description": "Native plugin workflow commandFailed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginHost.diff",
+      "description": "Native plugin workflow diff",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginHost.inputLimit",
+      "description": "Native plugin workflow inputLimit",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginHost.modified",
+      "description": "Native plugin workflow modified",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginHost.noOutput",
+      "description": "Native plugin workflow noOutput",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginHost.original",
+      "description": "Native plugin workflow original",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginHost.output",
+      "description": "Native plugin workflow output",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

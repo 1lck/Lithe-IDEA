@@ -11682,7 +11682,15 @@
     "desktop.run.ports.open": "在浏览器中打开",
     "desktop.run.ports.copy": "复制地址",
     "desktop.run.ports.more": "+{count}",
-    "desktop.run.ports.openFailed": "无法打开 {url}。"
+    "desktop.run.ports.openFailed": "无法打开 {url}。",
+    "desktop.pluginHost.backgroundTasks": "插件进度",
+    "desktop.pluginHost.commandFailed": "插件命令执行失败，请查看日志。",
+    "desktop.pluginHost.diff": "文本对比",
+    "desktop.pluginHost.inputLimit": "输入过长或包含不支持的控制字符。",
+    "desktop.pluginHost.modified": "修改后的文本",
+    "desktop.pluginHost.noOutput": "暂无输出通道",
+    "desktop.pluginHost.original": "原始文本",
+    "desktop.pluginHost.output": "输出"
   },
   "overrides": {
     "macos": {

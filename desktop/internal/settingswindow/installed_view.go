@@ -1027,6 +1027,24 @@ func permissionDescription(language i18n.Language, permission string) string {
 		return i18n.Shared(language, "desktop.marketplace.permissionWindowMessages")
 	case "browser.open":
 		return i18n.Shared(language, "desktop.marketplace.permissionBrowserOpen")
+	case "window.input":
+		return i18n.Shared(language, "desktop.marketplace.permissionWindowInput")
+	case "views.refresh":
+		return i18n.Shared(language, "desktop.marketplace.permissionViewsRefresh")
+	case "output.write":
+		return i18n.Shared(language, "desktop.marketplace.permissionOutputWrite")
+	case "window.progress":
+		return i18n.Shared(language, "desktop.marketplace.permissionWindowProgress")
+	case "statusBar.write":
+		return i18n.Shared(language, "desktop.marketplace.permissionStatusBarWrite")
+	case "clipboard.read":
+		return i18n.Shared(language, "desktop.marketplace.permissionClipboardRead")
+	case "clipboard.write":
+		return i18n.Shared(language, "desktop.marketplace.permissionClipboardWrite")
+	case "workspace.reveal":
+		return i18n.Shared(language, "desktop.marketplace.permissionWorkspaceReveal")
+	case "network.request":
+		return i18n.Shared(language, "desktop.marketplace.permissionNetworkRequest")
 	case "preview.open":
 		return i18n.Shared(language, "desktop.marketplace.permissionPreviewOpen")
 	case "workspace.metadata":
