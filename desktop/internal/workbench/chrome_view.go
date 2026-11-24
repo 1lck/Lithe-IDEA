@@ -117,7 +117,7 @@ func (a *App) chromeGlyph(c ui.C, i int, layout glyphLayout, rest, hover gfx.Col
 	box := a.chromeBox(ui.Row(k).Size(layout.side, layout.side).Shrink(0).Center(), ui.ID(k), i, open, "", true).
 		TooltipOn(layout.tooltip)
 	box.Children(func() {
-		ui.Icon(c, *a.chrome.catalog[i].icon).Size(layout.icon, layout.icon).Color(rest).
+		ui.Icon(c, *a.chromeItemIcon(i)).Size(layout.icon, layout.icon).Color(rest).
 			StateFrom(box).Hover(ui.Look{}.Color(hover))
 	})
 	return box, box.Clicked()
@@ -412,7 +412,7 @@ func (a *App) hiddenToolWindowsButton(c ui.C, i int, z zone, layout glyphLayout)
 		button = button.Background(a.colors.Active).Hover(ui.Look{}.Background(a.colors.Active))
 	}
 	button.Children(func() {
-		ui.Icon(c, *a.chrome.catalog[i].icon).Size(layout.icon, layout.icon).Color(rest).
+		ui.Icon(c, *a.chromeItemIcon(i)).Size(layout.icon, layout.icon).Color(rest).
 			StateFrom(button).Hover(ui.Look{}.Color(hover))
 	})
 	clicked := button.Clicked()
@@ -493,8 +493,8 @@ func (a *App) hiddenToolWindowRow(c ui.C, i int) (ui.Box, bool) {
 		row = a.chromeHover(row)
 	}
 	row.Children(func() {
-		if it.icon != nil {
-			ui.Icon(c, *it.icon).Size(chromeIconSize, chromeIconSize).Shrink(0).Color(a.colors.Subtle)
+		if icon := a.chromeItemIcon(i); icon != nil {
+			ui.Icon(c, *icon).Size(chromeIconSize, chromeIconSize).Shrink(0).Color(a.colors.Subtle)
 		}
 		ui.Text(c, label).Grow(1).Color(a.colors.Text).LineHeight(chromeLineHeight).Ellipsis()
 		if it.panel {

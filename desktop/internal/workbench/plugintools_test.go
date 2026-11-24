@@ -8,6 +8,8 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginicons"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginstate"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 )
@@ -17,6 +19,44 @@ const (
 	webPanelWindow = pluginItemPrefix + webPanelPlugin + ".window"
 	webPanelNotes  = pluginItemPrefix + webPanelPlugin + ".notes"
 )
+
+func TestPluginToolWindowUsesPackageIconAcrossThemes(t *testing.T) {
+	directory := t.TempDir()
+	for name, color := range map[string]string{"light.svg": "#FF0000", "dark.svg": "#0000FF"} {
+		data := `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M1 1H15V15H1Z" fill="` + color + `"/></svg>`
+		if err := os.WriteFile(filepath.Join(directory, name), []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, mode := range []string{pluginicons.ModeOriginal, pluginicons.ModeTemplate} {
+		t.Run(mode, func(t *testing.T) {
+			tool := pluginservice.ToolWindow{
+				PluginID: "dev.lithe.test.tool-icon", ID: "dev.lithe.test.tool-icon.window", Package: directory,
+				Icon: pluginicons.Declaration{Path: "light.svg", DarkPath: "dark.svg", Mode: mode},
+			}
+			var app App
+			app.chrome.setItems(pluginItems([]pluginservice.ToolWindow{tool}, nil))
+			if err := app.pluginIcons.Read(tool.PluginID, directory, tool.Icon); err != nil {
+				t.Fatal(err)
+			}
+			index := app.chrome.index[pluginItemPrefix+tool.ID]
+			for _, dark := range []bool{false, true} {
+				app.colors.Dark = dark
+				icon := app.chromeItemIcon(index)
+				if icon == nil {
+					t.Fatal("declared package icon is missing")
+				}
+				if mode == pluginicons.ModeTemplate {
+					if len(icon.Commands) == 0 || len(icon.Layers) != 0 || icon.Stroke != 0 {
+						t.Fatalf("template icon does not use the control tint: %+v", icon)
+					}
+				} else if len(icon.Layers) != 1 || (!dark && icon.Layers[0].Fill.Red != 1) || (dark && icon.Layers[0].Fill.Blue != 1) {
+					t.Fatalf("dark=%v: package theme variant = %+v", dark, icon)
+				}
+			}
+		})
+	}
+}
 
 // webPanelHarness installs the shared web-panel fixture, which declares a web window
 // on the right and a text window at the bottom, and opens a project.

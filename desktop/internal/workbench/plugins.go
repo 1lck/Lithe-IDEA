@@ -451,6 +451,17 @@ func (a *App) reloadPluginLanguages() {
 			return nil
 		}
 		windows, windowsErr := snapshot.ToolWindows()
+		for _, window := range windows {
+			if ctx.Err() != nil || a.pluginReloadGeneration.Load() != generation {
+				return nil
+			}
+			if window.Icon.Path == "" {
+				continue
+			}
+			if err := a.pluginIcons.Read(window.PluginID, window.Package, window.Icon); err != nil {
+				a.backgroundFailedIn(ctx, "plugin_icon", fmt.Errorf("%s: %w", window.PluginID, err))
+			}
+		}
 		commands, commandsErr := snapshot.ToolCommands()
 		vcsPlugins, vcsErr := snapshot.VcsPlugins()
 		a.pluginReloadMu.Lock()

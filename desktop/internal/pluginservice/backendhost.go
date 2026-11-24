@@ -53,6 +53,12 @@ type FunctionError struct {
 
 func (e *FunctionError) Error() string { return e.Code + ": " + e.Message }
 
+// PluginWebError preserves the structured failure when a backend call crosses
+// the desktop page adapter. Embedded event failures inherit this conversion.
+func (e *FunctionError) PluginWebError() core.PluginWebError {
+	return core.PluginWebError{Code: e.Code, Message: e.Message, PluginErrorCode: e.PluginCode}
+}
+
 // BackendHost keeps at most one backend process per plugin and starts it on
 // demand: when a workspace opens for a plugin that asks for it, when its
 // language server needs a launch answer, or when another plugin calls it.
