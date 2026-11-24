@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"testing"
 	"time"
@@ -117,6 +118,11 @@ func TestWorkspaceWatchUsesNativeEventsAndReleasesOwnedSubscriptions(t *testing.
 			case "session":
 				service.resources.releaseSession(session.Session.ID)
 			case "root-replacement":
+				if runtime.GOOS == "windows" {
+					// ReadDirectoryChangesW keeps an open directory handle that blocks root replacement
+					// across parents or misses self-rename resync on Windows (1lck/Lithe-IDEA#2374).
+					t.Skip("ReadDirectoryChangesW keeps an open directory handle that blocks root replacement or misses self-rename resync on Windows (#2374)")
+				}
 				// Reusing the same path must not keep the old directory's stream alive.
 				if err := os.Rename(root, filepath.Join(t.TempDir(), "old-root")); err != nil {
 					t.Fatal(err)
