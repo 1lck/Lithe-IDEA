@@ -34,7 +34,7 @@ func TestPluginToolWindowUsesPackageIconAcrossThemes(t *testing.T) {
 				PluginID: "dev.lithe.test.tool-icon", ID: "dev.lithe.test.tool-icon.window", Package: directory,
 				Icon: pluginicons.Declaration{Path: "light.svg", DarkPath: "dark.svg", Mode: mode},
 			}
-			var app App
+			app := App{chrome: newChromeState()}
 			app.chrome.setItems(pluginItems([]pluginservice.ToolWindow{tool}, nil))
 			if err := app.pluginIcons.Read(tool.PluginID, directory, tool.Icon); err != nil {
 				t.Fatal(err)

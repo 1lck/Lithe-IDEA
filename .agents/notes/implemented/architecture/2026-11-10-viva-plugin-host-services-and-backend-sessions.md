@@ -101,7 +101,7 @@ Run 自己启动的进程还必须随附加的调试会话释放。单独发送 
 
 三个方法仅在窗口实现 `WorkspaceReadHost` 后注册。没有远程读取适配器时拒绝远程工作区，不读取本机占位目录。监听与搜索也按各自的可选宿主接口注册，遵循相同的上下文检查。
 
-验证使用 `scripts/desktop/desktop-go.sh test ./internal/pluginservice ./internal/workbench -run 'TestWorkspaceReads|TestPluginWorkspaceReads' -count=1`。默认构建固定到 Core `75e1480`，包含 [Core #190](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/190)、[#193](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/193)、[#194](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/194) 并保留现有 #187 增量更新依赖；无需本地覆盖路径。测试读取真实临时文件，覆盖资源隔离、磁盘与未保存文档的区别及项目关闭取消；不依赖任何具体插件。Windows 的原生目录句柄行为须在 Windows 单独验证，本机 macOS 测试不能替代。
+验证使用 `scripts/desktop/desktop-go.sh test ./internal/pluginservice ./internal/workbench -run 'TestWorkspaceReads|TestPluginWorkspaceReads' -count=1`。默认构建固定到 Core main `c6cef0b`，包含 [Core #190](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/190)、[#193](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/193)、[#194](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/194) 与 #187 增量更新；无需本地覆盖路径。测试读取真实临时文件，覆盖资源隔离、磁盘与未保存文档的区别及项目关闭取消；不依赖任何具体插件。Windows 的原生目录句柄行为须在 Windows 单独验证，本机 macOS 测试不能替代。
 
 ### API-07/08：Core 处理搜索与监听语义，Viva 只提供原生事件
 
