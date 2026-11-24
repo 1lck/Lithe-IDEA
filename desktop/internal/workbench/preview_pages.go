@@ -88,6 +88,16 @@ type markdownKernel interface {
 	ResolveMarkdownReference(ctx context.Context, documentPath, workspaceRoot, reference string, purpose core.MarkdownReferencePurpose) (core.MarkdownReference, error)
 }
 
+// previewWorkspaceRoot is the workspace given to Core when resolving a document's references.
+// A standalone session has no workspace: p.root is only the first file's folder. With no root,
+// Core uses each document's own folder for its image scope and root-relative references.
+func (p *project) previewWorkspaceRoot() string {
+	if p == nil || p.standalone {
+		return ""
+	}
+	return p.root
+}
+
 // previewWeb reports whether pages can be opened: the web host is ready and no page failed to
 // open.
 func (a *App) previewWeb() bool {
