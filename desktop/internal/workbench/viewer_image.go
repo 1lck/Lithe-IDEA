@@ -163,7 +163,12 @@ func (a *App) viewerZoom(c ui.C, zoom imageZoom, zoomTo func(zoomRequest)) {
 
 // viewerIconButton declares one icon button of the bar and reports whether it was clicked.
 func (a *App) viewerIconButton(c ui.C, label string, icon gfx.Icon) bool {
-	return ui.Button(c, label).Icon(icon).IconOnly().Ghost().Size(shellHideSize, shellHideSize).Shrink(0).Tooltip(label).Clicked()
+	return a.viewerIconButtonDisabled(c, label, icon, false)
+}
+
+// viewerIconButtonDisabled declares one icon button of the bar with an explicit disabled state.
+func (a *App) viewerIconButtonDisabled(c ui.C, label string, icon gfx.Icon, disabled bool) bool {
+	return ui.Button(c, label).Icon(icon).IconOnly().Ghost().Size(shellHideSize, shellHideSize).Shrink(0).Disabled(disabled).Tooltip(label).Clicked()
 }
 
 // imageFailure declares what stands for an image that could not be shown: a broken picture,
