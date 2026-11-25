@@ -2,9 +2,9 @@ package i18n
 
 // CommandMessages name the actions of the command catalog (Find Action).
 type CommandMessages struct {
-	Find, Replace, RecentFiles, RecentEdits, NewScratch, ScratchFiles, SaveAs                                                                                                                                                                                                                                                                                                                                                                                                                                                         string
-	AddNextOccurrence, UnselectOccurrence, SelectAllOccurrences, CloneCaretAbove, CloneCaretBelow                                                                                                                                                                                                                                                                                                                                                                                                                                     string
-	GroupEditor, GroupApp, GroupView, GroupProject, GroupToolWindows, GroupSearch, GroupGit, GroupRun, GroupTerminal, Settings, Plugins, Logs, ImportLegacy, ThemeSystem, ThemeLight, ThemeDark, LanguageEnglish, LanguageChinese, OpenProject, NewProject, Clone, CloseProject, SaveAll, SearchEverywhere, FindInFiles, ReplaceInFiles, Commit, CommitAndPush, Branches, GitConsole, Run, Debug, ToggleBreakpoint, NewTerminal, NoActions, FindAction, GitNextChange, GitPreviousChange, Fold, Unfold, FoldAll, UnfoldAll, ToggleVim string
+	Find, Replace, RecentFiles, RecentEdits, NewScratch, ScratchFiles, SaveAs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    string
+	AddNextOccurrence, UnselectOccurrence, SelectAllOccurrences, CloneCaretAbove, CloneCaretBelow                                                                                                                                                                                                                                                                                                                                                                                                                                                                string
+	GroupEditor, GroupApp, GroupView, GroupProject, GroupToolWindows, GroupSearch, GroupGit, GroupRun, GroupTerminal, Settings, Plugins, Logs, ImportLegacy, ThemeSystem, ThemeLight, ThemeDark, LanguageEnglish, LanguageChinese, OpenProject, NewProject, Clone, CloseProject, SaveAll, SearchEverywhere, FindInFiles, ReplaceInFiles, Commit, CommitAndPush, Push, Fetch, UpdateBranch, Branches, GitConsole, Run, Debug, ToggleBreakpoint, NewTerminal, NoActions, FindAction, GitNextChange, GitPreviousChange, Fold, Unfold, FoldAll, UnfoldAll, ToggleVim string
 	// ShowTool is the action that shows a tool window by its name.
 	ShowTool func(name string) string
 }
@@ -51,6 +51,9 @@ func commandMessages(language Language) CommandMessages {
 		ReplaceInFiles:       Shared(language, "desktop.command.replaceInFiles"),
 		Commit:               Shared(language, "desktop.command.commit"),
 		CommitAndPush:        Shared(language, "desktop.command.commitAndPush"),
+		Push:                 Shared(language, "git.push"),
+		Fetch:                Shared(language, "desktop.sync.fetchButton"),
+		UpdateBranch:         Shared(language, "desktop.git.updateBranch"),
 		Branches:             Shared(language, "desktop.command.branches"),
 		GitConsole:           Shared(language, "desktop.command.gitConsole"),
 		Run:                  Shared(language, "desktop.command.run"),
