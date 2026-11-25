@@ -5,11 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"sort"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 )
 
 // ToolWindow is one tool window a plugin declares under ui.toolWindows: a
@@ -36,28 +35,29 @@ type ToolWindow struct {
 	// View is the backend view function that draws the window's body for each view event
 	// (pluginview); empty for the other kinds.
 	View string
-	// IconHost is the declared host icon ID ("database", "git", ...), empty when the window
-	// declares none. Package resources are not read as icons.
+	// IconHost names a host icon; Icon instead names read-only package resources.
 	IconHost string
+	Icon     pluginicons.Declaration
 }
 
 // ToolWindows reads the tool windows of every enabled plugin, ordered by
 // plugin ID, then by the declared order and ID. A broken manifest is
 // reported without hiding the others.
 func (s *Service) ToolWindows(ctx context.Context, entries []pluginmanager.Entry) ([]ToolWindow, error) {
+	snapshot, readErr := s.ReadInstalled(ctx, entries)
+	contributions, err := snapshot.ToolWindows()
+	return contributions, errors.Join(readErr, err)
+}
+
+// ToolWindows reads its contribution sections from the same installed bytes.
+func (snapshot InstalledSnapshot) ToolWindows() ([]ToolWindow, error) {
 	var windows []ToolWindow
 	var failures []error
-	selected, selectionErr := s.selectInstalled(ctx, entries, false)
-	if selectionErr != nil {
-		failures = append(failures, selectionErr)
-	}
-	sort.Slice(selected, func(i, j int) bool { return selected[i].Installed.ID < selected[j].Installed.ID })
-	for _, entry := range selected {
-		manifest, err := readBounded(filepath.Join(entry.Installed.Path, pluginpkg.ManifestFile), MaxManifestBytes)
-		if err != nil {
-			failures = append(failures, fmt.Errorf("%s: %w", entry.Installed.ID, err))
-			continue
-		}
+	// Sort a copy of the headers so other consumers keep Core's selection order.
+	selected := append([]installedManifest(nil), snapshot.manifests...)
+	sort.Slice(selected, func(i, j int) bool { return selected[i].entry.Installed.ID < selected[j].entry.Installed.ID })
+	for _, installed := range selected {
+		entry, manifest := installed.entry, installed.manifest
 		var declared struct {
 			DisplayName string `json:"displayName"`
 			UI          struct {
@@ -74,7 +74,10 @@ func (s *Service) ToolWindows(ctx context.Context, entries []pluginmanager.Entry
 						Entry string `json:"entry"`
 					} `json:"web"`
 					Icon *struct {
-						Host string `json:"host"`
+						Host     string `json:"host"`
+						Path     string `json:"path"`
+						DarkPath string `json:"darkPath"`
+						Mode     string `json:"mode"`
 					} `json:"icon"`
 				} `json:"toolWindows"`
 			} `json:"ui"`
@@ -98,6 +101,9 @@ func (s *Service) ToolWindows(ctx context.Context, entries []pluginmanager.Entry
 			}
 			if window.Icon != nil {
 				declaredWindow.IconHost = window.Icon.Host
+				declaredWindow.Icon = pluginicons.Declaration{
+					Path: window.Icon.Path, DarkPath: window.Icon.DarkPath, Mode: window.Icon.Mode,
+				}
 			}
 			if window.View != nil {
 				declaredWindow.View = window.View.Function

@@ -1,8 +1,12 @@
 package draftstore
 
 import (
-	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"errors"
+	"io"
+	"os"
 	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 )
 
 func TestRecoveryStoreAtomicOverwriteAndQuotaPreservePriorContents(t *testing.T) {
@@ -38,5 +42,32 @@ func TestRecoveryStoreAtomicOverwriteAndQuotaPreservePriorContents(t *testing.T)
 	}
 	if err = s.Remove("workspace", "a.txt"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSaveSourceStreamingFailurePreservesPriorCheckpointAndLeavesNoTemp(t *testing.T) {
+	dir := t.TempDir()
+	limits := core.EditorRecoveryDecision{MaxDocumentBytes: 64, MaxStorageBytes: 4096, MaxDocuments: 2}
+	s := New(dir, limits)
+	if err := s.Save(Entry{Root: "workspace", Path: "a.txt", Text: "committed"}); err != nil {
+		t.Fatal(err)
+	}
+	streamErr := errors.New("stream aborted")
+	err := s.SaveSource(Entry{Root: "workspace", Path: "a.txt"}, 7, func(w io.Writer) error {
+		if _, err := w.Write([]byte("partial")); err != nil {
+			return err
+		}
+		return streamErr
+	})
+	if !errors.Is(err, streamErr) {
+		t.Fatalf("SaveSource error = %v, want %v", err, streamErr)
+	}
+	got, found, err := s.Load("workspace", "a.txt")
+	if err != nil || !found || got.Text != "committed" {
+		t.Fatalf("checkpoint after failed SaveSource = %+v, %v, %v", got, found, err)
+	}
+	entries, err := os.ReadDir(s.dir)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("unexpected files in recovery dir: %v, %v", entries, err)
 	}
 }

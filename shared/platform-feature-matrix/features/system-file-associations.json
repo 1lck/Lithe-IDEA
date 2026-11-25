@@ -1,0 +1,44 @@
+{
+  "id": "system-file-associations",
+  "area": "应用与设置",
+  "group": "通用",
+  "capability": "按内置文本高亮目录批量申请系统文件关联，区分候选与默认、返回自动回读并独立打开文件",
+  "owner": "Desktop",
+  "verification": "macOS：从签名发布包打开通用设置，核对表格与 Finder 默认应用一致；一次选择多个不同内容类型和一组后缀别名，核对实际写入及系统确认次数，相同类型只提交一次，拒绝某项后继续其余格式并显示失败后缀；验证外部修改冲突、超时后不堆积确认，以及结束系统弹窗再返回自动回读。Finder 打开中文/空格路径文件时项目保留，文档进入独立会话，关闭后无残留。Windows：使用本机 Windows 来宾安装 amd64 包，核对 HKCU 的 Applications、OpenWithProgids、Capabilities 和 RegisteredApplications，不写 UserChoice；一次注册全部勾选格式，部分失败继续其余格式，只打开一次默认应用页；系统确认后返回自动回读。核对右键打开（Windows 11 显示更多选项）、参数引用、开发二进制不可注册及卸载清理。两端检查中英明暗表格、候选与默认状态、全选/清空、滚轮/滚动条到末尾和激活后勾选保留，运行前后安装目录清单不变。",
+  "notes": "共享目录、冲突计划和 Core 契约保持不变。macOS 修复同步提交后立即合成 -10814 并停止整批的问题，改用 NSWorkspace 异步完成回调和按系统内容类型去重；普通失败继续，取消或超时停止后续提交，同一进程最多保留一个未完成系统确认。注册修订不再包含启发式应用路径。Windows 批量候选注册继续处理单格式失败；两端激活窗口自动回读，保留草稿与上次失败反馈。说明明确替换所选格式原默认应用，生效后双击进入单文件模式。原生只读、类型别名、预取消、错误保留、共享 fixture 和四种无头界面交互在 macOS 定向竞态测试通过，最终应用构建通过；系统文件入口复用独立会话、保留项目和真实文件编辑保存的定向测试通过，无头测试不修改默认应用。原生幂等探针对 .java 已生效的同一默认应用提交后回调成功，默认值未改变；不覆盖新默认值写入或授权。自动回读有修复前失败证据，macOS 批量写入修复依据日志与代码推理。Windows 本机未配置来宾，Go 原生适配器尚未编译验收，两端签名发布包的实际批量写入、授权和卸载流程未完成，状态保持 pending。公开接口不保证整组只出现一次系统确认。",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/fileassociations/registration.go",
+      "desktop/internal/fileassociations/registration_darwin.go",
+      "desktop/internal/fileassociations/registration_test.go",
+      "desktop/internal/fileassociations/registration_darwin_test.go",
+      "desktop/internal/settingswindow/file_associations_view.go",
+      "desktop/internal/settingswindow/file_associations_test.go",
+      "desktop/internal/settingswindow/file_associations_visual_test.go",
+      "desktop/internal/core/file_associations_test.go",
+      "desktop/internal/workbench/system_document.go",
+      "desktop/internal/workbench/system_document_test.go",
+      "desktop/viva.toml",
+      ".agents/notes/implemented/feature/2026-11-23-system-file-associations.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/fileassociations/registration.go",
+      "desktop/internal/fileassociations/registration_windows.go",
+      "desktop/internal/fileassociations/registration_test.go",
+      "desktop/internal/settingswindow/file_associations_view.go",
+      "desktop/internal/settingswindow/file_associations_test.go",
+      "desktop/internal/settingswindow/file_associations_visual_test.go",
+      "desktop/internal/core/file_associations_test.go",
+      "desktop/cmd/lithe/main.go",
+      "desktop/viva.toml",
+      "scripts/desktop/package-desktop.test.mjs",
+      ".agents/notes/implemented/feature/2026-11-23-system-file-associations.md"
+    ]
+  }
+}

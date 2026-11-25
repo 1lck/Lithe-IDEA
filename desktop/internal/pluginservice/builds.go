@@ -5,10 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 )
 
 // BuildPlugin is one enabled plugin's build declaration. Core still validates
@@ -60,6 +58,8 @@ type BuildDependenciesDeclaration struct {
 // BuildTestDeclaration is one build system's declared test entry.
 type BuildTestDeclaration struct {
 	Scopes []string
+	// Filters lists the narrower test selectors the declaration accepts, such as "suite" and "case".
+	Filters []string
 	// TargetTags are the tags a target must carry for a target-scope test run; none accept
 	// every target. Core refuses a target without them; the window only hides the entry.
 	TargetTags []string
@@ -134,18 +134,17 @@ func (r BuildRunDeclaration) Debuggable() bool {
 // BuildPlugins reads the newest enabled version of every plugin that declares
 // build systems. A broken manifest is reported without hiding the others.
 func (s *Service) BuildPlugins(ctx context.Context, entries []pluginmanager.Entry) ([]BuildPlugin, error) {
+	snapshot, readErr := s.ReadInstalled(ctx, entries)
+	contributions, err := snapshot.BuildPlugins()
+	return contributions, errors.Join(readErr, err)
+}
+
+// BuildPlugins reads its contribution sections from the same installed bytes.
+func (snapshot InstalledSnapshot) BuildPlugins() ([]BuildPlugin, error) {
 	var plugins []BuildPlugin
 	var failures []error
-	selected, selectionErr := s.selectInstalled(ctx, entries, false)
-	if selectionErr != nil {
-		failures = append(failures, selectionErr)
-	}
-	for _, entry := range selected {
-		manifest, err := readBounded(filepath.Join(entry.Installed.Path, pluginpkg.ManifestFile), MaxManifestBytes)
-		if err != nil {
-			failures = append(failures, fmt.Errorf("%s: %w", entry.Installed.ID, err))
-			continue
-		}
+	for _, installed := range snapshot.manifests {
+		entry, manifest := installed.entry, installed.manifest
 		systems, err := parseBuildSystems(manifest)
 		if err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", entry.Installed.ID, err))
@@ -198,6 +197,7 @@ type rawBuildManifest struct {
 		} `json:"run"`
 		Test *struct {
 			Scopes           []string  `json:"scopes"`
+			Filters          []string  `json:"filters"`
 			TargetTags       []string  `json:"targetTags"`
 			Source           string    `json:"source"`
 			Discovery        bool      `json:"discovery"`
@@ -266,6 +266,7 @@ func parseBuildSystems(manifest json.RawMessage) (map[string]BuildSystemDeclarat
 		if raw.Test != nil {
 			system.Test = &BuildTestDeclaration{
 				Scopes:           append([]string(nil), raw.Test.Scopes...),
+				Filters:          append([]string(nil), raw.Test.Filters...),
 				TargetTags:       append([]string(nil), raw.Test.TargetTags...),
 				Source:           raw.Test.Source,
 				Discovery:        raw.Test.Discovery || raw.Test.DiscoveryCommand != nil,

@@ -92,6 +92,7 @@ func look(choice themeChoice) (gfx.Theme, palette) {
 // applyLook settles the window's theme and palette and then picks the selection color the
 // focus calls for, so every paint and every look change agree on it.
 func (a *App) applyLook(choice themeChoice) {
+	prevDark := a.colors.Dark
 	a.theme, a.colors = look(choice)
 	if a.backdropShown() {
 		// The panels and the editor area let the background image through. The theme keeps its
@@ -99,6 +100,9 @@ func (a *App) applyLook(choice themeChoice) {
 		a.colors.Panel, a.colors.Editor = gfx.Color{}, gfx.Color{}
 	}
 	a.applySelectionFocus()
+	if a.colors.Dark != prevDark {
+		a.refreshEditorActionIcons()
+	}
 }
 
 // applySelectionFocus greys the selection of every list while another window has the

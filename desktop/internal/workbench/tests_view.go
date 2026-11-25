@@ -1,9 +1,13 @@
 package workbench
 
 import (
+	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
@@ -125,14 +129,138 @@ func (a *App) testTree(c ui.C, p *project, s *testState) {
 		FillWidth().Grow(1).Shrink(1).MinHeight(0)
 }
 
-// testRow declares one suite header or case. A case with a decoded failure
-// location opens that document when clicked; a case without one stays a label.
+// resolveTestCasePath resolves a test report's file path against the workspace root, falling
+// back to the case's subproject directory when the report reported a module-relative path.
+func resolveTestCasePath(root, projectPath, testPath string) string {
+	if testPath == "" {
+		return ""
+	}
+	rel := filepath.FromSlash(testPath)
+	if filepath.IsAbs(rel) {
+		return filepath.Clean(rel)
+	}
+	candidate := filepath.Join(root, rel)
+	if projectPath != "" {
+		if _, err := os.Stat(candidate); err != nil {
+			proj := filepath.FromSlash(projectPath)
+			var sub string
+			if filepath.IsAbs(proj) {
+				sub = filepath.Join(proj, rel)
+			} else {
+				sub = filepath.Join(root, proj, rel)
+			}
+			if _, err := os.Stat(sub); err == nil {
+				return sub
+			}
+		}
+	}
+	return candidate
+}
+
+// openTestSource opens Search Everywhere prefilled with the test case or suite name so the
+// user can jump to its source even when the test report carries no file path.
+func (a *App) openTestSource(p *project, suite, caseName string) {
+	if p == nil {
+		return
+	}
+	query := strings.TrimSpace(caseName)
+	if query == "" {
+		query = strings.TrimSpace(suite)
+	}
+	if query == "" {
+		return
+	}
+	a.openEverywhereWithQuery(p, query)
+}
+
+// testRerunInstance returns the build instance that produced the current test results, or the
+// project's default test instance.
+func (p *project) testRerunInstance() *buildInstance {
+	if p == nil {
+		return nil
+	}
+	if p.tests.last != nil {
+		if instance := p.buildInstanceByID(p.tests.last.instanceID); instance != nil {
+			return instance
+		}
+	}
+	return p.testInstance()
+}
+
+// rerunTestRow runs the selected suite or test case from the Tests result tree when the build
+// instance declares support for that filter.
+func (a *App) rerunTestRow(p *project, projectName, suite, caseName string) {
+	if p == nil || p.tests.running {
+		return
+	}
+	instance := p.testRerunInstance()
+	if instance == nil {
+		return
+	}
+	if caseName != "" {
+		if !buildTestDeclaresFilter(instance, "case") {
+			return
+		}
+	} else if suite == "" || !buildTestDeclaresFilter(instance, "suite") {
+		return
+	}
+	var projectSel *core.BuildSelection
+	var targetSel *core.BuildSelection
+	if projectName != "" {
+		for _, proj := range instance.Model.Projects {
+			if proj.Path == projectName || proj.Name == projectName || proj.DisplayName == projectName || proj.ID == projectName {
+				projectSel = buildProjectSelection(proj)
+				break
+			}
+		}
+	}
+	if projectSel == nil && p.tests.last != nil && p.tests.last.instanceID == instance.ID {
+		projectSel = p.tests.last.project
+		targetSel = p.tests.last.target
+	}
+	a.startTests(p, testSelection{
+		instanceID: instance.ID,
+		project:    projectSel,
+		target:     targetSel,
+		suite:      suite,
+		caseName:   caseName,
+		projects:   buildModelProjectPaths(instance.Model),
+	})
+}
+
+// testRow declares one suite header or case. A case with a decoded location opens that file and
+// line when clicked; one without a decoded location opens Search Everywhere for its case/suite,
+// and both offer Jump to Source and Rerun in their context menus.
 func (a *App) testRow(row ui.ListRow, p *project, s *testState) {
 	c := row.C
 	spec := s.rows[row.Index]
 	if spec.header {
-		row.Element.Height(testRowHeight).PadX(10).Items(ui.Center).Gap(6).Background(a.colors.Editor)
-		ui.Text(c, testRowName(spec)).Grow(1).Shrink(1).FontSize(12.5).Bold().Color(a.colors.Text).Ellipsis()
+		name := testRowName(spec)
+		element := row.Element.Height(testRowHeight).PadX(10).Items(ui.Center).Gap(6).Background(a.colors.Editor)
+		canJump := spec.suite != ""
+		canRerun := spec.suite != "" && buildTestDeclaresFilter(p.testRerunInstance(), "suite")
+		if canJump || canRerun {
+			element = element.HitWith(ui.ID(c.Part("header")), name, gfx.HitOptions{SkipFocus: true})
+		}
+		ui.Text(c, name).Grow(1).Shrink(1).FontSize(12.5).Bold().Color(a.colors.Text).Ellipsis()
+		if canJump || canRerun {
+			ui.ContextMenu(c, element, func(menu *ui.MenuItems) {
+				menu.WidthRange(180, 280)
+				if canJump && menu.Item(i18n.Shared(a.language(), "git.jumpToSource")).Clicked() {
+					suite := spec.suite
+					c.After(func() {
+						a.performed("workspace.tests.openSource", surfaceContextMenu)
+						a.openTestSource(p, suite, "")
+					})
+				}
+				if canRerun && menu.Item(i18n.Shared(a.language(), "native.rerun")).Disabled(s.running).Clicked() {
+					projectName, suite := spec.project, spec.suite
+					c.After(func() {
+						a.rerunTestRow(p, projectName, suite, "")
+					})
+				}
+			})
+		}
 		return
 	}
 	if spec.index < 0 || spec.index >= len(s.results.Tests) {
@@ -148,8 +276,12 @@ func (a *App) testRow(row ui.ListRow, p *project, s *testState) {
 		}
 	}
 	element := row.Element.Height(testRowHeight).PadX(10).Items(ui.Center).Gap(6).Hover(ui.Look{}.Background(a.colors.Hover))
-	if test.Path != "" {
+	hasLocation := test.Path != ""
+	hasSymbol := test.Case != "" || test.Suite != ""
+	if hasLocation {
 		element.Tooltip(a.text.Tests.OpenLocation)
+	} else if hasSymbol {
+		element.Tooltip(i18n.Shared(a.language(), "git.jumpToSource"))
 	}
 	ui.Icon(c, icon).Size(14, 14).Shrink(0).Color(tint)
 	ui.Text(c, test.Case).Grow(1).Shrink(1).FontSize(12.5).Color(a.colors.Text).Ellipsis()
@@ -162,14 +294,41 @@ func (a *App) testRow(row ui.ListRow, p *project, s *testState) {
 	if position != "" {
 		ui.Text(c, position).Shrink(1).FontSize(11.5).Color(a.colors.Subtle).Ellipsis().MaxWidth(220)
 	}
-	if test.Path != "" && element.Clicked() {
-		a.performed("workspace.tests.open", surfaceButton)
-		line := 0
-		if test.Line != nil && *test.Line > 0 {
-			line = *test.Line - 1
+	openCase := func(surface actionSurface) {
+		if hasLocation {
+			a.performed("workspace.tests.open", surface)
+			line := 0
+			if test.Line != nil && *test.Line > 0 {
+				line = *test.Line - 1
+			}
+			path := resolveTestCasePath(p.root, test.Project, test.Path)
+			c.After(func() { a.openFileAtPosition(p, path, line, 0) })
+			return
 		}
-		path := filepath.Join(p.root, filepath.FromSlash(test.Path))
-		c.After(func() { a.openFileAtPosition(p, path, line, 0) })
+		if hasSymbol {
+			a.performed("workspace.tests.openSource", surface)
+			suite, caseName := test.Suite, test.Case
+			c.After(func() { a.openTestSource(p, suite, caseName) })
+		}
+	}
+	if (hasLocation || hasSymbol) && element.Clicked() {
+		openCase(surfaceButton)
+	}
+	canJump := hasLocation || hasSymbol
+	canRerun := test.Case != "" && buildTestDeclaresFilter(p.testRerunInstance(), "case")
+	if canJump || canRerun {
+		ui.ContextMenu(c, element, func(menu *ui.MenuItems) {
+			menu.WidthRange(180, 280)
+			if canJump && menu.Item(i18n.Shared(a.language(), "git.jumpToSource")).Clicked() {
+				openCase(surfaceContextMenu)
+			}
+			if canRerun && menu.Item(i18n.Shared(a.language(), "native.rerun")).Disabled(s.running).Clicked() {
+				projectName, suite, caseName := test.Project, test.Suite, test.Case
+				c.After(func() {
+					a.rerunTestRow(p, projectName, suite, caseName)
+				})
+			}
+		})
 	}
 }
 

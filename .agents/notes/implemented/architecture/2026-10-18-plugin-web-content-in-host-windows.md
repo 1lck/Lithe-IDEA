@@ -59,6 +59,8 @@
 - **Core（`rust/crates/plugin-web-content/src/lib.rs`）**：`plugins.web.open` 为一个已声明的 web 窗口登记页面，返回私有源 URL 和限额；`resource` 判断一个请求路径能不能读、读包里的哪几段路径（拒绝 `..`、空段、编码分隔符和保留的 `.lithe-host/`）；`document` 在 HTML 文档最前面注入 CSP meta 和桥接脚本；`request` 校验页面发来的每条消息，要么直接给出拒绝回复，要么交回一个已规范化的动作；`reply` 和 `event` 把结果、进度和主题变化封装成发给页面的消息。调用 ID 不可复用、同时最多 16 个调用、一次只开一个对话框，这些计数也都在 Core 里。
 - **`desktop/internal/pluginweb`**：一个 `Page` 对应一个页面。它按 Core 给出的路径段逐级 `Lstat` 读取包文件，不跟随任何符号链接，并且限制大小；把 Core 交回的动作交给 `Host` 执行（状态读写、后端调用和进度、文件对话框、在编辑器里打开文件），再把 Core 封装好的回复投递给页面。等待、读写文件和弹对话框都在窗口线程之外进行。页面关闭时取消它的全部调用，之后的结果不再投递。
 - **`desktop/internal/workbench`**：插件工具窗口加进每个窗口自己的 chrome 目录，由 Core 统一排列。停用插件期间，保存的布局仍保留它的位置，重新启用后回到原处。网页窗口用 `app.WebHost` 打开 Web 视图，并用 `NativeView` 填满窗口正文。一帧没有声明某个页面，这个页面就在 `endPaint` 里关闭。所以隐藏或移动窗口、关闭项目、停用或更新插件，都走同一条关闭路径。
+- **同窗口的项目标签（2026-11-24）**：原生窗口只有一个网页宿主（`app.WebHost`，负责为该窗口创建网页视图），它和就绪状态一起由 `windowSessions` 持有；后续项目标签使用已经绑定到窗口的同一宿主，关闭首个项目不结束宿主。每个项目仍独立持有 `pluginPages`、网页视图、页面桥接与编辑区预览；不能把页面对象或当前选中内容放进窗口级状态。切换项目显示该项目自己的页面，`ui.getState/setState` 仍按工作区保存。原因及回归见[项目标签网页宿主生命周期](../bug-fix/2026-11-24-project-tabs-web-host-lifetime.md)。
+- **覆盖层与错误传递（2026-11-24）**：原生网页属于窗口的正文层。工作台自己的补全、悬停说明和导航弹层通过 `ui.Overlay` 明确放进 `LayerPaneChrome`（Viva 的面板覆盖层），由框架同时计算原生视图遮罩和点击区域；框架菜单、对话框仍使用更高层。后端函数失败经过 `pluginservice` 与 `pluginweb` 时保留原有 `code`、`message`、`pluginErrorCode`，桌面适配器只转换数据，不重新分配业务错误码。
 - **状态（`pluginservice.SetPageState`）**：写到每用户插件根目录下的 `.state/<plugin>/pages/workspaces/<工作区键>/<窗口摘要>.json`，与插件后端的工作区状态放在一起，按窗口和工作区隔离，写入时先写临时文件再改名。它不在插件包或应用 bundle 里，所以不改变签名或增量更新的基线；`plugin-web-state` 仍然禁止跨工作树复用。
 
 Viva 的 Web 视图目前有四处达不到契约，已记录为上游缺口，补齐前按下面的方式处理：
@@ -68,7 +70,7 @@ Viva 的 Web 视图目前有四处达不到契约，已记录为上游缺口，�
 - 数据存储是持久的，与契约“网页存储不持久”不符；状态仍然只走桥接。
 - 包资源回调在窗口线程上同步执行，所以读包文件要有大小上限，Core 判断要设本地期限。
 
-另外，本宿主不向页面提供构建系统（`build.*` 返回 `plugin.web.unknownMethod`），也还不支持摄像头、麦克风和插件声明的窗口图标（暂用通用工具窗口图标）。
+另外，本宿主不向页面提供构建系统（`build.*` 返回 `plugin.web.unknownMethod`），也还不支持摄像头和麦克风。2026-11-24 起工具窗口读取声明的包内 SVG 图标：后台重载时复用 `pluginicons` 的只读加载和内存缓存，工具栏、隐藏入口列表和拖动预览在绘制时选择主题变体。缺失、被拒绝或当前绘制器不支持的资源记录一次降级，继续显示通用图标；PNG 仍不在当前矢量图标绘制器的支持范围内。
 
 ### 启动进程前的确认
 
@@ -106,8 +108,11 @@ Viva 的 Web 视图目前有四处达不到契约，已记录为上游缺口，�
 ## 验证
 
 - Viva：`scripts/desktop/desktop-go.sh test -race -count=1 ./internal/pluginweb` 用真实 Core 和共享 web-panel 夹具，验证文档注入、包外路径和链接被拒、大小上限、状态往返、调用结果与只属于本调用的进度、页面取消和关闭页面取消调用、调用 ID 不可复用、对话框、越界的 `workspace.openFile`、离开插件源的导航被送回入口、主题事件。`./internal/pluginservice -run TestPage` 覆盖进度路由和按窗口、工作区隔离的状态；`./internal/workbench -run TestPluginToolWindows` 覆盖文本窗口内容、网页窗口在引擎未就绪和打不开时的提示、隐藏即关闭页面、停用期间保存的布局仍保留窗口位置。Core 侧有 `web_content_tests.rs` 9 项。无界面驱动没有 Web 引擎，真实页面显示、CSP 拦截和主题切换的产品验收保持 pending。
+- `TestProjectTabsShareWindowWebHost` 覆盖后续标签、首个项目关闭后再开标签、不同窗口的宿主隔离；`TestPluginToolWindowsKeepWebPagesPerProjectTab` 覆盖就绪回调的两种时序，以及每个项目的页面对象、桥接状态和显隐生命周期隔离。`TestVisualPluginWebProjectTabs` 采集第二项目的加载与无引擎错误表面，不能替代原生网页引擎验收。
 - `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：确认没有新增写入 bundle 的路径。
 - `./scripts/agent-notes/verify-agent-notes.sh`：Note 格式与路径。
+
+2026-11-24 的层级修复在用户停止验证前已运行定向回归：修复前悬停弹层与正文同为 0 层，修复后层级断言通过；`TestVisualPointerHover` 生成浅色、深色和中英文的悬停与导航截图。网页错误回归 `TestPagePreservesBackendFunctionFailure` 在修复前丢失 `pluginErrorCode`，修复后保留三个结构化字段。组件结果不代替原生 WebView 遮挡验收。用户随后要求自行验收，此后的图标接线、矩阵、Note 和提交收尾没有再运行验证，原生 macOS 与 Windows 状态仍为 pending。图标用例 `TestInstalledToolWindowKeepsPackageIconDeclaration` 与 `TestPluginToolWindowUsesPackageIconAcrossThemes` 已编写，尚未执行。
 
 ## 适用范围
 

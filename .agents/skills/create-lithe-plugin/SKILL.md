@@ -39,22 +39,24 @@ description: 创建新的 Lithe 插件，或为已有插件新增语言服务器
 | 清单字段、权限、激活事件、启动模板、信任规则、插件翻译文件、插件日志协议 | 契约 `README.md` 及其引用的 schema 和 fixture |
 | 日志级别语义、通道、目录事件 | Core 仓库 `rust/logging/README.md` 和 `rust/logging/events/` |
 | 插件能力边界、新增插件 API | `.agents/notes/implemented/architecture/2026-10-31-plugin-capability-and-domain-boundaries.md` |
+| API 领域扩展、版本限制、日志与错误码、四语 SDK 交付 | [develop-lithe 的“API 复用与版本演进”](../develop-lithe/SKILL.md#api-复用与版本演进) |
+| 为插件所需的公共 API 准备 PR | Core 的 [API PR 提交指南（中文）](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/guides/plugin-api-pr-guide.zh-CN.md) |
 | 语言服务器的构建与资源归属 | `.agents/notes/implemented/architecture/2026-09-30-lsp-plugin-build-and-distribution.md` |
 | 插件进入插件市场 | [Lithe Store 发布指南](https://github.com/Lithe-IDEA/Lithe-store/blob/main/docs/publishing.md) |
 | 插件内容与宿主的边界 | `.agents/skills/develop-lithe/SKILL.md` 第三节“插件归属与宿主零依赖” |
 | 契约变更的登记与验证 | `AGENTS.md` 的“插件契约只在 Rust Core” |
 
-参考地址之间有冲突时，以契约为准，并告知用户哪份资料已经过时。
+现有字段、接口和运行时行为有冲突时，以契约为准，并告知用户哪份资料已经过时。新增 API 与引入新版本的贡献决策必须同时遵守上表链接的“API 复用与版本演进”，不能把历史升版说明当作本次升版依据。
 
 ## 二、核心要求
 
 1. **日志接线是交付条件。** 第四节中对象存在的每一项都必须完成，并按第五节验收。缺任何一项，插件都按未完成处理，不得以“功能已经可用”为由跳过或推迟。对象不存在的项按“不适用”处理。
 2. **插件是声明式包。** 插件代码不进入 Lithe 进程；宿主读取插件清单，再启动其中声明的进程。插件不得要求宿主或 Core 按插件名、工具名增加分支。
-3. **选能满足需求的最低 API 等级**，只声明实际用到的能力和权限。
+3. **选能满足需求的最低 API 等级及已有能力版本**，只声明实际用到的能力和权限。需要扩展 API 或引入新版本时，先按 [API 复用与版本演进](../develop-lithe/SKILL.md#api-复用与版本演进)判断，不得自行套用“新增字段就升版”的做法。
 4. **运行时不下载任何东西。** 插件用到的外部程序、运行时入口和 SDK 都在构建时获取，按锁定的哈希或 commit 校验后放进插件包。安装后的插件必须能离线运行。
 5. **已安装的插件包只读。** 插件只写宿主通过启动模板提供的可写目录，不得从插件包路径推导任何可写路径。
 6. **插件进程只在需要时启动。** 每个提供者由自己的激活事件启动，不得设计成应用启动或项目打开时就常驻。
-7. **契约缺能力时不得绕过。** 插件需要的能力契约中没有时，不得用私有字段、借 stderr 传数据或要求宿主特判来实现，必须停下来告知用户，按 `develop-lithe` 第三节“插件能力”提出公共 API 变更。
+7. **契约缺能力时提出公共扩展，不得绕过。** API-01–45 是可扩展的领域分类，当前方法清单没有某项能力不表示禁止增加。按 `develop-lithe` 第三节“插件能力”提出所属领域的公共 API 变更，并完成其日志、错误码和四语 SDK 交付要求；不得用私有字段、借 stderr 传数据或要求宿主特判来实现。依赖该扩展的插件路径在契约和宿主支持前不得交付为可用。
 8. **插件的全部内容只在插件仓库。** 插件的源码、清单、构建脚本和锁文件，插件的全部测试（包括端到端测试），插件的功能矩阵，插件文案的翻译，以及构建资源的说明，都只在插件仓库维护。不得把这些内容提交到宿主仓库或 Core 仓库，也不得要求宿主或 Core 的测试、CI、功能矩阵或 i18n 词条为插件兜底。
 
 ## 三、流程

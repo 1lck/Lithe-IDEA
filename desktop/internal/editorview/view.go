@@ -49,8 +49,8 @@ type Config struct {
 	// Save asks the window to write the text out, for the save chord.
 	Save func()
 	// OnEdit reports every replacement made to the view, for a language
-	// server's versioned document synchronization. It runs on the view's thread
-	// and must not block.
+	// server's versioned document synchronization, except the text ShowContent
+	// puts in, which no one edited. It runs on the view's thread and must not block.
 	OnEdit func(Edit)
 	// MinimapID is the minimap's hit and MinimapToggleID the button beside it that hides and
 	// shows it; VerticalBarID and HorizontalBarID are the tracks of the scrollbars. The window
@@ -494,23 +494,36 @@ func (v *View) diskEdit(content Content) (Edit, bool) {
 }
 
 func (v *View) replaceFromDisk(content Content) bool {
+	return v.replaceContent(content, true)
+}
+
+// replaceContent makes content the view's text and its saved baseline. Content read from disk
+// changes the file the view edits: undo keeps the text it replaces and OnEdit hears the change.
+// Other content is text the host shows (ShowContent): the view drops its undo and redo history,
+// and OnEdit hears nothing, so a host that mirrors the view's edits does not get the text back.
+func (v *View) replaceContent(content Content, fromDisk bool) bool {
 	v.extra = nil
 	var change Edit
 	changed := false
-	if v.cfg.OnEdit != nil {
+	if fromDisk && v.cfg.OnEdit != nil {
 		change, changed = v.diskEdit(content)
 	}
-	v.undo = append(v.undo, v.snapshot())
-	if len(v.undo) > undoLimit {
-		v.undo = v.undo[len(v.undo)-undoLimit:]
+	if fromDisk {
+		v.undo = append(v.undo, v.snapshot())
+		if len(v.undo) > undoLimit {
+			v.undo = v.undo[len(v.undo)-undoLimit:]
+		}
+		v.redo = v.redo[:0]
+	} else {
+		v.undo, v.redo = nil, nil
 	}
-	v.redo = v.redo[:0]
 	v.ClearInlayHints()
 	v.text = content.text
 	v.saved = v.text
 	v.revision++
 	v.clearCursorHistory()
 	v.hl.SetText(v.text)
+	v.clearColors()
 	v.forgetRows()
 	boundary := func(at int) int {
 		at = min(max(at, 0), v.text.Len())
@@ -903,6 +916,7 @@ func (v *View) edit(start, end int, text string, kind editKind) {
 	v.measureEdited(firstLine, newLast, adjusted, adjustedCells)
 	v.keepStops(firstLine, oldLast, newLast, start-v.text.LineStart(firstLine))
 	v.hl.Edit(v.text, start, end, start+len(text))
+	v.shiftColors(start, end, start+len(text))
 	v.spliceRows(firstLine, oldLast, newLast, oldCount)
 	v.anchor, v.caret = start+len(text), start+len(text)
 	if cacheEdit {
@@ -999,6 +1013,7 @@ func (v *View) restore(s snapshot) {
 	newLast := v.text.LineOf(newEnd)
 	v.keepStops(firstLine, oldLast, newLast, start-v.text.LineStart(firstLine))
 	v.hl.Edit(v.text, start, oldEnd, newEnd)
+	v.shiftColors(start, oldEnd, newEnd)
 	v.spliceRows(firstLine, oldLast, newLast, oldCount)
 	v.anchor, v.caret = s.anchor, s.caret
 	v.extra = slices.Clone(s.extra)

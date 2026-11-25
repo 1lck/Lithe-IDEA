@@ -47,6 +47,10 @@ func TestEditorActionRegistrationRefreshesOpenDocuments(t *testing.T) {
 // Use the real decoder: the lightweight host test kernel deliberately omits it.
 type realActionDecoder struct{ *notifyKernel }
 
+func (k *realActionDecoder) PluginWorkflow(ctx context.Context, payload, result any) error {
+	return core.NewClient().PluginWorkflow(ctx, payload, result)
+}
+
 func (k *realActionDecoder) DecodeEditorActions(ctx context.Context, payload any) (json.RawMessage, error) {
 	return core.NewClient().DecodeEditorActions(ctx, payload)
 }

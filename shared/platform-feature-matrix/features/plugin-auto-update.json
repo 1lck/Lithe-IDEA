@@ -2,10 +2,10 @@
   "id": "plugin-auto-update",
   "area": "扩展",
   "group": "插件与主题",
-  "capability": "插件管理页面可以主动启用或关闭自动更新；宿主在窗口前台定期检查经过 Core 验证的订阅源，只对已启用、来源匹配、发布版本更高且权限和程序声明完全保持已授权范围的插件自动安装，不中断当前插件会话；需新授权的更新仍由用户手动审批，关闭窗口或关闭选项取消后台任务。",
+  "capability": "插件管理页面可以主动启用或关闭自动更新。宿主在窗口前台定期检查同源且保持已批准权限与程序声明的新版，完整验包与保存批准后暂存在插件数据目录，重启 Lithe 时复核并激活。手动与后台的市场更新共用增量下载，精确基线与补丁均可用时重建并校验完整 ZIP，缺失或失败回退到完整包。",
   "owner": "Extensions",
-  "notes": "Viva Go 跨平台实现，默认关闭；首次开启后 30 秒检查，此后每 24 小时检查，窗口不活跃时暂缓。审批来源必须是首次经市场安装时记录的 Core 规范化 IndexURL；旧版本无来源记录的插件需要手动通过商城更新一次以建立来源。下载经市场 SHA-256 验证与安装审查，安装前再次核对启用状态和此前审批；不会通过切换/重启运行中的插件加载新版本。",
-  "verification": "自动化：desktop/internal/plugintrust/auto_update_test.go 检查同源/同权限/同程序集合，desktop/internal/marketplace/version_test.go 验证 Core 已排序版本判定，desktop/internal/workbench/plugin_auto_update_test.go 检查禁用/换源和版本过滤。手动：在插件设置齿轮开启自动更新，用合成测试市场和两版合成插件验证旧版有来源记录且权限相同时会后台下载、校验并安装；更改权限、程序声明或市场地址时不安装；后台中断/关闭开关后无临时文件与遗留子进程；重启应用后加载最新版本。macOS 和 Windows 真实原生测试及无头截图待执行。",
+  "notes": "Viva Go 跨平台实现，默认关闭；首次开启后 30 秒检查，此后每 24 小时检查，窗口不活跃时暂缓。审批来源必须是首次经市场安装时记录的 Core 规范化 IndexURL；旧版本无来源记录的插件需要手动通过商城更新一次以建立来源。下载经市场 SHA-256 验证与安装审查，安装前再次核对启用状态和此前审批；不会通过切换/重启运行中的插件加载新版本。同一进程内使用同一个插件数据根的工作台共享更新轮次。可选补丁索引与实际读取的主索引来自同一市场修订，基线从限额缓存读取；批准记录和待激活包都准备完成后才进入下一次启动的候选。共享插件数据根的桌面进程串行发布、禁用和卸载，卸载在加锁后读取安装版本。 #2317：将 desktop.marketplace.autoUpdated 改为数量中性英文（“Plugins automatically updated: {count}. Restart Lithe to apply.”）；中文不变。",
+  "verification": "自动化：desktop/internal/plugintrust/auto_update_test.go 检查同源/同权限/同程序集合，desktop/internal/marketplace/version_test.go 验证 Core 已排序版本判定，desktop/internal/workbench/plugin_auto_update_test.go 检查禁用/换源和版本过滤。手动：在插件设置齿轮开启自动更新，用合成测试市场和两版合成插件验证旧版有来源记录且权限相同时会后台下载、校验并安装；更改权限、程序声明或市场地址时不安装；后台中断/关闭开关后无临时文件与遗留子进程；重启应用后加载最新版本。macOS 和 Windows 真实原生测试及无头截图待执行。增量运输测试覆盖精确匹配、缺失索引或基线、损坏补丁或基线、目标重建不一致和取消，以及缓存锁不可用时仍交付已验包。安装包只读用例使用实际用户缓存路径。后台验证覆盖重启激活以及在重启前禁用后放弃待更新包。双进程测试覆盖共享缓存的 128 项和 256 MiB 上限、发布期间卸载等待、重试后移除新旧版本及发行包目录只读。 #2317：插件自动更新计数通知（desktop.marketplace.autoUpdated）改为数量中性英文，由 desktop/internal/i18n 与 settingswindow/workbench -race -tags 'dev vivahead' 覆盖，原生端待验收。",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
@@ -18,7 +18,12 @@
       "desktop/internal/plugintrust/auto_update_test.go",
       "desktop/internal/plugininstall/plugininstall.go",
       "desktop/internal/settingswindow/marketplace_view_test.go",
-      "desktop/internal/settingswindow/visual_capture_test.go"
+      "desktop/internal/settingswindow/visual_capture_test.go",
+      "desktop/internal/marketplace/delta.go",
+      "desktop/internal/marketplace/delta_test.go",
+      "desktop/internal/marketplace/archive_cache_test.go",
+      "desktop/internal/plugininstall/pending.go",
+      "desktop/internal/pluginservice/package_lifecycle_test.go"
     ]
   },
   "windows": {
@@ -33,7 +38,12 @@
       "desktop/internal/plugintrust/auto_update_test.go",
       "desktop/internal/plugininstall/plugininstall.go",
       "desktop/internal/settingswindow/marketplace_view_test.go",
-      "desktop/internal/settingswindow/visual_capture_test.go"
+      "desktop/internal/settingswindow/visual_capture_test.go",
+      "desktop/internal/marketplace/delta.go",
+      "desktop/internal/marketplace/delta_test.go",
+      "desktop/internal/marketplace/archive_cache_test.go",
+      "desktop/internal/plugininstall/pending.go",
+      "desktop/internal/pluginservice/package_lifecycle_test.go"
     ]
   }
 }

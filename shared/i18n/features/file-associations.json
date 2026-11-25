@@ -1,0 +1,267 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.associations.title",
+      "description": "System file associations: title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.helpMac",
+      "description": "System file associations: helpMac",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.helpWindows",
+      "description": "System file associations: helpWindows",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.selectAll",
+      "description": "System file associations: selectAll",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.clearSelection",
+      "description": "System file associations: clearSelection",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.refresh",
+      "description": "System file associations: refresh",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.format",
+      "description": "System file associations: format",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.language",
+      "description": "System file associations: language",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.currentDefault",
+      "description": "System file associations: currentDefault",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.formats",
+      "description": "System file associations: formats",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.noDefault",
+      "description": "System file associations: noDefault",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.litheDefault",
+      "description": "System file associations: litheDefault",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.selected",
+      "description": "System file associations: selected",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.associations.applyMac",
+      "description": "System file associations: applyMac",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.applyWindows",
+      "description": "System file associations: applyWindows",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.requiresInstalled",
+      "description": "System file associations: requiresInstalled",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.appliedMac",
+      "description": "System file associations: appliedMac",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.appliedWindows",
+      "description": "System file associations: appliedWindows",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.failed",
+      "description": "System file associations: failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.conflict",
+      "description": "System file associations: conflict",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.associations.status",
+      "description": "Lithe registration and confirmed default status column",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "desktop.associations.unregistered",
+      "description": "Lithe is not registered for this format",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "desktop.associations.candidateRegistered",
+      "description": "Lithe is an Open With candidate but not the default",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "desktop.associations.packageRequired",
+      "description": "A development executable has no packaged identity to compare against OS registrations",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "desktop.associations.defaultConfirmed",
+      "description": "OS readback confirms Lithe is the default",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "desktop.associations.applying",
+      "description": "Batch association operation waiting for native completion",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "desktop.associations.timedOut",
+      "description": "Batch consent exceeded its interactive deadline",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "desktop.associations.confirmationPending",
+      "description": "A previous native confirmation has not completed, so no new batch can start",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "desktop.associations.failedFormats",
+      "description": "Extensions whose native registration or default request failed",
+      "platforms": ["desktop"],
+      "parameters": {"formats": "string"}
+    },
+    {
+      "id": "desktop.associations.openWith",
+      "description": "System file associations: openWith",
+      "platforms": [
+        "desktop"
+      ]
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.associations.title": "File associations",
+      "desktop.associations.helpMac": "Select the text formats you want Lithe to edit by default, then apply. This replaces their current default applications. Once confirmed, double-clicking a file in Finder opens it in Single File Mode and keeps your open projects. macOS may ask for confirmation for each content type; extensions sharing a type change together. Returning here refreshes the actual defaults. Clearing a checkbox does not restore a previous default.",
+      "desktop.associations.helpWindows": "Register the selected text formats, then choose Lithe as their default on Lithe’s page in Windows Settings. This replaces their current default applications. Once confirmed, double-clicking a file in File Explorer opens it in Single File Mode. Registered candidates are not yet defaults. Returning here refreshes the actual defaults. You can also use Open with Lithe (under Show more options on Windows 11). Clearing a checkbox does not restore a previous default.",
+      "desktop.associations.selectAll": "Select all",
+      "desktop.associations.clearSelection": "Clear selection",
+      "desktop.associations.refresh": "Refresh",
+      "desktop.associations.format": "Format",
+      "desktop.associations.language": "Highlighting",
+      "desktop.associations.currentDefault": "Current default application",
+      "desktop.associations.formats": "Supported text formats",
+      "desktop.associations.noDefault": "No default application",
+      "desktop.associations.litheDefault": "Lithe (default)",
+      "desktop.associations.selected": "{count} selected",
+      "desktop.associations.applyMac": "Set selected defaults",
+      "desktop.associations.applyWindows": "Register and choose defaults…",
+      "desktop.associations.requiresInstalled": "Install and open the packaged Lithe application to register file associations.",
+      "desktop.associations.appliedMac": "Batch finished. Current defaults have been read back from macOS.",
+      "desktop.associations.appliedWindows": "Selected formats registered. Confirm defaults in Windows Settings; returning here refreshes the result automatically.",
+      "desktop.associations.failed": "Could not read or update file associations. Some formats may have changed. Refresh to check the current defaults and try again.",
+      "desktop.associations.conflict": "System associations changed while this page was open. Review the refreshed defaults and apply again.",
+      "desktop.associations.status": "Lithe status",
+      "desktop.associations.unregistered": "Not registered",
+      "desktop.associations.candidateRegistered": "Candidate registered",
+      "desktop.associations.packageRequired": "Package required",
+      "desktop.associations.defaultConfirmed": "Default confirmed",
+      "desktop.associations.applying": "Applying selected formats…",
+      "desktop.associations.timedOut": "System confirmation timed out and remaining requests stopped. An open system dialog may still complete. Finish or dismiss it, then refresh to check current defaults before retrying.",
+      "desktop.associations.confirmationPending": "A previous macOS confirmation is still open. Finish or dismiss it, then refresh to check current defaults before retrying.",
+      "desktop.associations.failedFormats": "Failed formats: {formats}. Review the current defaults before retrying these formats.",
+      "desktop.associations.openWith": "Open with Lithe"
+    },
+    "zh-CN": {
+      "desktop.associations.title": "文件关联",
+      "desktop.associations.helpMac": "勾选希望由 Lithe 默认编辑的文本格式后应用，会替换这些格式原来的默认应用。生效后，在访达双击文件会直接进入单文件模式，保留已经打开的项目。macOS 可能按内容类型分别要求确认；共用同一类型的后缀会一同更改。返回此窗口会自动读取实际默认应用。取消勾选不会恢复原来的默认应用。",
+      "desktop.associations.helpWindows": "注册勾选的文本格式，再到 Windows 设置中的 Lithe 页面将其设为默认，会替换这些格式原来的默认应用。生效后，在文件资源管理器双击文件会直接进入单文件模式。“已注册候选”表示尚未成为默认应用。返回此窗口会自动读取实际结果。也可使用“用 Lithe 打开”右键项（Windows 11 位于“显示更多选项”）。取消勾选不会恢复原来的默认应用。",
+      "desktop.associations.selectAll": "全选",
+      "desktop.associations.clearSelection": "清空选择",
+      "desktop.associations.refresh": "刷新",
+      "desktop.associations.format": "格式",
+      "desktop.associations.language": "高亮语言",
+      "desktop.associations.currentDefault": "当前默认应用",
+      "desktop.associations.formats": "支持的文本格式",
+      "desktop.associations.noDefault": "未设置默认应用",
+      "desktop.associations.litheDefault": "Lithe（默认）",
+      "desktop.associations.selected": "已选 {count} 项",
+      "desktop.associations.applyMac": "将所选格式设为默认",
+      "desktop.associations.applyWindows": "注册并选择默认应用…",
+      "desktop.associations.requiresInstalled": "请安装并运行打包后的 Lithe 应用以注册文件关联。",
+      "desktop.associations.appliedMac": "批量处理结束，已从 macOS 重新读取当前默认应用。",
+      "desktop.associations.appliedWindows": "所选格式已注册。请在 Windows 设置中确认默认应用，返回此窗口后将自动刷新结果。",
+      "desktop.associations.failed": "无法读取或更新文件关联，部分格式可能已生效。请刷新确认当前状态后重试。",
+      "desktop.associations.conflict": "打开此页后系统关联发生了变化。请确认刷新后的默认应用，再重新应用。",
+      "desktop.associations.status": "Lithe 状态",
+      "desktop.associations.unregistered": "未注册",
+      "desktop.associations.candidateRegistered": "已注册候选",
+      "desktop.associations.packageRequired": "需安装包",
+      "desktop.associations.defaultConfirmed": "已是默认",
+      "desktop.associations.applying": "正在批量应用所选格式…",
+      "desktop.associations.timedOut": "系统确认超时，已停止提交剩余请求。已经打开的系统弹窗仍可能生效，请先完成或关闭弹窗，再刷新核对默认应用后重试。",
+      "desktop.associations.confirmationPending": "上一轮 macOS 系统确认尚未结束。请先完成或关闭系统弹窗，再刷新核对默认应用后重试。",
+      "desktop.associations.failedFormats": "失败格式：{formats}。请核对当前默认应用后重试这些格式。",
+      "desktop.associations.openWith": "用 Lithe 打开"
+    }
+  }
+}

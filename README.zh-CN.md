@@ -339,12 +339,12 @@ node scripts/i18n/generate-i18n.mjs --check
   </tr>
   <tr>
     <td width="112" align="center">
-      <a href="https://torchai.ai/sign-up?aff=FdkE">
-        <img src="./docs/assets/sponsors/torchai.jpg" width="64" alt="TorchAI">
+      <a href="https://www.deepsiderapi.com/?utm_source=lithe">
+        <img src="./docs/assets/sponsors/deepsider-api.jpg" width="112" alt="DeepSider API">
       </a>
     </td>
     <td>
-      <a href="https://torchai.ai/sign-up?aff=FdkE"><strong>TorchAI</strong></a> 提供便捷的大模型中转服务，覆盖编程、内容生成和自动化等场景。感谢 TorchAI 对 Lithe 的支持！
+      <a href="https://www.deepsiderapi.com/?utm_source=lithe"><strong>DeepSider API</strong></a> 一站式接入 GPT、Claude、Gemini、DeepSeek 等全球主流模型。采用大厂官方渠道，非号池、非逆向。调用价格低至官方定价 2.9 折。支持实时用量监控，消费透明、用量清晰，助你以更低成本轻松调用 AI。
     </td>
   </tr>
   <tr>

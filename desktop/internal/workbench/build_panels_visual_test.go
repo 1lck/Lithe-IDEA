@@ -26,7 +26,7 @@ import (
 func visualBuildSystems() []buildInstance {
 	system := func(id, name, root string, runs []pluginservice.BuildRunDeclaration, tasks []pluginservice.BuildTaskDeclaration, model core.BuildModel) buildInstance {
 		instance := buildInstance{
-			BuildInstance: core.BuildInstance{ID: id + "@" + root, PluginID: "dev.example." + id, BuildSystemID: id, Root: root},
+			BuildInstance: core.BuildInstance{ID: id + "@" + root, PluginID: "dev.example." + id, BuildSystemID: id, Root: root, ModelSource: "provider"},
 			PluginID:      "dev.example." + id,
 			System: pluginservice.BuildSystemDeclaration{
 				DisplayName: name, Runs: runs, Tasks: tasks,
@@ -118,7 +118,7 @@ func visualGoModule() buildInstance {
 		return core.BuildTarget{ID: dir, ProjectID: "desktop", Name: module + "/" + dir, Path: dir, Tags: []string{tag}}
 	}
 	instance := buildInstance{
-		BuildInstance: core.BuildInstance{ID: "go@desktop", PluginID: "dev.example.go", BuildSystemID: "go", Root: "desktop"},
+		BuildInstance: core.BuildInstance{ID: "go@desktop", PluginID: "dev.example.go", BuildSystemID: "go", Root: "desktop", ModelSource: "command"},
 		PluginID:      "dev.example.go",
 		System: pluginservice.BuildSystemDeclaration{
 			DisplayName: "Go Modules",

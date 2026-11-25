@@ -29,13 +29,13 @@ const (
 	methodWindowError          = pluginhost.MethodPrefix + "window/showError"
 	methodBrowserOpenExternal  = pluginhost.MethodPrefix + "browser/openExternal"
 
-	// maxSnapshotBytes is what one snapshot may carry: it leaves room for
+	// DocumentSnapshotMaxBytes is what one snapshot may carry: it leaves room for
 	// worst-case JSON escaping under the 1 MiB result budget.
-	maxSnapshotBytes = 128 * 1024
-	maxEditsPerBatch = 1000
-	maxMessageText   = 2000
-	maxMessageAction = 40
-	maxMessageCount  = 3
+	DocumentSnapshotMaxBytes = 128 * 1024
+	maxEditsPerBatch         = 1000
+	maxMessageText           = 2000
+	maxMessageAction         = 40
+	maxMessageCount          = 3
 )
 
 // Message limits per plugin: the contract allows 5 messages in 10 seconds and 3
@@ -97,6 +97,35 @@ func (s *Service) AttachWorkbench(workbench Workbench) error {
 		return nil
 	}
 	s.workbench = workbench
+	// Browser addresses are checked by Core too; never grant an unchecked path
+	// to a native opener when a host has no workflow validator.
+	if _, ok := s.kernel.(workflowKernel); ok {
+		if err := s.HostServices.Register(methodBrowserOpenExternal, s.handleBrowserOpenExternal); err != nil {
+			return err
+		}
+	}
+	if host, ok := workbench.(WorkflowHost); ok {
+		if kernel, ok := s.kernel.(workflowKernel); ok {
+			if err := s.registerWorkflows(host, kernel); err != nil {
+				return err
+			}
+		}
+	}
+	if host, ok := workbench.(WorkspaceFindHost); ok {
+		if err := s.registerWorkspaceFind(host); err != nil {
+			return err
+		}
+	}
+	if host, ok := workbench.(WorkspaceWatchHost); ok {
+		if err := s.registerWorkspaceWatch(host); err != nil {
+			return err
+		}
+	}
+	if host, ok := workbench.(WorkspaceReadHost); ok {
+		if err := s.registerWorkspaceReads(host); err != nil {
+			return err
+		}
+	}
 	for _, entry := range []struct {
 		method  string
 		handler pluginhost.Handler
@@ -110,7 +139,6 @@ func (s *Service) AttachWorkbench(workbench Workbench) error {
 		{methodEditorInsertText, s.handleEditorInsertText},
 		{methodEditorOpen, s.handleEditorOpen},
 		{methodEditorReveal, s.handleEditorOpen},
-		{methodBrowserOpenExternal, s.handleBrowserOpenExternal},
 	} {
 		if err := s.HostServices.Register(entry.method, entry.handler); err != nil {
 			return err
@@ -123,6 +151,11 @@ func (s *Service) AttachWorkbench(workbench Workbench) error {
 	}
 	if host, ok := workbench.(VirtualDocumentHost); ok {
 		if err := s.registerContentProviders(host); err != nil {
+			return err
+		}
+	}
+	if host, ok := workbench.(FileChangeHost); ok {
+		if err := s.registerFileChanges(host); err != nil {
 			return err
 		}
 	}
@@ -204,11 +237,11 @@ func (s *Service) handleDocumentsSnapshot(ctx context.Context, params json.RawMe
 	if refusal != nil {
 		return nil, refusal
 	}
-	summary, text, err := s.workbench.Snapshot(ctx, workspace.Path, request.DocumentID, maxSnapshotBytes)
+	summary, text, err := s.workbench.Snapshot(ctx, workspace.Path, request.DocumentID, DocumentSnapshotMaxBytes)
 	if err != nil {
 		return nil, hostFailureOf(err)
 	}
-	if len(text) > maxSnapshotBytes {
+	if len(text) > DocumentSnapshotMaxBytes {
 		return nil, failure(CodeLimitExceeded, "The document is larger than a snapshot may be.")
 	}
 	return marshalResult(map[string]any{"document": summary, "text": text})
@@ -433,23 +466,52 @@ func (s *Service) handleBrowserOpenExternal(ctx context.Context, params json.Raw
 		Resource *Resource  `json:"resource"`
 		Unsaved  string     `json:"unsaved"`
 	}
+	kernel, ok := s.kernel.(workflowKernel)
+	if !ok {
+		return nil, failure(CodeUnsupportedOption, "Browser request validation is unavailable.")
+	}
+	var prepared struct {
+		Params json.RawMessage `json:"params"`
+	}
+	if err := kernel.PluginWorkflow(ctx, map[string]any{"operation": "prepare", "method": "browser/openExternal", "params": params}, &prepared); err != nil {
+		return nil, workflowFailure(err)
+	}
+	params = prepared.Params
 	if err := decodeStrict(params, &request); err != nil {
 		return nil, invalidParams(err)
 	}
+	caller, workspace, refusal := s.workspaceRequest(ctx, request.Context)
+	if refusal != nil {
+		return nil, refusal
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	lease := s.resources.add(caller, workspace.ContextID, cancel)
+	defer s.resources.dispose(caller, lease)
+	defer cancel()
 	if _, _, refusal := s.workspaceRequest(ctx, request.Context); refusal != nil {
 		return nil, refusal
 	}
-	if request.Resource != nil || request.Unsaved != "" {
-		// The system browser opens addresses; opening a saved workspace file
-		// needs a file: URL, which the platform helper refuses.
-		return nil, &pluginhost.Failure{Code: CodeUnsupportedOption, Message: "Opening a workspace file in the browser is not supported.",
-			Details: detailsOf(map[string]any{"option": "resource"})}
+	if err := ctx.Err(); err != nil {
+		return nil, hostFailureOf(err)
 	}
-	address, err := httpURL(request.URL)
-	if err != nil {
-		return nil, failure(codeInvalidParams, "url must be an http or https address.")
+	if request.Resource != nil {
+		host, ok := s.workbench.(interface {
+			OpenBrowserResource(context.Context, string, string, string) (bool, error)
+		})
+		if !ok {
+			return nil, failure(CodeUnsupportedOption, "Opening a saved HTML resource is unavailable.")
+		}
+		path, err := s.resolveResource(caller.PluginID, workspace, *request.Resource)
+		if err != nil {
+			return nil, hostFailureOf(err)
+		}
+		dirty, err := host.OpenBrowserResource(ctx, workspace.Path, path, request.Unsaved)
+		if err != nil {
+			return nil, hostFailureOf(err)
+		}
+		return marshalResult(map[string]any{"opened": true, "source": "disk", "hasUnsavedChanges": dirty})
 	}
-	if err := s.workbench.OpenExternal(ctx, address); err != nil {
+	if err := s.workbench.OpenExternal(ctx, request.URL); err != nil {
 		return nil, hostFailureOf(err)
 	}
 	return marshalResult(map[string]any{"opened": true, "source": "web"})

@@ -54,6 +54,20 @@ func pluginToolIcon(host string) *gfx.Icon {
 	return &icon
 }
 
+// chromeItemIcon uses package icons already read by the plugin reload worker.
+// Resolving the theme here keeps dark variants and template tinting in step
+// with the containing control without reading files while painting.
+func (a *App) chromeItemIcon(i int) *gfx.Icon {
+	it := &a.chrome.catalog[i]
+	if tool := it.tool; tool != nil && tool.Icon.Path != "" {
+		if found, ok := a.pluginIcons.Lookup(tool.PluginID, tool.Icon); ok {
+			icon := found.For(a.colors.Dark)
+			return &icon
+		}
+	}
+	return it.icon
+}
+
 // pluginItems is the built-in catalog followed by an item for each plugin tool window, then
 // one for each plugin version control provider. A tool window without its own icon has the
 // generic tool window icon.
@@ -105,7 +119,7 @@ func samePluginItem(a, b *item) bool {
 func sameToolWindow(a, b *pluginservice.ToolWindow) bool {
 	return a.PluginID == b.PluginID && a.PluginName == b.PluginName && a.Package == b.Package &&
 		a.ID == b.ID && a.Title == b.Title && a.Placement == b.Placement && a.Order == b.Order &&
-		a.Text == b.Text && a.Web == b.Web && bytes.Equal(a.Manifest, b.Manifest)
+		a.Text == b.Text && a.Web == b.Web && a.IconHost == b.IconHost && a.Icon == b.Icon && bytes.Equal(a.Manifest, b.Manifest)
 }
 
 // setPluginTools makes the tool windows and version control providers of the enabled plugins

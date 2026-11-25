@@ -12,6 +12,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/webpreview"
+	"github.com/vivaui/viva/app"
 )
 
 const testHTML = `<!doctype html><link rel=stylesheet href=style.css><h1>Board</h1>`
@@ -118,6 +119,17 @@ func TestHTMLFileShowsItsPageBesideTheSource(t *testing.T) {
 	}
 
 	language := h.app.language()
+	// Back and Forward stay disabled until the page has history in each direction.
+	for _, key := range []string{"desktop.htmlPreview.back", "desktop.htmlPreview.forward"} {
+		h.click(center(h.hitLabeled(i18n.Shared(language, key))))
+		h.settle()
+	}
+	if page.backs != 0 || page.forwards != 0 {
+		t.Fatalf("disabled history buttons fired: back=%d forward=%d", page.backs, page.forwards)
+	}
+	page.canGoBack, page.canGoForward = true, true
+	h.app.invalidator.Invalidate()
+	h.settle()
 	for _, key := range []string{"desktop.htmlPreview.back", "desktop.htmlPreview.forward", "desktop.htmlPreview.reload"} {
 		h.click(center(h.hitLabeled(i18n.Shared(language, key))))
 		h.settle()
@@ -188,5 +200,159 @@ func TestHTMLFileIsTextWithoutAWebEngine(t *testing.T) {
 	d := openHTML(t, h, testHTML)
 	if d.html != nil || editorRect(h, d).Width == 0 || controlShown(h, i18n.Shared(h.app.language(), "editor.markdownPreviewView")) {
 		t.Fatal("without a web engine the HTML file is not text alone")
+	}
+}
+
+// TestHTMLPreviewShowsTitleCrashAndLoadFailureRecovery verifies native browser state integration:
+// document title in the toolbar, crash recovery with reload, and load failure recovery.
+func TestHTMLPreviewShowsTitleCrashAndLoadFailureRecovery(t *testing.T) {
+	heldHTMLWaits(t)
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	pages := fakePreviews(h)
+	d := openHTML(t, h, testHTML)
+	page := (*pages)[0]
+	language := h.app.language()
+
+	page.title = "Interactive Board"
+	h.app.invalidator.Invalidate()
+	h.settle()
+	if !h.shows("Interactive Board") {
+		t.Fatal("the HTML preview bar does not show the page title")
+	}
+
+	page.processFailure = app.WebProcessCrashed
+	page.config.OnProcessFailed(app.WebProcessCrashed)
+	h.settle()
+	if !h.showsWrapped(i18n.Shared(language, "desktop.htmlPreview.crashed")) {
+		t.Fatal("crash message was not shown")
+	}
+	h.click(center(h.hitLabeled(i18n.Shared(language, "desktop.htmlPreview.reload"))))
+	h.settle()
+	if page.reloads != 1 {
+		t.Fatalf("reload button after crash called Reload %d times, want 1", page.reloads)
+	}
+
+	page.processFailure = app.WebProcessNoFailure
+	page.loadFailure = "host name not found"
+	h.app.invalidator.Invalidate()
+	h.settle()
+	wantLoadErr := i18n.SharedFormat(language, "desktop.htmlPreview.loadFailed", map[string]string{"reason": "host name not found"})
+	if !h.showsWrapped(wantLoadErr) {
+		t.Fatalf("load failure message %q was not shown", wantLoadErr)
+	}
+	h.click(center(h.hitLabeled(i18n.Shared(language, "desktop.htmlPreview.reload"))))
+	h.settle()
+	if page.reloads != 2 {
+		t.Fatalf("reload button after load failure called Reload %d times, want 2", page.reloads)
+	}
+	if d.html.entry == nil || d.html.entry.view != page {
+		t.Fatal("reload replaced the page entry unexpectedly")
+	}
+}
+
+// TestStandaloneHTMLShowsPageAndIsolatesEachFilesFolder verifies that Single File Mode previews
+// HTML files natively with the view switch and isolates each file's site to its own folder.
+func TestStandaloneHTMLShowsPageAndIsolatesEachFilesFolder(t *testing.T) {
+	heldHTMLWaits(t)
+	root := t.TempDir()
+	nested := filepath.Join(root, "nested")
+	otherDir := t.TempDir()
+	for _, dir := range []string{nested, otherDir} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first := filepath.Join(root, "index.html")
+	nestedFile := filepath.Join(nested, "sub.html")
+	otherFile := filepath.Join(otherDir, "other.html")
+	for name, content := range map[string]string{
+		first:                               "<!doctype html><h1>First</h1>",
+		filepath.Join(root, "app.js"):       "console.log(1)",
+		filepath.Join(root, ".env"):         "SECRET=1",
+		nestedFile:                          "<!doctype html><h1>Nested</h1>",
+		filepath.Join(nested, "local.css"):  "body{}",
+		otherFile:                           "<!doctype html><h1>Other</h1>",
+		filepath.Join(otherDir, "other.js"): "console.log(2)",
+	} {
+		if err := os.WriteFile(name, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	h := standaloneMarkdownReferenceHarness(t, first)
+	pages := fakePreviews(h)
+	h.app.openStandaloneFile(first)
+	h.await("first standalone HTML", func() bool { return h.app.project != nil && h.app.project.docs.byPath(first) != nil })
+	h.settle()
+	h.settle()
+
+	p := h.app.project
+	d := p.docs.byPath(first)
+	if len(*pages) != 1 || d.html == nil || d.html.site == nil {
+		t.Fatalf("standalone HTML opened %d pages", len(*pages))
+	}
+	language := h.app.language()
+	if editorRect(h, d).Width == 0 || !controlShown(h, i18n.Shared(language, "editor.markdownPreviewView")) {
+		t.Fatal("standalone HTML does not show split editor and view switch")
+	}
+	firstPage := (*pages)[0]
+	if firstPage.config.Page != webpreview.SitePage || firstPage.config.Address != "index.html" {
+		t.Fatalf("standalone HTML page = %q at %q", firstPage.config.Page, firstPage.config.Address)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), kernelCallTimeout)
+	defer cancel()
+	for route, kind := range map[string]string{"app.js": "file", ".env": "denied", "../secret.txt": "none"} {
+		res, err := firstPage.config.Request(ctx, route)
+		if err != nil || res.Kind != kind {
+			t.Fatalf("first standalone HTML %q = %+v (%v), want %s", route, res, err, kind)
+		}
+	}
+
+	// Open a nested HTML file and an unrelated HTML file in the same standalone window: each must
+	// resolve its site relative to its own folder without inheriting the first file's directory.
+	h.app.openFile(p, nestedFile)
+	h.await("nested standalone HTML", func() bool { return p.docs.byPath(nestedFile) != nil })
+	h.settle()
+	h.settle()
+	nestedDoc := p.docs.byPath(nestedFile)
+	if nestedDoc.html == nil || nestedDoc.html.site == nil || len(*pages) != 2 {
+		t.Fatalf("nested standalone HTML opened %d pages", len(*pages))
+	}
+	nestedPage := (*pages)[1]
+	if res, err := nestedPage.config.Request(ctx, "local.css"); err != nil || res.Kind != "file" {
+		t.Fatalf("nested standalone local.css = %+v (%v)", res, err)
+	}
+	if res, err := nestedPage.config.Request(ctx, "../app.js"); err != nil || res.Kind != "none" {
+		t.Fatalf("nested standalone escaped into parent dir: %+v (%v)", res, err)
+	}
+
+	h.app.openFile(p, otherFile)
+	h.await("other standalone HTML", func() bool { return p.docs.byPath(otherFile) != nil })
+	h.settle()
+	h.settle()
+	otherDoc := p.docs.byPath(otherFile)
+	if otherDoc.html == nil || otherDoc.html.site == nil || len(*pages) != 3 {
+		t.Fatalf("other standalone HTML opened %d pages", len(*pages))
+	}
+	otherPage := (*pages)[2]
+	if res, err := otherPage.config.Request(ctx, "other.js"); err != nil || res.Kind != "file" {
+		t.Fatalf("other standalone other.js = %+v (%v)", res, err)
+	}
+	if res, err := otherPage.config.Request(ctx, "index.html"); err != nil || res.Kind != "none" {
+		t.Fatalf("other standalone saw first folder's index.html: %+v (%v)", res, err)
+	}
+
+	if !p.standalone || h.app.plugins != nil || p.search.watch != nil || p.git.isRepository() {
+		t.Fatal("standalone HTML preview activated project services")
+	}
+
+	h.app.closeProject()
+	h.await("standalone session closed", func() bool { return h.app.project == nil })
+	h.settle()
+	for _, page := range *pages {
+		if !page.closed {
+			t.Fatal("closing standalone session kept an HTML preview page open")
+		}
 	}
 }

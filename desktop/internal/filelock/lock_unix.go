@@ -1,6 +1,6 @@
 //go:build darwin || linux
 
-package pluginruntime
+package filelock
 
 import (
 	"errors"

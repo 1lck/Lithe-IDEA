@@ -2,10 +2,15 @@ package workbench
 
 import (
 	"context"
+	"path"
 	"slices"
+	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/webpreview"
+	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -39,6 +44,15 @@ type previewView interface {
 	Reload()
 	Back()
 	Forward()
+	CanGoBack() bool
+	CanGoForward() bool
+	IsLoading() bool
+	Title() string
+	Crashed() bool
+	ProcessFailure() app.WebProcessFailure
+	LoadFailure() string
+	CurrentPath() string
+	Focus()
 	Close()
 }
 
@@ -88,10 +102,20 @@ type markdownKernel interface {
 	ResolveMarkdownReference(ctx context.Context, documentPath, workspaceRoot, reference string, purpose core.MarkdownReferencePurpose) (core.MarkdownReference, error)
 }
 
+// previewWorkspaceRoot is the workspace given to Core when resolving a document's references.
+// A standalone session has no workspace: p.root is only the first file's folder. With no root,
+// Core uses each document's own folder for its image scope and root-relative references.
+func (p *project) previewWorkspaceRoot() string {
+	if p == nil || p.standalone {
+		return ""
+	}
+	return p.root
+}
+
 // previewWeb reports whether pages can be opened: the web host is ready and no page failed to
 // open.
 func (a *App) previewWeb() bool {
-	return a.webReady && !a.previews.failed
+	return a.sessions != nil && a.sessions.webReady && !a.previews.failed
 }
 
 // openPreviewPage opens a page that lives while alive says so. It is nil while the previews are
@@ -100,7 +124,7 @@ func (a *App) openPreviewPage(config webpreview.Config, alive func() bool) *prev
 	if !a.previewWeb() {
 		return nil
 	}
-	config.Host = &a.web
+	config.Host = &a.sessions.web
 	config.Log = func(stage string, err error) {
 		a.post(func(a *App) {
 			a.backgroundFailed("web_preview_"+stage, err)
@@ -188,4 +212,81 @@ func (a *App) previewRemote() *webpreview.Remote {
 		a.previews.remote = &webpreview.Remote{Fetch: downloadMarkdownImage}
 	}
 	return a.previews.remote
+}
+
+// siteBarInfo returns the document title or active sub-page path for a site preview toolbar.
+func siteBarInfo(entry *previewPage, fileName string) string {
+	if entry == nil || entry.closed {
+		return ""
+	}
+	if title := strings.TrimSpace(entry.view.Title()); title != "" && title != fileName {
+		return title
+	}
+	if current := entry.view.CurrentPath(); current != "" {
+		if base := path.Base(current); base != "" && base != "." && base != "/" && base != fileName {
+			return current
+		}
+	}
+	return ""
+}
+
+// siteNavActions declares the loading spinner and history controls for an interactive site page.
+func (a *App) siteNavActions(c ui.C, entry *previewPage, tooLarge bool) {
+	if entry == nil || entry.closed || tooLarge {
+		return
+	}
+	language := a.language()
+	if entry.view.IsLoading() {
+		ui.Spinner(c.Part("loading")).Size(12, 12).Shrink(0)
+	}
+	if a.viewerIconButtonDisabled(c.Part("back"), i18n.Shared(language, "desktop.htmlPreview.back"), icons.ChevronLeft, !entry.view.CanGoBack()) {
+		entry.view.Back()
+	}
+	if a.viewerIconButtonDisabled(c.Part("forward"), i18n.Shared(language, "desktop.htmlPreview.forward"), icons.ChevronRight, !entry.view.CanGoForward()) {
+		entry.view.Forward()
+	}
+	if a.viewerIconButton(c.Part("reload"), i18n.Shared(language, "desktop.htmlPreview.reload"), icons.RefreshCw) {
+		entry.view.Reload()
+	}
+}
+
+// showSiteBody renders a site page or a reloadable recovery state when its process or load failed.
+func (a *App) showSiteBody(c ui.C, entry *previewPage, reopen func()) {
+	language := a.language()
+	switch {
+	case entry.view.Crashed():
+		if isWebProcessHostGone(entry.view.ProcessFailure()) {
+			if reopen != nil {
+				c.After(reopen)
+			}
+			return
+		}
+		message := i18n.Shared(language, "desktop.htmlPreview.crashed")
+		if entry.view.ProcessFailure() == app.WebProcessKilled || entry.view.ProcessFailure() == app.WebProcessUnresponsive {
+			message = i18n.Shared(language, "desktop.htmlPreview.stopped")
+		}
+		a.previewReloadMessage(c, message, func() { entry.view.Reload() })
+	case entry.view.LoadFailure() != "":
+		message := i18n.SharedFormat(language, "desktop.htmlPreview.loadFailed", map[string]string{"reason": entry.view.LoadFailure()})
+		a.previewReloadMessage(c, message, func() { entry.view.Reload() })
+	default:
+		a.showPreviewPage(c, entry)
+	}
+}
+
+// isWebProcessHostGone reports whether failure indicates the web engine's host process exited
+// (Viva maps that state in platform.WebProcessHostGone without exporting the constant in app).
+func isWebProcessHostGone(failure app.WebProcessFailure) bool {
+	return failure.String() == "host process gone"
+}
+
+// previewReloadMessage centers message in the preview area with a Reload action button.
+func (a *App) previewReloadMessage(c ui.C, message string, reload func()) {
+	language := a.language()
+	ui.Column(c).Fill().Center().Gap(10).PadX(shellContentPad).Children(func() {
+		ui.Paragraph(c, message, 3).FillWidth().TextCenter().Color(a.colors.Subtle)
+		if reload != nil && ui.Button(c.Part("reload-page"), i18n.Shared(language, "desktop.htmlPreview.reload")).Outline().Clicked() {
+			c.After(reload)
+		}
+	})
 }

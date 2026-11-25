@@ -478,3 +478,25 @@ func TestCancelledTransferLeavesNoCompleteOrPartialGeneration(t *testing.T) {
 		}
 	}
 }
+
+func TestPrepareCleansAbandonedAtomicArchiveTemps(t *testing.T) {
+	body := tarArchive(t, member{name: "distribution/bin/worker", body: "working", mode: 0o755})
+	artifact := selected(body, "tar.gz", "1")
+	manager, _ := testManager(t, map[string][]byte{artifact.URL: body})
+	base := filepath.Join(manager.Root, artifact.CacheKey)
+	if err := os.MkdirAll(base, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	abandoned := filepath.Join(base, ".archive.crashed-attempt")
+	if err := os.WriteFile(abandoned, []byte("partial"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx := testContext(t)
+	installed, err := manager.Prepare(ctx, artifact, validateBody("working"), nil)
+	if err != nil || installed.Executable == "" {
+		t.Fatalf("prepare after crash = %+v, %v", installed, err)
+	}
+	if _, err := os.Stat(abandoned); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("abandoned archive temp remained: %v", err)
+	}
+}

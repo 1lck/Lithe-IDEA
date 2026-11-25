@@ -40,6 +40,39 @@ func TestStripeButtonMenuMovesTheButtonWithinItsZone(t *testing.T) {
 	}
 }
 
+// A context menu belongs to its target. Declaring a closed menu must not give
+// the next spacer or control a name left over from the target's catalog key.
+func TestWorkbenchContextMenusKeepButtonIdentityAcrossRepaints(t *testing.T) {
+	for _, look := range []struct{ theme, language string }{{"dark", "zh-Hans"}, {"light", "en-US"}} {
+		t.Run(look.theme, func(t *testing.T) {
+			prefs := store.At(t.TempDir())
+			if err := prefs.Save(settingsFile, map[string]string{"theme": look.theme}); err != nil {
+				t.Fatal(err)
+			}
+			h := newHarnessWithOptions(t, Options{Kernel: core.NewClient(), Store: prefs, Languages: []string{look.language}})
+			h.open(t.TempDir())
+			h.settleChain()
+			label := h.app.chrome.catalog[catalogIndex[itemProject]].label(h.app.text)
+			before := h.pageHit(label).ID
+			for _, width := range []int{1000, 1280} {
+				if err := h.driver.Resize(width, 800); err != nil {
+					t.Fatal(err)
+				}
+				h.rightClickAt(h.button(itemProject))
+				if !h.hasPopupItem(h.shared("native.hideEntry")) {
+					t.Fatal("the Project button's context menu did not open")
+				}
+				if err := h.driver.Key(gfx.KeyEscape, 0); err != nil {
+					t.Fatal(err)
+				}
+				if got := h.pageHit(label).ID; got != before {
+					t.Fatalf("Project identity changed after repaint: %v, want %v", got, before)
+				}
+			}
+		})
+	}
+}
+
 // The header of a tool window hides it from its context menu, as the earlier client's
 // Problems tool window header did.
 func TestToolWindowHeaderMenuHidesTheToolWindow(t *testing.T) {

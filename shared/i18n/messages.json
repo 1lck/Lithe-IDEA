@@ -9229,6 +9229,13 @@
       }
     },
     {
+      "id": "desktop.editorActions.tooltip",
+      "description": "Accessibility title of the editor gutter action tooltip.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.editorMenu.back",
       "description": "Editor context menu: back to the previous caret place",
       "platforms": [
@@ -9271,8 +9278,22 @@
       ]
     },
     {
+      "id": "desktop.editorMenu.goToImplementation",
+      "description": "Editor context menu: go to implementation",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.editorMenu.goToLine",
       "description": "Editor context menu: go to a line and column",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorMenu.goToSuper",
+      "description": "Editor context menu: go to super declaration",
       "platforms": [
         "desktop"
       ]
@@ -16987,8 +17008,22 @@
       ]
     },
     {
+      "id": "desktop.semantics.implementations",
+      "description": "Accessibility title of the implementation target list.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.semantics.noDefinition",
       "description": "Banner shown when a definition request returns no openable target.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.noImplementations",
+      "description": "Banner shown when an implementation request returns no openable target.",
       "platforms": [
         "desktop"
       ]
@@ -17003,6 +17038,13 @@
     {
       "id": "desktop.semantics.noServer",
       "description": "Banner shown when a language command has no running language server for the file.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.semantics.noSuperDeclaration",
+      "description": "Banner shown when a super-declaration request returns no openable target.",
       "platforms": [
         "desktop"
       ]
@@ -27201,8 +27243,7 @@
       "id": "git.diff.oneDifference",
       "description": "Windows UI: git.diff.oneDifference",
       "platforms": [
-        "windows",
-        "desktop"
+        "windows"
       ]
     },
     {
@@ -110181,6 +110222,62 @@
         "count": "string",
         "files": "string"
       }
+    },
+    {
+      "id": "desktop.pluginHost.backgroundTasks",
+      "description": "Native plugin workflow backgroundTasks",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginHost.commandFailed",
+      "description": "Native plugin workflow commandFailed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginHost.diff",
+      "description": "Native plugin workflow diff",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginHost.inputLimit",
+      "description": "Native plugin workflow inputLimit",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginHost.modified",
+      "description": "Native plugin workflow modified",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginHost.noOutput",
+      "description": "Native plugin workflow noOutput",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginHost.original",
+      "description": "Native plugin workflow original",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginHost.output",
+      "description": "Native plugin workflow output",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

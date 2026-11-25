@@ -19,7 +19,8 @@
       "desktop/internal/settingswindow/settings_surfaces_test.go",
       "desktop/internal/pluginsettings/store_test.go",
       "desktop/internal/pluginservice/settings_editor_test.go",
-      "desktop/internal/settingswindow/languages_view_test.go"
+      "desktop/internal/settingswindow/languages_view_test.go",
+      "desktop/internal/pluginview/render.go"
     ]
   },
   "windows": {
@@ -38,11 +39,12 @@
       "desktop/internal/settingswindow/settings_surfaces_test.go",
       "desktop/internal/pluginsettings/store_test.go",
       "desktop/internal/pluginservice/settings_editor_test.go",
-      "desktop/internal/settingswindow/languages_view_test.go"
+      "desktop/internal/settingswindow/languages_view_test.go",
+      "desktop/internal/pluginview/render.go"
     ]
   },
   "owner": "Plugin Platform",
-  "verification": "自动化：scripts/desktop/desktop-go.sh test ./internal/settingswindow/ ./internal/pluginsettings/ ./internal/pluginservice/，覆盖 Core 投影的动态插件页（Core 契约 fixture 与 rust/fixtures 的设置清单）共享草稿、按页过滤按钮、刷新干净表单、项目层存储和编辑器投影。设置区域：scripts/desktop/desktop-go.sh test -run 'Region' ./internal/settingswindow/，覆盖绑定设置的草稿类型、可编辑与只读、settings 事件携带的生效值与草稿、随页面打开关闭及切换语言重开，以及按 Core 契约 fixture view-panel 的区域关键词搜索定位页面；无头截图 LITHE_VISUAL_OUTPUT_DIR=<目录> scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' -run TestVisualPluginRegion ./internal/settingswindow/（Core 契约 fixture view-panel，中英文、深浅主题），检查区域控件、setting 行与 tool 行，同一测试再点开 tool 行截取工具选择器。工具选择器：TestRegionToolPickerChoosesIntoTheToolchainDraft（插件页在全局作用域、工具链页停在项目作用域时，选项按全局作用域列出，选中后只写全局草稿、关闭选择器、不立即保存，按“应用”后保存一次并清空草稿）与 TestRegionToolRowOpensTheToolchainsPage（带与不带 choose 的 tool 行跳到工具链页并定位该工具，作用域跟随插件页）。原生整机验收 pending：安装一个声明了设置页面（page/section/scope/effect/settingActions/settingRegions）的测试插件并启用，确认设置侧栏的对应分组下出现该语言或构建系统页，页内按插件和 section 分组显示设置、按钮与区域；搜索设置标题或区域关键词能定位到该页。打开项目后把 scope 为 project 的设置切到“此项目”并修改，确认项目下生成 .lithe/plugin-settings.json 且显示“已在此项目覆盖”，恢复默认后文件被删除。修改 effect 为 immediate 的设置，确认语言服务器不重启而配置生效；修改 restart 设置时出现重启提示。点击带 confirm 的按钮先弹确认，再调用插件函数并给出结果通知。在区域里修改绑定值，确认写回来源、插件重画。停用插件后页面与区域消失。只装一个 Go 插件时打开“语言与框架 › Go”，确认页面直接是插件设置，没有插件选择器和语言服务状态卡；再装一个也贡献 Go 页的插件，确认出现选择器并可切换。Windows 使用同一 Go Viva 桌面端，需在 Windows 虚拟机上重复原生验收。",
+  "verification": "自动化：scripts/desktop/desktop-go.sh test ./internal/settingswindow/ ./internal/pluginsettings/ ./internal/pluginservice/，覆盖 Core 投影的动态插件页（Core 契约 fixture 与 rust/fixtures 的设置清单）共享草稿、按页过滤按钮、刷新干净表单、项目层存储和编辑器投影。设置区域：scripts/desktop/desktop-go.sh test -run 'Region' ./internal/settingswindow/，覆盖绑定设置的草稿类型、可编辑与只读、settings 事件携带的生效值与草稿、随页面打开关闭及切换语言重开，以及按 Core 契约 fixture view-panel 的区域关键词搜索定位页面；无头截图 LITHE_VISUAL_OUTPUT_DIR=<目录> scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' -run TestVisualPluginRegion ./internal/settingswindow/（Core 契约 fixture view-panel，中英文、深浅主题），检查区域控件、setting 行与 tool 行，同一测试再点开 tool 行截取工具选择器。工具选择器：TestRegionToolPickerChoosesIntoTheToolchainDraft（插件页在全局作用域、工具链页停在项目作用域时，选项按全局作用域列出，选中后只写全局草稿、关闭选择器、不立即保存，按“应用”后保存一次并清空草稿）与 TestRegionToolRowOpensTheToolchainsPage（带与不带 choose 的 tool 行跳到工具链页并定位该工具，作用域跟随插件页）。原生整机验收 pending：安装一个声明了设置页面（page/section/scope/effect/settingActions/settingRegions）的测试插件并启用，确认设置侧栏的对应分组下出现该语言或构建系统页，页内按插件和 section 分组显示设置、按钮与区域；搜索设置标题或区域关键词能定位到该页。打开项目后把 scope 为 project 的设置切到“此项目”并修改，确认项目下生成 .lithe/plugin-settings.json 且显示“已在此项目覆盖”，恢复默认后文件被删除。修改 effect 为 immediate 的设置，确认语言服务器不重启而配置生效；修改 restart 设置时出现重启提示。点击带 confirm 的按钮先弹确认，再调用插件函数并给出结果通知。在区域里修改绑定值，确认写回来源、插件重画。停用插件后页面与区域消失。只装一个 Go 插件时打开“语言与框架 › Go”，确认页面直接是插件设置，没有插件选择器和语言服务状态卡；再装一个也贡献 Go 页的插件，确认出现选择器并可切换。Windows 使用同一 Go Viva 桌面端，需在 Windows 虚拟机上重复原生验收。 严格 dev 属性校验下运行 TestRegionViewSkipsUnavailableNodesWithoutRenamingTheirNeighbors，缺失设置/工具或绑定类型不匹配时跳过该节点，仍能连续绘制并重绘后续标签和按钮。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
@@ -72,5 +74,5 @@
       "verificationStatus": "not-applicable"
     }
   },
-  "notes": "Viva：settings_surfaces.go 按 core.SettingsPage（Key、Kind、Contributors、Sections）动态生成插件设置页，带确认的页面按钮在 plugin_settings_actions_view.go；pluginsettings/store.go 提供项目层存储，pluginservice/settings.go 的 ApplyLanguageSettings 把配置推给运行中的语言服务器；pluginhost 声明 settings 0（契约 2026-11-11 版本归 0）。 设置区域：settingswindow/plugin_region_view.go 用 pluginview 渲染器绘制插件区域，绑定设置走与声明设置行相同的编辑器（可编辑条件：已加载、作用域可写且设置有真实来源）。 2026-11-21：语言页不再重复“语言与框架”目录行里已有的内容：只有一个插件贡献时直接显示它的设置，不再显示插件选择器和语言服务状态卡；两个以上插件贡献同一页时仍显示选择器（与构建、执行、部署的分栏页一致）。TestLanguagePageDoesNotRepeatItsDirectoryRow 覆盖一个插件和两个插件两种情况。 2026-11-22：工具选择器（Core 契约 choose，ui 0 内的可选字段，能力版本不变）：plugin_region_view.go 的 Tool 在 choose 为真时把 tool 行画成带边框和下拉箭头的选择框，点开后用 Viva 浮层列出工具链页同一份选项；pluginhost 仍声明 ui 0。选择框和原生工具链页共用草稿，不另存一份。原生整机与 Windows 实机验收 pending。"
+  "notes": "Viva：settings_surfaces.go 按 core.SettingsPage（Key、Kind、Contributors、Sections）动态生成插件设置页，带确认的页面按钮在 plugin_settings_actions_view.go；pluginsettings/store.go 提供项目层存储，pluginservice/settings.go 的 ApplyLanguageSettings 把配置推给运行中的语言服务器；pluginhost 声明 settings 0（契约 2026-11-11 版本归 0）。 设置区域：settingswindow/plugin_region_view.go 用 pluginview 渲染器绘制插件区域，绑定设置走与声明设置行相同的编辑器（可编辑条件：已加载、作用域可写且设置有真实来源）。 2026-11-21：语言页不再重复“语言与框架”目录行里已有的内容：只有一个插件贡献时直接显示它的设置，不再显示插件选择器和语言服务状态卡；两个以上插件贡献同一页时仍显示选择器（与构建、执行、部署的分栏页一致）。TestLanguagePageDoesNotRepeatItsDirectoryRow 覆盖一个插件和两个插件两种情况。 2026-11-22：工具选择器（Core 契约 choose，ui 0 内的可选字段，能力版本不变）：plugin_region_view.go 的 Tool 在 choose 为真时把 tool 行画成带边框和下拉箭头的选择框，点开后用 Viva 浮层列出工具链页同一份选项；pluginhost 仍声明 ui 0。选择框和原生工具链页共用草稿，不另存一份。原生整机与 Windows 实机验收 pending。 设置区域先确认 setting/tool 行存在，再由宿主行应用 NodeKey；无可用绑定的输入、选择与开关节点不修改 UI 上下文。"
 }

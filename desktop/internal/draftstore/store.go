@@ -15,6 +15,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/atomicfile"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 )
 
@@ -179,31 +180,14 @@ func (s *Store) SaveSource(entry Entry, size int64, write func(io.Writer) error)
 	if count >= s.limits.MaxDocuments || total+int64(len(header))+size > s.limits.MaxStorageBytes {
 		return errors.New("recovery storage is full")
 	}
-	temp, err := os.CreateTemp(s.dir, ".checkpoint-*")
-	if err != nil {
-		return err
-	}
-	temporary := temp.Name()
-	defer func() {
-		if cleanup := os.Remove(temporary); cleanup != nil && !errors.Is(cleanup, os.ErrNotExist) {
-			err = errors.Join(err, cleanup)
+	return atomicfile.WriteWith(filename, 0o600, func(w io.Writer) error {
+		if _, err := w.Write(header); err != nil {
+			return err
 		}
-	}()
-	if _, err = temp.Write(header); err == nil {
-		err = write(temp)
-	}
-	if err == nil {
-		err = temp.Sync()
-	}
-	closeErr := temp.Close()
-	if err != nil {
-		return err
-	}
-	if closeErr != nil {
-		return closeErr
-	}
-	return os.Rename(temporary, filename)
+		return write(w)
+	})
 }
+
 func (s *Store) Remove(root, path string) error {
 	recoveryIO.Lock()
 	defer recoveryIO.Unlock()

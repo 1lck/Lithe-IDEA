@@ -185,7 +185,7 @@ func expectBuildTree(t *testing.T, h *harness, p *project, what string, want []s
 // application that starts, and shop-core lists a plugin goal its model reports.
 func nestedEngine(root string) buildInstance {
 	instance := buildInstance{
-		BuildInstance: core.BuildInstance{ID: "engine@" + root, PluginID: "dev.example.engine", BuildSystemID: "engine", Root: root},
+		BuildInstance: core.BuildInstance{ID: "engine@" + root, PluginID: "dev.example.engine", BuildSystemID: "engine", Root: root, ModelSource: "provider"},
 		PluginID:      "dev.example.engine",
 		System: pluginservice.BuildSystemDeclaration{
 			DisplayName: "Engine",
@@ -870,5 +870,95 @@ func TestBuildTreeTasksRunOnTheScopeTheyDeclare(t *testing.T) {
 	h.settle()
 	if h.app.notice != h.app.text.Build.ChooseTaskScope || len(kernel.requests) != 0 || p.build.operation != nil {
 		t.Fatalf("notice %q, %d requests, operation %v", h.app.notice, len(kernel.requests), p.build.operation)
+	}
+}
+
+func TestBuildInstanceManifestCacheAndOptionOn(t *testing.T) {
+	manifestWithToolbar := json.RawMessage(`{
+		"buildSystems": [{
+			"id": "fixture",
+			"options": [
+				{"id": "offline", "displayName": "Offline", "kind": "boolean", "presentation": "toolbar", "icon": {"path": "icons/offline.svg"}},
+				{"id": "profiles", "displayName": "Profiles", "kind": "multiSelect"}
+			]
+		}]
+	}`)
+	instance := &buildInstance{
+		BuildInstance: core.BuildInstance{
+			BuildSystemID: "fixture",
+			Options: map[string]json.RawMessage{
+				"on":      json.RawMessage(`true`),
+				"padded":  json.RawMessage(" true \n"),
+				"off":     json.RawMessage(`false`),
+				"invalid": json.RawMessage(`"true"`),
+			},
+		},
+		Manifest: manifestWithToolbar,
+	}
+	if !instance.hasDeclaredOptions() {
+		t.Fatal("hasDeclaredOptions = false, want true")
+	}
+	toolbar := instance.toolbarOptions()
+	if len(toolbar) != 1 || toolbar[0].id != "offline" {
+		t.Fatalf("toolbarOptions = %+v, want single offline toggle", toolbar)
+	}
+	// Mutating cached fields proves subsequent lookups reuse the cache while Manifest and ID match.
+	instance.manifestHasOptions = false
+	if instance.hasDeclaredOptions() {
+		t.Fatal("hasDeclaredOptions reparsed manifest unexpectedly when cache key matched")
+	}
+	// Replacing Manifest invalidates the cache.
+	instance.Manifest = json.RawMessage(`{"buildSystems":[{"id":"fixture","options":[{"id":"other","kind":"boolean"}]}]}`)
+	if !instance.hasDeclaredOptions() || len(instance.toolbarOptions()) != 0 {
+		t.Fatalf("cache did not invalidate on Manifest change: hasOptions=%v toolbar=%+v", instance.hasDeclaredOptions(), instance.toolbarOptions())
+	}
+	// Changing BuildSystemID invalidates the cache.
+	instance.BuildSystemID = "other"
+	if instance.hasDeclaredOptions() || len(instance.toolbarOptions()) != 0 {
+		t.Fatalf("cache did not invalidate on BuildSystemID change: hasOptions=%v toolbar=%+v", instance.hasDeclaredOptions(), instance.toolbarOptions())
+	}
+	if !instance.optionOn("on") || !instance.optionOn("padded") {
+		t.Fatal("optionOn returned false for true values")
+	}
+	if instance.optionOn("off") || instance.optionOn("invalid") || instance.optionOn("missing") {
+		t.Fatal("optionOn returned true for non-true values")
+	}
+}
+
+func TestBuildDependenciesCachesShownRowsUntilDirty(t *testing.T) {
+	deps := &buildDependencies{
+		open: map[string]bool{},
+		tree: core.BuildDependencyTree{
+			Dependencies: []core.BuildDependency{
+				{
+					Group:   "org.example",
+					Name:    "parent",
+					Version: "1.0",
+					Children: []core.BuildDependency{
+						{Group: "org.example", Name: "child", Version: "2.0"},
+					},
+				},
+			},
+		},
+	}
+	first := deps.shownRows()
+	if len(first) != 1 || first[0].label != "org.example:parent:1.0" || first[0].depth != 0 {
+		t.Fatalf("first shownRows = %+v", first)
+	}
+	second := deps.shownRows()
+	if len(second) != 1 || &first[0] != &second[0] {
+		t.Fatalf("second shownRows reallocated instead of returning cached slice")
+	}
+	deps.open["0"] = true
+	deps.rowsDirty = true
+	expanded := deps.shownRows()
+	if len(expanded) != 2 || expanded[1].label != "org.example:child:2.0" || expanded[1].depth != 1 {
+		t.Fatalf("expanded shownRows = %+v", expanded)
+	}
+	deps.tree = core.BuildDependencyTree{}
+	deps.rowsDirty = true
+	empty := deps.shownRows()
+	if empty == nil || len(empty) != 0 {
+		t.Fatalf("empty shownRows = %#v, want non-nil empty slice", empty)
 	}
 }

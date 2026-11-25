@@ -3,6 +3,7 @@ package webpreview
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/url"
 	"strconv"
 	"strings"
@@ -70,6 +71,8 @@ type siteState struct {
 	reloading  bool
 	scroll     *sitePosition
 	scrollPath string
+	// loadError holds the failure reason when the last main-frame navigation failed.
+	loadError string
 	// popup is when a window was last handed to Follow.
 	popup time.Time
 }
@@ -204,17 +207,37 @@ func (p *Page) newWindow(address string) bool {
 func (p *Page) siteLoaded(load app.WebLoad) {
 	s := &p.site
 	switch load.Phase {
+	case app.WebLoadStarted:
+		s.loading = true
+		s.loadError = ""
 	case app.WebLoadCommitted:
 		s.shown, s.onSite = sitePath(load.URL)
 		s.loading = true
+		s.loadError = ""
 	case app.WebLoadFinished:
 		s.shown, s.onSite = sitePath(load.URL)
 		s.loading = false
-		if s.reloading && s.scroll != nil && s.onSite && s.scrollPath == s.shown && p.view != nil {
-			p.view.Eval("scrollTo(" + strconv.FormatFloat(s.scroll.x, 'f', -1, 64) + "," + strconv.FormatFloat(s.scroll.y, 'f', -1, 64) + ")")
+		if load.Code != app.WebLoadNoError && load.Code != app.WebLoadCancelled {
+			reason := load.Description
+			if reason == "" {
+				reason = load.Code.String()
+			}
+			s.loadError = reason
+			s.reloading, s.scroll = false, nil
+			p.log("load", errors.New(reason))
+		} else if load.Code == app.WebLoadNoError {
+			s.loadError = ""
+			if s.reloading && s.scroll != nil && s.onSite && s.scrollPath == s.shown && p.view != nil {
+				p.view.Eval("scrollTo(" + strconv.FormatFloat(s.scroll.x, 'f', -1, 64) + "," + strconv.FormatFloat(s.scroll.y, 'f', -1, 64) + ")")
+			}
+			s.reloading, s.scroll = false, nil
+			p.refresh()
+		} else {
+			s.reloading, s.scroll = false, nil
 		}
-		s.reloading, s.scroll = false, nil
-		p.refresh()
+	}
+	if p.config.OnLoad != nil {
+		p.config.OnLoad(load)
 	}
 }
 

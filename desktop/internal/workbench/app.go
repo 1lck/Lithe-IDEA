@@ -54,6 +54,7 @@ import (
 // the calls that read the disk or run Git, so a screen can be checked against answers the
 // test chooses.
 type Kernel interface {
+	workspaceReadKernel
 	CLIOpenTarget(context.Context, string) (core.CLITarget, error)
 	ReadSourceSettings(context.Context, json.RawMessage) (core.SourceSettingsState, error)
 	PlanSourceSettingsEdits(context.Context, core.SourceSettingsSnapshot, []core.SourceSettingsEdits, bool) ([]core.SourceSettingsWrite, error)
@@ -131,6 +132,12 @@ type Kernel interface {
 	CheckBeforeLaunchTask(ctx context.Context, root string, runType core.RunTypeKey, values map[string]json.RawMessage, plugins *core.RunTypePlugins) (core.RunTaskCheck, error)
 	BeforeLaunchField(ctx context.Context, root, configurationID string, plugins *core.RunTypePlugins) (core.RunBeforeLaunchField, error)
 	RunArgumentText(ctx context.Context, lists [][]string) ([]string, error)
+	// CreateWorkspaceEntry, RenameWorkspaceEntry, CopyWorkspaceEntry and ResolveWorkspaceEntry
+	// make the file changes a plugin asks for (pluginfilechanges.go).
+	CreateWorkspaceEntry(ctx context.Context, creation core.WorkspaceEntryCreation) (core.WorkspaceEntry, error)
+	RenameWorkspaceEntry(ctx context.Context, root, path, target string) (core.WorkspaceEntry, error)
+	CopyWorkspaceEntry(ctx context.Context, root, path, target string) (core.WorkspaceEntry, error)
+	ResolveWorkspaceEntry(ctx context.Context, root, path string) (core.WorkspaceEntry, error)
 	SetDebugBreakpoints(ctx context.Context, sessionID, sourcePath string, breakpoints []core.DebugSourceBreakpoint) (core.DebugUpdate, error)
 	ExecuteDebug(ctx context.Context, sessionID, operationID, command string, threadID *int64, granularity string) (core.DebugUpdate, error)
 	ExecuteDebugThread(ctx context.Context, sessionID, operationID, command string, threadID int64) (core.DebugUpdate, error)
@@ -226,7 +233,7 @@ type Kernel interface {
 	RemoteReadDir(ctx context.Context, sessionID, path string) (core.RemoteDirectory, error)
 	RemoteStat(ctx context.Context, sessionID, path string) (core.RemoteFileMetadata, error)
 	RemoteReadFile(ctx context.Context, sessionID, path string) ([]byte, core.RemoteFileVersion, error)
-	RemoteWriteFile(ctx context.Context, sessionID, path string, data []byte, expected *core.RemoteFileVersion) (core.RemoteFileVersion, bool, error)
+	RemoteWriteFile(ctx context.Context, sessionID, path string, data []byte, expected *core.RemoteFileVersion, root ...string) (core.RemoteFileVersion, bool, error)
 	RemoteCreateDirectory(ctx context.Context, sessionID, path string) error
 	RemoteServerState(ctx context.Context, sessionID string) error
 	SearchRemoteConnections(ctx context.Context, document *string, query string) (core.RemoteConnectionsState, error)
@@ -433,6 +440,8 @@ type settings struct {
 	DisableAutoCompletion bool `json:"disableAutoCompletion,omitempty"`
 	// VimMode turns on the Vim keys of every editor; off by default (vim_mode.go).
 	VimMode bool `json:"vimMode,omitempty"`
+	// RunPerformanceCollapsed keeps the CPU/memory graph hidden while showing its summary.
+	RunPerformanceCollapsed bool `json:"runPerformanceCollapsed,omitempty"`
 	// DisableAutoSave stops saving changed files a moment after typing stops
 	// (document_autosave.go); auto-save is on by default.
 	DisableAutoSave bool `json:"disableAutoSave,omitempty"`
@@ -565,6 +574,7 @@ type project struct {
 	tree fileTree
 	// pluginViews are the plugin views the project's tool windows show, by window (plugin_view.go).
 	pluginViews map[string]*pluginViewState
+	workflow    pluginWorkflowUI
 	// build is the Run tool window's provider-backed instances and output.
 	build buildState
 	// buildSessions are the build provider sessions the project started. They live beside build
@@ -650,13 +660,14 @@ type App struct {
 	// savedBackground is the window background last stored (window_background.go).
 	savedBackground gfx.Color
 	focus           focusTarget
-	// debugHostedPort and debugInitializeWindow replace, in tests, asking the
-	// language server for a debug port and Core's initialize deadline. Production
-	// leaves both zero.
-	debugHostedPort       func(ctx context.Context, p *project, adapter debugAdapter) (int, error)
-	debugInitializeWindow time.Duration
-	kernel                Kernel
-	store                 *store.Store
+	// debugHostedPort, debugInitializeWindow, and debugInitializeTrigger replace,
+	// in tests, asking the language server for a debug port and Core's initialize
+	// deadline. Production leaves all three zero.
+	debugHostedPort        func(ctx context.Context, p *project, adapter debugAdapter) (int, error)
+	debugInitializeWindow  time.Duration
+	debugInitializeTrigger <-chan struct{}
+	kernel                 Kernel
+	store                  *store.Store
 	// startupPath is the project folder the window opens once it exists (Options.OpenPath).
 	startupPath      string
 	startupFile      string
@@ -699,6 +710,10 @@ type App struct {
 	// initialLanguageLoad lets early opens of unknown extensionless files wait for the
 	// enabled language snapshot while the project restores known paths immediately.
 	initialLanguageLoad atomic.Pointer[languageLoad]
+	// pluginReloadGeneration numbers reloadPluginLanguages calls so stale completions are
+	// dropped; pluginReloadMu serializes early language publication and visibility writes.
+	pluginReloadGeneration atomic.Uint64
+	pluginReloadMu         sync.Mutex
 
 	settings settings
 	// fonts is the font of each scope the settings name, worked out by applyFonts.
@@ -745,12 +760,11 @@ type App struct {
 	// buildOptionTexts keeps the build option translation files read per plugin package and language.
 	buildOptionTexts buildOptionTextCache
 	// pluginDownloads holds native temporary file leases for the open settings window.
-	pluginDownloads *marketplace.ArchiveSession
+	pluginDownloads     *marketplace.ArchiveSession
+	pluginArchiveCache  marketplace.ArchiveCache
+	pluginStartupCancel context.CancelFunc
 	// prompts are the questions plugins ask the user, one sheet at a time.
 	prompts pluginPrompts
-	// web opens the pages of plugin web tool windows; webReady is set once it can.
-	web      app.WebHost
-	webReady bool
 	// pluginPages are the open pages of web tool windows by chrome identifier.
 	pluginPages map[string]*pluginPage
 	// previews are the web pages of the editor area: Markdown pages and file viewers.
@@ -1108,6 +1122,11 @@ func (a *App) openPlugins(options Options) {
 		return
 	}
 	a.plugins = service
+	cache, cacheErr := marketplace.UserArchiveCache()
+	if cacheErr != nil {
+		a.backgroundFailed("plugin_archive_cache", cacheErr)
+	}
+	a.pluginArchiveCache = cache
 	service.Backend.SetInitializeTimeout(options.PluginInitializeTimeout)
 	service.Backend.SetToolResolver(a.resolveBackendTool)
 	service.Backend.SetToolEntryResolver(a.resolveBackendToolEntry)
@@ -1124,7 +1143,13 @@ func (a *App) openPlugins(options Options) {
 	service.BuildConfigurationIssue = func(ctx context.Context, err error) {
 		a.backgroundFailedIn(ctx, "plugin_build_configuration_watch", documentLogError(err))
 	}
+	service.WorkspaceWatchIssue = func(ctx context.Context, err error) {
+		a.backgroundFailedIn(ctx, "plugin_workspace_watch", documentLogError(err))
+	}
 	service.RuntimeIssue = a.recordPluginRuntimeIssue
+	service.ContextIssue = func(ctx context.Context, err error) {
+		a.backgroundFailedIn(ctx, "plugin_workspace_context_notification", err)
+	}
 	service.SetRuntimeLanguage(a.language().Code())
 	if err := service.AttachWorkbench(pluginWorkbench{app: a}); err != nil {
 		a.operationFailed("plugin_host_services", err)
@@ -1150,19 +1175,13 @@ func (a *App) Run() error {
 			return err
 		}
 		a.window = window
+		// Viva queues Finder events during startup. Register after the window is
+		// ready so even the first delivered document has an owned session and wake.
+		application.OnOpenFile(func(path string) {
+			a.post(func(a *App) { a.openSystemDocument(path) })
+		})
 		a.startUpdates()
-		a.startPluginAutoUpdates()
-		if path := a.startupPath; path != "" {
-			a.startupPath = ""
-			a.post(func(a *App) { a.openProject(path) })
-		}
-		if path := a.startupFile; path != "" {
-			a.startupFile = ""
-			a.post(func(a *App) { a.openStandaloneFile(path) })
-		}
-		// The plugin stack is assembled before the window exists, because opening a
-		// window is what installs the invalidator its background work needs.
-		a.reloadPluginLanguages()
+		a.startPluginInventory()
 		if !a.documentOnly {
 			a.loadGitHubAccount()
 		}
@@ -1179,6 +1198,9 @@ func (a *App) Run() error {
 		}
 		return nil
 	})
+	if a.pluginStartupCancel != nil {
+		a.pluginStartupCancel()
+	}
 	a.stopPluginAutoUpdates()
 	a.windowLoopEnded(err, faulted.Load())
 	a.shutdownSessions()

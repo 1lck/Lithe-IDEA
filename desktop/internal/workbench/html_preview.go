@@ -10,6 +10,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/webpreview"
+	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -66,6 +67,9 @@ type htmlPreviewState struct {
 
 // isHTMLDocument reports whether d is an HTML file, by its name.
 func isHTMLDocument(d *document) bool {
+	if d != nil && d.previewKind == "HTML" {
+		return true
+	}
 	if d == nil || d.virtual {
 		return false
 	}
@@ -129,8 +133,13 @@ func (a *App) htmlPage(c ui.C, p *project, d *document) {
 		a.giveHTML(d, s)
 	}
 	language := a.language()
+	name := filepath.Base(d.path)
 	ui.Column(c.Part("html")).Fill().Background(a.colors.Editor).Clip().Children(func() {
-		a.viewerToolbar(c, viewerBar{name: filepath.Base(d.path), actions: func() { a.htmlActions(c, p, d, s, entry) }})
+		bar := viewerBar{name: name, actions: func() { a.htmlActions(c, p, d, s, entry) }}
+		if !s.too {
+			bar.info = siteBarInfo(entry, name)
+		}
+		a.viewerToolbar(c, bar)
 		switch {
 		case s.failed:
 			a.panelMessage(c, i18n.Shared(language, "desktop.htmlPreview.failed"), a.colors.Subtle)
@@ -139,7 +148,13 @@ func (a *App) htmlPage(c ui.C, p *project, d *document) {
 		case s.too:
 			a.panelMessage(c, i18n.Shared(language, "desktop.htmlPreview.tooLarge"), a.colors.Subtle)
 		default:
-			a.showPreviewPage(c, entry)
+			a.showSiteBody(c, entry, func() {
+				if d.html == s && s.entry == entry {
+					entry.close()
+					s.entry = nil
+					a.invalidator.Invalidate()
+				}
+			})
 		}
 	})
 }
@@ -148,18 +163,8 @@ func (a *App) htmlPage(c ui.C, p *project, d *document) {
 // again while the page is shown, and open in the system browser.
 func (a *App) htmlActions(c ui.C, p *project, d *document, s *htmlPreviewState, entry *previewPage) {
 	language := a.language()
-	if entry != nil && !entry.closed && !s.too {
-		if a.viewerIconButton(c.Part("back"), i18n.Shared(language, "desktop.htmlPreview.back"), icons.ChevronLeft) {
-			entry.view.Back()
-		}
-		if a.viewerIconButton(c.Part("forward"), i18n.Shared(language, "desktop.htmlPreview.forward"), icons.ChevronRight) {
-			entry.view.Forward()
-		}
-		if a.viewerIconButton(c.Part("reload"), i18n.Shared(language, "desktop.htmlPreview.reload"), icons.RefreshCw) {
-			entry.view.Reload()
-		}
-	}
-	if a.viewerIconButton(c.Part("browser"), i18n.Shared(language, "desktop.editorMenu.openInBrowser"), icons.ExternalLink) {
+	a.siteNavActions(c, entry, s.too)
+	if browserPreviewable(d) && a.viewerIconButton(c.Part("browser"), i18n.Shared(language, "desktop.editorMenu.openInBrowser"), icons.ExternalLink) {
 		c.After(func() { a.openInBrowser(p, d, surfaceButton) })
 	}
 }
@@ -171,7 +176,7 @@ func (a *App) askHTMLSite(p *project, d *document, s *htmlPreviewState) {
 		return
 	}
 	s.asked = true
-	path, root := d.path, p.root
+	path, root := d.path, p.previewWorkspaceRoot()
 	a.background(p, kernelCallTimeout, func(ctx context.Context) func(*App) {
 		site, err := kernel.HTMLPreviewSite(ctx, path, root)
 		return func(a *App) {
@@ -200,7 +205,7 @@ func (a *App) htmlWebPage(p *project, d *document, s *htmlPreviewState) *preview
 	}
 	// A page opened again is given the text again.
 	s.entry, s.given = nil, -1
-	path, root := d.path, p.root
+	path, root := d.path, p.previewWorkspaceRoot()
 	var entry *previewPage
 	entry = a.openPreviewPage(webpreview.Config{
 		Page:    webpreview.SitePage,
@@ -212,6 +217,13 @@ func (a *App) htmlWebPage(p *project, d *document, s *htmlPreviewState) *preview
 			if entry != nil && s.entry == entry {
 				a.followDocumentLink(p, path, address, nil)
 			}
+		},
+		OnProcessFailed: func(failure app.WebProcessFailure) {
+			if entry != nil && s.entry == entry && isWebProcessHostGone(failure) {
+				entry.close()
+				s.entry = nil
+			}
+			a.invalidator.Invalidate()
 		},
 	}, func() bool {
 		return a.project == p && p.docs.find(d.id) == d && d.html == s && s.entry == entry && a.htmlPreviewable(d)

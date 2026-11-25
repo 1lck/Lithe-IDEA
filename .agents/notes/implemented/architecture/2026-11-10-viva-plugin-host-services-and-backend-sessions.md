@@ -83,13 +83,49 @@ Run 自己启动的进程还必须随附加的调试会话释放。单独发送 
   - 不要这样做：在 `get` 找不到时自动读旧位置。早先的版本这样做过，有两个问题：一是静默复制，用户不知道 Viva 拿到了旧密钥；二是为了防止已删除的值经迁移复活，`delete` 只好连旧项一起删，结果删掉了旧客户端仍在用的凭据。
 - **编辑**：`editorview.View.ApplyEdits` 把一批互不重叠的编辑合成一次 rope 差异，只产生一步撤销和一次语言服务器同步事件；位置按 UTF-16 解析，越界、落在代理对中间、重叠都拒绝（`OffsetOf`，与 LSP 风格的 `ByteOffset` 钳制不同，过期范围不能被悄悄挪动）。版本号是 view 的修订号，`getSnapshot`、`getSelections` 和所有编辑使用同一个；只读、输入法组字、版本不符分别返回 `readOnly`、`busy`、`versionConflict`（带 `currentVersion`）。编辑器只有单选区，`getSelections` 返回一个选区；`editor/open|reveal` 只把范围起点放成光标。资源路径要求相对、`/` 分隔、无 `.`/`..`，并对最长已存在前缀解析符号链接后确认仍在根内。
 - **窗口消息**：用现有 `sheet` 模态面板按到达顺序一次显示一个，限频 10 秒 5 条、每插件 3 条等待，其余返回 `rateLimited`（带 `retryAfterMilliseconds`）与 `busy`。面板用 Frame 引擎绘制，与旁边的插件审查面板一致，因为窗口主体还没迁到 Viva Page；迁移时与审查面板一起换。
-- **浏览器**：`browser/openExternal` 只接受 http/https URL（无内嵌凭据），经 Viva 的 `app.OpenURL` 打开；`resource` 形式返回 `unsupportedOption`。**`preview/openHTML` 不注册**：Viva 有系统 Web 视图（`docs/web-views.md`），但编辑器区还没有能承载网页的标签与“编辑器加预览”布局，在无头环境里也无法验证原生视图。
+- **浏览器与预览**：`browser/openExternal` 接受 http/https URL（无内嵌凭据）或已保存的 HTML 资源。资源默认要求没有未保存修改，只有显式选择 `openSavedFile` 才打开磁盘旧内容，宿主不自动保存。`preview/openMarkdown|openHTML` 注册后复用工作台预览，支持资源与只读内联文本；HTML 需要原生 WebView，不可用时在创建标签前拒绝。Core 先检查资源类型和默认模式，窗口不重复校验。
 - **终端**：用户同意（精确程序、argv、目录）后在 Terminal 工具窗口启动，与用户终端共用标签条、拖拽和分组。`termview.Config` 增加 `Args/Env/Unset/Prefill/Exited`，带 `Exited` 的视图不再靠 Enter 重启，由插件通过 `reopen` 决定；`localshell.Config.Unset` 支持移除变量（Unix 与 Windows 后端）；插件终端创建时立即启动，不等第一次绘制，因为 `show:false` 的终端不会被绘制。`close`、自然退出和关闭项目走同一条收尾路径，先取纯文本快照（`AppendRetainedText`，按预算在字符边界截断）再释放视图；自然退出后标签自动移除，退出事件只发一次。每个插件最多 8 个句柄，按会话和上下文归属，上下文关闭、会话结束、插件停用时关闭并忘记。`LITHE_` 前缀的环境变量不允许覆盖。
 - **内容提供者**：绑定记录在 `contentProviders`（上下文加 scheme），不回调后端；`documents/registerContentProvider` 要求函数已在该会话注册，保留 scheme 与重复注册按契约拒绝。导航结果的 `FilePath` 为空且 URI 的 scheme 有提供者时，定义列表保留该目标，选中后向插件请求内容（30 秒），经 Core 的 `plugins.contentProviders.decode` 校验后以只读标签打开。虚拟文档的 `path` 就是 URI，不监视文件、不保存、不与语言服务器同步，关闭后宿主不留副本。
 - **订阅与资源释放**：`hostResources` 统一登记订阅、内容提供者、终端句柄，归属 `(插件, 会话, 上下文)`；`subscriptions/dispose` 只释放调用方自己的 ID；会话结束与上下文关闭自动释放。
-- **命令**：`commands/didRun` 的发送端 `Service.NotifyCommandRun` 已实现（运行中的后端直接收；已停止的只有清单声明 `onCommand:<id>` 才被启动），但 Viva 目前没有命令面板、编辑器右键菜单或插件命令贡献入口，没有调用方。
+- **命令**：`Service.NotifyCommandRun` 从命令面板、已有快捷键目录及状态项运行纯后端命令，不再要求命令绑定工具窗口。运行中的后端直接收；已停止的只有清单声明 `onCommand:<id>` 才被启动。状态项只能引用本插件清单中的命令，归属由 Core 检查。
 
-未接通（会被 Core 以 `plugin.host.unavailable` 拒绝）：`editor/registerActions`、`editor/registerProviders`（没有编辑器行首图标、命令入口与右键菜单，注册了用户也触发不了，所以不声明）、`preview/openHTML`、`workspace/readDirectory|stat|readFile|watch|findFiles|findText`、`run/*`、`debug/*`（后两者属其他车道）。凭据在插件卸载时的清理也未做：除 macOS 外平台存储不能按 service 枚举，需要后续由插件管理器记录已用的 key。
+本节记录宿主接线边界，不作为所有领域的完成清单；编辑器注册、运行和调试的现状分别由对应实现与功能矩阵维护。凭据在插件卸载时的跨平台清理不属于本次工作流 API 增量。
+
+### API-06：先由 Core 提供磁盘读取，再接窗口
+
+`workspace/readDirectory|stat|readFile` 的共享规则和执行命令由 Rust Core 提供，桌面只把经过授权的工作区根与相对路径交给 Core，并把返回路径封装为插件自己的资源标识。这样分页、字节预算、隐藏规则和错误分类在所有客户端保持一致。具体参数和限制只在 Core 插件契约中维护。
+
+文件读取不复用打开文档的内容：例如编辑器里已把 `alpha` 改成未保存的 `ALPHA`，`readFile` 仍返回磁盘上的 `alpha`。逐段拒绝符号链接以及 Windows 的文件系统重解析点（reparse point，可把路径转到另一位置）；Unix 使用相对目录句柄，Windows 持有禁止写入和删除共享的祖先目录句柄，防止校验后路径被换成链接。代价是 Windows 读取期间无法重命名这些目录，遇到冲突的共享方式会拒绝读取，不降低保护后重试。
+
+正确做法是宿主请求所在的后台任务调用 Core，窗口线程只确认本地项目仍然有效。不要先在 Go 里解析真实路径再读取：路径可能在两步之间被替换，也会复制一份 Core 的规则。请求取消或项目关闭会取消读取，发布前再次核对同一个项目和工作区上下文，避免关闭后重开同一路径接收旧结果。这里只读取文件，不产生缓存或写入安装目录，因此不会改变代码签名或 Sparkle 增量更新基线。
+
+三个方法仅在窗口实现 `WorkspaceReadHost` 后注册。没有远程读取适配器时拒绝远程工作区，不读取本机占位目录。监听与搜索也按各自的可选宿主接口注册，遵循相同的上下文检查。
+
+验证使用 `scripts/desktop/desktop-go.sh test ./internal/pluginservice ./internal/workbench -run 'TestWorkspaceReads|TestPluginWorkspaceReads' -count=1`。默认构建固定到 Core main `c6cef0b`，包含 [Core #190](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/190)、[#193](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/193)、[#194](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/194) 与 #187 增量更新；无需本地覆盖路径。测试读取真实临时文件，覆盖资源隔离、磁盘与未保存文档的区别及项目关闭取消；不依赖任何具体插件。Windows 的原生目录句柄行为须在 Windows 单独验证，本机 macOS 测试不能替代。
+
+### API-07/08：Core 处理搜索与监听语义，Viva 只提供原生事件
+
+文件名搜索与文本搜索复用 Core 已有的匹配器、编码识别、隐藏规则和工作区索引排除策略。插件磁盘入口要求逐段拒绝链接，现有搜索索引读取链路不能保证这一点，因此这里复用匹配和策略，以同一套 no-follow 句柄做有界遍历，不调用会在校验后重新按路径打开文件的索引读取。搜索不为每个插件保留整棵树或内容索引，只保留一页与一个额外候选；代价是每页重新遍历，查询可能在大工程上超时，当前不宣称具备索引查询的延迟。以后改用索引候选时，也必须保留句柄读取和当前范围限制。
+
+正确做法是先由 Core 验证监听目标，再让 Viva 建立原生文件事件流，并在注册后核对根与目标身份。原生流覆盖工作区根，使目标的父目录被替换也能触发重扫；Core 决定哪些名字属于订阅、哪些隐藏、哪些情况丢失细节需要重扫。不要在 Go 中复制路径匹配、排序、隐藏规则，也不要使用空闲轮询。注册完成后先发一次重扫，事件丢失、根消失或替换时要求重新读取；根消失或替换后释放旧流，不把旧流用于新根。
+
+监听在 `hostResources` 中归属插件、会话与上下文，复用原生注册限额。取消在途通知后再关闭原生句柄，通知与释放串行，因此 `dispose` 返回后不会继续发送；请求返回不结束长期订阅，关闭工作区、退出会话或停用插件才结束。旧订阅不能转移给同路径的新上下文。监听只保留有界名字批次，无文件内容缓存和磁盘写入，不影响发行包、代码签名或 Sparkle 更新基线。
+
+验证读取 Core 的共享 fixture 和真实临时文件，macOS 使用 Viva 的原生文件事件覆盖递归创建、原子保存、删除、初始重扫、三种释放入口及根目录替换后的最终重扫与释放，并用可控通知验证释放会取消在途发送。`scripts/desktop/desktop-go.sh test ./internal/core ./internal/pluginservice ./internal/workbench -run 'TestWorkspace(Reads|Find|Search|Watch)|TestPluginWorkspace' -count=1` 与定向竞态检查覆盖桥接、资源封装、未保存缓冲区隔离和关闭取消；监听测试没有用定时睡眠同步。Windows 原生运行按本次任务范围不验收，不能据 macOS 结果标为 Windows 已验证。
+
+### 通用工作流：先完成 Core 计划，再接原生呈现
+
+输入、预览、对比、输出、进度、状态、剪贴板、文件管理器和 HTTP 共用 `plugins.workflow` 的严格计划。Core 拥有参数、默认值、权限、过滤排序、分页停止条件、输出增量和预算；Go 只连接原生 I/O、控件与会话生命周期。不要在窗口重新写过滤、扩展名检查或分页规则，这会使另一平台产生不同结果。
+
+例如，同一插件会话与工作区内重复打开相同内联预览 ID，应更新原标签；另一个会话使用同 ID 则获得独立的只读标签。内联 Diff 使用与工作区文件无关的身份，不能因标题恰好等于真实文件名而获得保存能力。预览和输出不写磁盘缓存，不改变发行包、代码签名或 Sparkle 增量更新基线。
+
+长期输出、进度和状态归属插件、会话与上下文。关闭上下文时先取消正在执行的原生调用，再排队移除窗口资源；不要在窗口关闭过程中同步等待窗口队列，否则可能死锁。HTTP 连接仅首次请求时创建并复用，没有 Cookie jar，也不自动跟随重定向。请求结束释放应答，工作区关闭后清理空闲连接；错误只保留安全分类，不把 URL、查询参数、头或正文交给日志。
+
+视图刷新绑定当前显示的实例和会话。关闭先使旧回调失效，再停止观察，避免同路径重开视图接收旧刷新。树只保留已加载范围，用稳定 ID 保持选择和展开；Core 判断视口何时请求下一页，游标或范围不前进就停止。代价是桌面需维护原生控件的呈现状态，但不再维护一份共享规则。
+
+未选择让插件用网页复制输入面板、输出台或状态栏：这会重复原生控件和权限生命周期。也未把 Cookie、身份验证或下载文件塞进通用 HTTP；这些需要各自的凭据和资源所有权契约。
+
+验证：`scripts/desktop/desktop-go.sh test ./internal/workbench ./internal/pluginservice ./internal/pluginview -run 'Test(Workflow|BrowserOpensOnlyHTTP|SessionRefresh|WorkbenchDefaultLayout)' -count=1 -timeout=45s`；同范围逐测试计时与竞态检查。`TestVisualPluginWorkflow` 采集深浅主题、中英文的真实预览、输出、任务菜单、只读对比和快速选择截图，CI 上传 artifact。macOS 定向测试不替代原生 WebView、系统剪贴板、外部浏览器或 Windows 整机验收；整体矩阵保持 partial/pending。
 
 ## 适用范围
 
@@ -100,4 +136,6 @@ Run 自己启动的进程还必须随附加的调试会话释放。单独发送 
 - `desktop/internal/credentials/`
 - `desktop/internal/pluginservice/`（hostdocuments、hostsurface、hostterminal、hostcontent、hostcommands、hostresources、hostcredentials）
 - `desktop/internal/workbench/`（pluginworkbench、pluginprompt、pluginterminals、plugincontent）
+- `desktop/internal/core/workspace_read.go`、`desktop/internal/core/workspace_find_watch.go`、`desktop/internal/pluginservice/hostworkspaceread.go`、`desktop/internal/pluginservice/hostworkspacefind.go`、`desktop/internal/pluginservice/hostworkspacewatch.go`、`desktop/internal/workbench/pluginworkspaceread.go`
 - `desktop/internal/editorview/hostedit.go`、`desktop/internal/termview/`、`desktop/internal/localshell/`
+- `desktop/internal/core/plugin_workflow.go`、`desktop/internal/pluginservice/hostworkflow.go`、`desktop/internal/pluginservice/hostviewrefresh.go`、`desktop/internal/workbench/plugin_workflow.go`、`desktop/internal/pluginview/`

@@ -93,7 +93,7 @@ func (a *App) markdownWebPage(p *project, d *document, s *markdownPreviewState) 
 	}
 	w := &markdownWeb{path: d.path, rendered: -1, rendering: -1, line: line}
 	// The page asks for its images on goroutines of its own: what they need is copied here.
-	path, root := d.path, p.root
+	path, root := d.path, p.previewWorkspaceRoot()
 	entry := a.openPreviewPage(webpreview.Config{
 		Page: webpreview.MarkdownPage,
 		Resolve: func(ctx context.Context, reference string) (core.MarkdownReference, error) {

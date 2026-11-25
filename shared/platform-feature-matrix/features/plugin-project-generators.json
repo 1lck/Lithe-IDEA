@@ -14,7 +14,10 @@
       "desktop/internal/workbench/new_project_advanced_test.go",
       "desktop/internal/workbench/visual_capture_test.go",
       "desktop/internal/projectgen/run.go",
+      "desktop/internal/projectgen/files.go",
       "desktop/internal/projectgen/run_test.go",
+      "desktop/internal/atomicfile/atomicfile.go",
+      "desktop/internal/atomicfile/atomicfile_test.go",
       "desktop/internal/core/project_generators.go",
       "desktop/internal/core/project_generators_test.go",
       "desktop/internal/pluginservice/generators.go"
@@ -31,15 +34,18 @@
       "desktop/internal/workbench/new_project_advanced_test.go",
       "desktop/internal/workbench/visual_capture_test.go",
       "desktop/internal/projectgen/run.go",
+      "desktop/internal/projectgen/files.go",
       "desktop/internal/projectgen/run_test.go",
+      "desktop/internal/atomicfile/atomicfile.go",
+      "desktop/internal/atomicfile/atomicfile_test.go",
       "desktop/internal/core/project_generators.go",
       "desktop/internal/core/project_generators_test.go",
       "desktop/internal/pluginservice/generators.go"
     ]
   },
   "owner": "Plugin Platform",
-  "verification": "macOS：安装测试内联的合成生成器插件（声明文件、命令、归档三类步骤），从欢迎页和项目切换器点“新建项目”，确认左栏有“新建项目”（含宿主提供的空项目）和“生成器”两组且可搜索。用文件步骤创建，确认生成声明的文件、项目打开后 openFiles 指定的文件已打开。勾选“创建 Git 仓库”时项目根目录有 .git。归档步骤从本机回环 HTTP 服务下载并解压、可执行位保留；把归档地址改成不可达地址时报错且目标目录下没有残留的 .*.lithe-creating-* 临时目录。命令步骤在 PATH 中找不到可执行文件时提示找不到命令。停用该插件后条目变灰、创建按钮不可用，只出现一条启用提示，点击后条目恢复可用；所需插件未安装时出现“在插件市场中查找”。目标目录已存在时拒绝创建且不改动原目录。生成器字段声明了 description 时，选中该生成器后表单正常显示，每个带说明的字段旁各有一个 ⓘ，悬停只显示该字段自己的说明，标题过长时省略且 ⓘ 仍可见。生成器声明了 advanced 字段时，“高级设置”默认收起、箭头朝右，点击后显示高级字段、箭头朝下，再点收起、箭头朝右；高级字段是空的必填项时，选中该生成器后分组自动展开、显示必填提示、创建按钮不可用，收起后不会再被自动展开。工具字段：用 Lithe-core-rust 的 shared/plugins/contract/v1/fixtures/project-generators/project-generator-tool-field.plugin.json 和一个定义了同名工具的插件做本地开发安装，新建项目里该生成器的工具下拉列出本机已发现的安装（含版本），选低于最低版本的安装时创建按钮不可用并提示，选满足版本的安装创建后新项目的 .lithe/run/local.json 里有该工具的 pin，设置里的工具链页面显示同一个固定值；没有任何插件定义该工具时出现“在插件市场中查找”，插件已安装未启用时出现“启用”。在新建项目窗口保持打开时安装或卸载只含生成器的插件，条目立即出现或消失且无需重启。Windows：宿主不声明 projectGenerators，需要它的插件在市场中隐藏。",
-  "notes": "Viva 新建项目窗口用 Page 写法重做并接通 projectGenerators 1 与 2（宿主已声明）：左栏分“新建项目”和“生成器”两组并经 Core 搜索，列出空项目和已启用插件的生成器；右栏按声明画文本、选择、复选、多选、运行时/工具安装下拉和“高级设置”，默认值、显示条件、错误码和生成计划全部来自 Core（project.generatorCatalog/generatorForm/generationPlan）。创建时先在目标目录旁的 .<名称>.lithe-creating-* 临时目录依次执行文件、命令、归档步骤：文件用同目录临时文件原子写入并拒绝越出目录和符号链接；命令用 buildprocess 执行，输出逐行显示、可取消、有超时（默认 600 秒）；归档下载只允许 HTTPS（回环地址可用 HTTP）并限制 512 MiB，再交给 Core 解压。全部成功才整体移动到位，失败或取消删除临时目录不留残留；移动之后的失败（Git 初始化、工具 pin）保留已建目录并提供“打开已创建的项目”。工具与 runtime 字段通过共享工具链在空临时目录里发现安装，所选安装写入新项目的 .lithe/toolchains/local.json，generator 声明的 openFiles 在项目打开后打开。字段说明画成标题旁（复选框字段为复选框旁）的 ⓘ 提示：纯文本没有身份不能带提示，迁移时把提示挂在标题文字上，选中带说明的生成器会让绘制 panic、窗口转圈卡死；各字段按字段 ID 命名，ⓘ 互不混淆。“高级设置”按钮迁移时固定画朝右的箭头，展开后不变；现在箭头跟随展开状态。高级字段出现新的问题（如空的必填项）时分组自动展开一次，否则创建按钮不可用却看不到原因。空项目行为不变。尚未完成：生成器自带图标未画；缺少所需插件时“在插件市场中查找”只打开插件设置而不预填搜索词；命令步骤只按 PATH 解析可执行文件；插件热更新只在已安装列表变化时重读条目；两端原生窗口、真实归档下载与命令步骤和 Windows 都未验证。legacy 是迁移前基线。",
+  "verification": "macOS：安装测试内联的合成生成器插件（声明文件、命令、归档三类步骤），从欢迎页和项目切换器点“新建项目”，确认左栏有“新建项目”（含宿主提供的空项目）和“生成器”两组且可搜索。用文件步骤创建，确认生成声明的文件、项目打开后 openFiles 指定的文件已打开。勾选“创建 Git 仓库”时项目根目录有 .git。归档步骤从本机回环 HTTP 服务下载并解压、可执行位保留；把归档地址改成不可达地址时报错且目标目录下没有残留的 .*.lithe-creating-* 临时目录。命令步骤在 PATH 中找不到可执行文件时提示找不到命令。停用该插件后条目变灰、创建按钮不可用，只出现一条启用提示，点击后条目恢复可用；所需插件未安装时出现“在插件市场中查找”。目标目录已存在时拒绝创建且不改动原目录。生成器字段声明了 description 时，选中该生成器后表单正常显示，每个带说明的字段旁各有一个 ⓘ，悬停只显示该字段自己的说明，标题过长时省略且 ⓘ 仍可见。生成器声明了 advanced 字段时，“高级设置”默认收起、箭头朝右，点击后显示高级字段、箭头朝下，再点收起、箭头朝右；高级字段是空的必填项时，选中该生成器后分组自动展开、显示必填提示、创建按钮不可用，收起后不会再被自动展开。工具字段：用 Lithe-core-rust 的 shared/plugins/contract/v1/fixtures/project-generators/project-generator-tool-field.plugin.json 和一个定义了同名工具的插件做本地开发安装，新建项目里该生成器的工具下拉列出本机已发现的安装（含版本），选低于最低版本的安装时创建按钮不可用并提示，选满足版本的安装创建后新项目的 .lithe/run/local.json 里有该工具的 pin，设置里的工具链页面显示同一个固定值；没有任何插件定义该工具时出现“在插件市场中查找”，插件已安装未启用时出现“启用”。在新建项目窗口保持打开时安装或卸载只含生成器的插件，条目立即出现或消失且无需重启。 #2257：desktop-go.sh test -race -tags 'dev vivahead' -count=1 ./internal/atomicfile ./internal/projectgen 覆盖 writeFile 的 0644/0755 权限、fsync、符号链接拒绝及无临时文件残留。Windows：宿主不声明 projectGenerators，需要它的插件在市场中隐藏。 新建项目左栏底部插件入口：在 800×682 的无头窗口分别用 English、中文和明暗主题打开新建项目，确认整句插件入口在 240px 左栏内自然换行、全行可点击且跳转插件设置；自动断言 TestNewProjectMarketplaceLinkFitsSidebar，截图由 TestVisualNewProjectFieldDescriptions 生成，macOS/Windows 原生验收仍待执行。",
+  "notes": "Viva 新建项目窗口用 Page 写法重做并接通 projectGenerators 1 与 2（宿主已声明）：左栏分“新建项目”和“生成器”两组并经 Core 搜索，列出空项目和已启用插件的生成器；右栏按声明画文本、选择、复选、多选、运行时/工具安装下拉和“高级设置”，默认值、显示条件、错误码和生成计划全部来自 Core（project.generatorCatalog/generatorForm/generationPlan）。创建时先在目标目录旁的 .<名称>.lithe-creating-* 临时目录依次执行文件、命令、归档步骤：文件用同目录临时文件原子写入并拒绝越出目录和符号链接；命令用 buildprocess 执行，输出逐行显示、可取消、有超时（默认 600 秒）；归档下载只允许 HTTPS（回环地址可用 HTTP）并限制 512 MiB，再交给 Core 解压。全部成功才整体移动到位，失败或取消删除临时目录不留残留；移动之后的失败（Git 初始化、工具 pin）保留已建目录并提供“打开已创建的项目”。工具与 runtime 字段通过共享工具链在空临时目录里发现安装，所选安装写入新项目的 .lithe/toolchains/local.json，generator 声明的 openFiles 在项目打开后打开。字段说明画成标题旁（复选框字段为复选框旁）的 ⓘ 提示：纯文本没有身份不能带提示，迁移时把提示挂在标题文字上，选中带说明的生成器会让绘制 panic、窗口转圈卡死；各字段按字段 ID 命名，ⓘ 互不混淆。“高级设置”按钮迁移时固定画朝右的箭头，展开后不变；现在箭头跟随展开状态。高级字段出现新的问题（如空的必填项）时分组自动展开一次，否则创建按钮不可用却看不到原因。空项目行为不变。 #2257：projectgen/files.go 的 writeFile 改用共享 atomicfile.Write，保留符号链接检查与 0644/0755 权限并补齐 fsync。尚未完成：生成器自带图标未画；缺少所需插件时“在插件市场中查找”只打开插件设置而不预填搜索词；命令步骤只按 PATH 解析可执行文件；插件热更新只在已安装列表变化时重读条目；两端原生窗口、真实归档下载与命令步骤和 Windows 都未验证。legacy 是迁移前基线。 英文插件市场入口原先直接用单行 Button 测量完整句子，会溢出固定 240px 左栏；改成限定宽度的可换行文本与有身份的整行按钮，保留完整无障碍名称、悬停提示和点击目标。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

@@ -152,8 +152,10 @@ func TestRunWritesTemplateFilesAtomicallyAndOpensExistingFiles(t *testing.T) {
 	if names := entries(t, parent); len(names) != 1 || names[0] != "demo" {
 		t.Fatalf("the parent holds %v, want only the project (no staging directory)", names)
 	}
-	if names := entries(t, result.Path); strings.Contains(strings.Join(names, ","), ".lithe-write") {
-		t.Fatalf("a temporary write file was left: %v", names)
+	for _, name := range entries(t, result.Path) {
+		if strings.HasPrefix(name, ".") {
+			t.Fatalf("a temporary write file was left: %v", entries(t, result.Path))
+		}
 	}
 	if len(steps) != 1 || steps[0].Step != 1 || steps[0].Steps != 1 {
 		t.Fatalf("step events = %+v", steps)

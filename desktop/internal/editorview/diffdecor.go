@@ -49,6 +49,14 @@ type decorState struct {
 	maxEnd []int
 	// inline is the inline highlights in cells, sorted by line.
 	inline []inlineSpan
+	// colors are the provider foreground overrides, prepared off-thread, sorted and disjoint by
+	// absolute byte offset; colorPalette holds the light and dark colors they index. colorLine
+	// is the colors of the line being painted, and colorBase that line's first byte, valid only
+	// within Paint.
+	colors       []colorDecorationSpan
+	colorPalette []colorPair
+	colorLine    []colorDecorationSpan
+	colorBase    int
 	// labelled says labels replace the line numbers, and labelCells is the widest of them.
 	labelled   bool
 	labels     []string
@@ -287,13 +295,12 @@ func (v *View) BindWithoutMinimap(hit gfx.ID, parts gfx.Scope) {
 // wheel and the keys still scroll it.
 func (v *View) HideVerticalBar() { v.decor.noVerticalBar = true }
 
-// ShowContent replaces the text of a read-only view the host builds itself, as a side of a diff
-// it lays out again when the user unfolds lines: unlike Reload it keeps no undo step, since the
-// user never edited the text. The scroll stays; the caret stays at its byte offset, kept in range.
+// ShowContent replaces the text of a host-built view, such as a diff side or preview: unlike
+// Reload it clears undo/redo history and does not report an edit to OnEdit, since the user did
+// not edit the text. The scroll stays; the caret stays at its byte offset, kept in range.
 func (v *View) ShowContent(content Content) {
 	if v.preedit.Composing {
 		return
 	}
-	v.replaceFromDisk(content)
-	v.undo, v.redo = nil, nil
+	v.replaceContent(content, false)
 }

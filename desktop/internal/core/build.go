@@ -227,13 +227,23 @@ type BuildModelOptionSelection struct {
 	ActiveChoices map[string][]string `json:"activeChoices"`
 }
 
-// BuildRunEntry is a command Run entry Core derived from a decoded model: one
-// command run declaration applied to a model target or task, with its command
-// line expanded at the options the model was read with. Provider runs have no
-// entry; they are prepared on demand.
+// RunTypeReference identifies a declared run configuration type together with
+// its field values, as emitted by build.decodeModel (`runConfigurationTypes` 0)
+// and stored under `extensions.build` on `build.run-type` configurations.
+type RunTypeReference struct {
+	PluginID      string                     `json:"pluginID"`
+	BuildSystemID string                     `json:"buildSystemID"`
+	Type          string                     `json:"type"`
+	Values        map[string]json.RawMessage `json:"values,omitempty"`
+}
+
+// BuildRunEntry is a Run entry Core derived from a decoded model: either a
+// command entry with expanded Arguments, or a generated `build.run-type` entry
+// carrying RunType. Provider runs have no entry; they are prepared on demand.
 type BuildRunEntry struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
+	Provider  string `json:"provider,omitempty"`
 	Execution string `json:"execution"`
 	// Arguments follow the build tool, which the host resolves as for a task.
 	Arguments []string `json:"args"`
@@ -241,6 +251,8 @@ type BuildRunEntry struct {
 	WorkingDirectory string               `json:"cwd"`
 	Environment      map[string]string    `json:"env"`
 	BuildSystem      BuildRunEntryBinding `json:"buildSystem"`
+	// RunType is populated when a run declaration targets a runConfigurationType.
+	RunType *RunTypeReference `json:"runType,omitempty"`
 }
 
 // BuildRunEntryBinding names the model item a Run entry was derived from:
