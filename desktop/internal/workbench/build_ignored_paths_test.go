@@ -327,3 +327,26 @@ func TestBuildOptionsWaitForResolutionBeforeEditAndSave(t *testing.T) {
 		t.Fatalf("release option after saving and reloading = %q, want true", got)
 	}
 }
+
+func TestWorkspaceBuildSettingsLinkOpensDetectedInstanceWithoutResettingDraft(t *testing.T) {
+	h, p := openIgnoredPathsProject(t, "", nil)
+	targets := h.app.workspaceBuildOptions(p)["fixture-ignored"]
+	for _, target := range targets {
+		if target.Root != "tools" {
+			continue
+		}
+		target.Open()
+		h.settleUntil("nested options loaded", func() bool {
+			e := &p.build.options
+			return e.open && !e.loading && e.instance == target.InstanceID && e.root == "tools" && len(e.fields) > 0
+		})
+		session := p.build.options.session
+		target.Open()
+		h.settle()
+		if p.build.options.session != session {
+			t.Fatal("clicking the settings link replaced the active options editor")
+		}
+		return
+	}
+	t.Fatal("no workspace settings link for the detected tools project")
+}

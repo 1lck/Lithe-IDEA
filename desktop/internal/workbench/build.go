@@ -888,6 +888,7 @@ func (a *App) finishBuildDetection(p *project, generation uint64, instances []bu
 	}
 	p.build.loaded = true
 	p.build.instances = instances
+	a.publishWorkspaceBuildOptions(p)
 	p.revokeAllBuildTests()
 	if p.build.selected >= len(instances) {
 		p.build.selected = 0

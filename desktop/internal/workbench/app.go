@@ -1880,6 +1880,7 @@ func (a *App) disposeProject(p *project) {
 	a.clearAllPluginDiagnostics()
 	a.problems.reset()
 	a.toolchainRoot.Store(nil)
+	a.publishWorkspaceBuildOptions(nil)
 	a.project = nil
 	a.chrome.setRemote(false)
 	a.ideAPISetProject(nil)
