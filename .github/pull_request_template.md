@@ -217,7 +217,7 @@ Windows 目前仍使用 v1 日志，Windows 改动沿用现有写法，并在此
 - [ ] 契约改动已在 Rust Core PR 里随执行它的代码一起提交，同一个 Core PR 已登记插件协议更新记录（合入日期、PR、修改人、协议或 API）；链接：
 - [ ] `scripts/desktop/build-desktop-core.sh` 的 `PINNED_CORE_REVISION` 已升到包含该契约的 Core commit，桌面端测试经 `scripts/desktop/desktop-go.sh` 读到的就是这份契约
 - [ ] 修改插件后端协议的，已在 Core 仓库运行 `node shared/plugins/scripts/sdk-e2e.mjs`，所有官方 SDK 的示例后端仍能跑通
-- [ ] 新增或修改宿主方法、宿主通知的，已在下表逐个列出，原计划编号只用 API-01 到 API-44，不属于任何编号的写 —
+- [ ] 新增或修改宿主方法、宿主通知的，已在下表逐个列出，原计划编号只用 API-01 到 API-45，不属于任何编号的写 —
 
 | 原计划编号 | 方法 | 用途 |
 | --- | --- | --- |
