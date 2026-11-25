@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -246,16 +245,6 @@ func relativePath(root, path string) *string {
 
 // RelativePath is exported for Workbench implementations.
 func RelativePath(root, path string) *string { return relativePath(root, path) }
-
-// httpURL validates the URL browser/openExternal opens: absolute, http or https,
-// with a host and no embedded credentials.
-func httpURL(raw string) (string, error) {
-	parsed, err := url.Parse(raw)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || len(raw) > 4096 {
-		return "", fmt.Errorf("%w: only http and https addresses open", ErrResource)
-	}
-	return parsed.String(), nil
-}
 
 // detailsOf encodes failure details; details are optional, so an encoding
 // problem drops them rather than the failure.

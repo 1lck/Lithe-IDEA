@@ -159,7 +159,7 @@ func TestInstallPlacesTheSetInAFolderNamedByItsDigest(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), ".install-") {
+		if strings.HasPrefix(entry.Name(), ".") {
 			t.Errorf("a temporary file was left behind: %s", entry.Name())
 		}
 	}

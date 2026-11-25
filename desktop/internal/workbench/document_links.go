@@ -106,9 +106,21 @@ func (a *App) openDocumentLink(link pluginservice.EditorLink) {
 
 // fileURIPath is the local path of a file URI. A Windows drive path keeps its drive letter.
 func fileURIPath(target *url.URL) string {
+	return fileURILocalPath(target, runtime.GOOS)
+}
+
+func fileURILocalPath(target *url.URL, goos string) string {
+	if target == nil {
+		return ""
+	}
 	path := target.Path
-	if runtime.GOOS == "windows" && len(path) >= 3 && path[0] == '/' && path[2] == ':' {
-		path = path[1:]
+	if goos == "windows" {
+		if target.Host != "" && !strings.EqualFold(target.Host, "localhost") {
+			path = "//" + target.Host + path
+		} else if len(path) >= 3 && path[0] == '/' && path[2] == ':' {
+			path = path[1:]
+		}
+		return strings.ReplaceAll(path, "/", `\`)
 	}
 	return filepath.FromSlash(path)
 }

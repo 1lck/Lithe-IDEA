@@ -39,12 +39,11 @@ SVG 只能当文本看，PDF 只能交给外部应用。
   −/百分比/+；打开时四周留 24 点边距适配视口，但从不放大小图；缩放范围从“适配比例与 25% 中较小者”到 400%，
   每步 25%，点百分比回到 100%；背景是 16 点棋盘格，颜色在编辑器底色上叠加 7% 黑或白。web 页面
   （`assets/image.js`）和 Linux 的 Go 画布（`viewer_image.go`）各实现一次，常量必须一起改。
-- **SVG 跟随编辑**。SVG 文件按 Markdown 的方式打开：源码与图片两栏，标签栏末尾切换源码 / 两者 / 仅图片。
-  编辑后最多每 150 毫秒把文本交给页面一次，地址带上编辑版本号，避免引擎画出缓存的旧图；更新时保持用户的
-  缩放和滚动位置。改成画不出来的内容时保留上一张图，只有从未画成功过才显示失败提示。超过 4 MiB 不绘制。
-- **HTML 文件按静态网站预览**（`webpreview/site.go`、`workbench/html_preview.go`）。HTML 文件和 SVG 一样
-  两栏打开，标签栏末尾切换源码 / 两者 / 仅预览。规则如下：
-  - 站点根目录由 Core 的 `htmlPreview.site` 决定：文件在工作区里时是工作区，否则是文件所在目录。页面地址是
+- **SVG 跟随编辑与交互模式**。SVG 文件按 Markdown 的方式在项目模式和单文件模式中以源码与预览两栏打开，标签栏末尾切换源码 / 两者 / 仅预览。
+  默认是图片模式（`ImagePage`）：编辑后最多每 150 毫秒把文本交给页面一次，地址带上编辑版本号，避免引擎画出缓存的旧图；更新时保持用户的缩放和滚动位置。改成画不出来的内容时保留上一张图，只有从未画成功过才显示失败提示，超过 4 MiB 不绘制。
+  工具栏提供“交互模式”开关（`svg_preview.go`）：开启后关闭图片页，改为在隔离的临时 `lithe-site` 站点页（`SitePage`，`Request: nil` 只回答编辑器当前文本）直接渲染 `image/svg+xml`，使 SVG 内的悬停、点击、链接、动画和脚本原生运行；站外链接经 Core 解析后在系统浏览器打开，编辑后同样按 150 毫秒刷新并保留滚动位置。若当前引擎不支持临时站点页（`siteFailed`），自动回退到图片模式。
+- **HTML 文件按静态网站预览**（`webpreview/site.go`、`workbench/html_preview.go`）。HTML 文件在项目模式和单文件模式都与 SVG 一样两栏打开，标签栏末尾切换源码 / 两者 / 仅预览。规则如下：
+  - 站点根目录由 Core 的 `htmlPreview.site` 决定：项目窗口传入项目根（`previewWorkspaceRoot()`），文件在工作区里时以工作区为根，否则以文件所在目录为根；单文件窗口传入空的 `workspaceRoot`，使每个打开的 HTML 文件只以自身所在目录为站点根，互不越界。页面地址是
     `lithe-site://site/<相对路径>`，所以相对路径、模块脚本、`fetch` 都像在本地 Web 服务器上一样同源工作。
   - 每个请求都问 Core 的 `htmlPreview.resolveRequest`：文件本身用编辑器当前文本回答（未保存的修改也能看到），
     其他文件按 Core 给的规范路径和内容类型读出；以 `.` 开头的路径分量（`.env`、`.git`）和私钥扩展名返回 403，
@@ -56,9 +55,9 @@ SVG 只能当文本看，PDF 只能交给外部应用。
     应用打开；脚本发起的站外跳转直接取消。页面打开的窗口在站内时替换当前页，站外时交给系统浏览器，每秒最多一次，
     因为 Windows 不告诉宿主这个窗口是不是用户点出来的。iframe 可以加载网页、`data:` 和 `blob:`。
   - 页面不是我们的页面：它从不进入“就绪”状态，宿主不给它发主题等任何消息；它发来的消息只接受重新加载脚本报的
-    滚动位置。工具栏只有后退、前进、重新加载和“在浏览器中打开”。
-  - 站点页打不开（例如 WebView2 太旧，不支持临时存储）时只关掉 HTML 预览，HTML 文件从此只显示源码，
-    Markdown、图片等其他预览不受影响。
+    滚动位置。工具栏显示页面标题（或当前子路径）、加载状态，以及按 `CanGoBack()`/`CanGoForward()` 决定禁用状态的后退、前进、重新加载和“在浏览器中打开”。进程崩溃或主框架加载失败时显示提示和可点击的“重新加载”按钮（崩溃或错误后重新加载直接调用原生 `Reload` 而非注入脚本）；WebView2 宿主进程退出时关闭并重新打开页面。
+  - 站点页打不开（例如 WebView2 太旧，不支持临时存储）时只关掉 HTML 预览和 SVG 交互模式，HTML 文件从此只显示源码，
+    Markdown、图片和 SVG 图片模式不受影响。
 - **Markdown 目录画在页面里**。web 页的目录是页面右侧的大纲栏（`assets/markdown.js`）：页面从渲染结果的
   标题建树，按层级缩进，可以折叠，当前章节随页面滚动高亮，选中标题时像用户滚动页面一样回报 `scrolled`，
   宿主照常把源码带到那一行。标签栏的“目录”按钮只发 `outline{open}` 打开或关闭；用户在页面里按 Escape 关闭时，
@@ -73,6 +72,7 @@ SVG 只能当文本看，PDF 只能交给外部应用。
 - **页面生命周期**。文档或标签打开期间页面一直存在；没有被这一帧声明的页面隐藏起来，保留滚动位置和排版，
   切回来时原样显示。隐藏的页面最多保留 6 个，超出时关闭隐藏最久的那个，标签再次显示时重新打开。
   窗口的 web host 还没准备好、系统没有 web 引擎、或者某个页面打开失败后，编辑区改用原生预览。
+- **宿主随原生窗口存活**。同一窗口的项目标签复用 `windowSessions` 持有的网页宿主及就绪状态；页面、文档、滚动位置和失败回退仍在各项目自己的 `previews` 中，不随宿主一起共享。关闭首个项目后，其余项目和新开标签继续使用窗口的宿主。
 - **不写发行目录**。页面从二进制读取；回答用户文件时带 `Cache-Control: no-store`。页面不使用临时
   （ephemeral）配置，因为 WebView2 的每个临时页面都会留下一份配置目录。HTML 站点页是唯一的例外：它运行
   用户的脚本，Cookie、本地存储、缓存和 Service Worker 必须和我们自己的页面、和下一个站点分开，并随页面关闭消失，
@@ -127,8 +127,7 @@ SVG 和 PDF 可以在编辑区直接查看；页面能读到什么完全由宿�
   标题树和折叠只存在于页面脚本，属于视图呈现，不进 Core；两边的标题都来自同一份渲染结果或源码标题。
 - Linux 仍然看不到 HTML 和富内容，SVG 只能看源码，PDF 只能交给外部应用。
 - HTML 预览比旧 macOS 的内嵌浏览器小：没有地址栏、页面缩放、页内查找、开发者工具、JavaScript 对话框、
-  下载、打印和 `Range` 请求（音视频不能拖动进度）；后退和前进按钮一直可点，因为 Viva 不报告能否后退。
-  这些需要时在 Viva fork 里补接口再接入，不在应用层绕过。
+  下载、打印和 `Range` 请求（音视频不能拖动进度）。这些需要时在 Viva fork 里补接口再接入，不在应用层绕过。
 - Windows 上的站点地址是 `https://lithe-site.viva-app.invalid/site/...`，Viva 把路径第一段当作主机名去掉，
   所以页面里以 `/` 开头的绝对路径（`/css/a.css`）在 Windows 上找不到文件，macOS 正常；需要在 Viva fork 修复。
 - Windows 上 WebView2 能否解码 TIFF、HEIC，以及自定义协议下的 PDF 查看器是否可用，还没有真机验证；
@@ -139,10 +138,10 @@ SVG 和 PDF 可以在编辑区直接查看；页面能读到什么完全由宿�
 - `scripts/desktop/desktop-go.sh test ./internal/webpreview ./internal/workbench -count=1`：覆盖页面只回答
   干净路径和内嵌文件、跳转拦截、图片只按 Core 解析结果提供、远程图片共享下载与失败重试、Markdown 页随编辑
   渲染与双向滚动、隐藏页面上限、web view 打不开时回落原生、图片查看器的工具栏与缩放、PDF 查看器、
-  SVG 跟随编辑与失败保留，以及没有 web 引擎时的 Go 画布。HTML 预览由 `TestSite*`（请求按 Core 回答、
-  主框架留在站内、窗口节流、编辑后重新加载并滚回原处、只接受滚动位置消息）、
-  `TestHTMLPreviewSharedFixture`（Core 命令按共享 fixture `editor/html-preview-v1.json` 回答）和 `TestHTMLFile*`（两栏、跟随编辑、工具栏、站外链接、
-  打不开时只关 HTML 预览）覆盖。
+  SVG 跟随编辑与失败保留、SVG 交互模式切换与单文件预览（`TestSVGInteractiveModeTogglesAndHandlesEditsAndFallback`、
+  `TestStandaloneSVGShowsPictureAndInteractiveMode`），以及没有 web 引擎时的 Go 画布。HTML 预览由 `TestSite*`（请求按 Core 回答、
+  主框架留在站内、窗口节流、编辑后重新加载并滚回原处、只接受滚动位置消息、加载/崩溃错误恢复 `TestSiteLoadFailureAndCrashReloadDirectly`）、
+  `TestHTMLPreviewSharedFixture`（Core 命令按共享 fixture `editor/html-preview-v1.json` 回答）和 `TestHTMLFile*` / `TestHTMLPreviewShowsTitleCrashAndLoadFailureRecovery` / `TestStandaloneHTMLShowsPageAndIsolatesEachFilesFolder`（两栏、跟随编辑、工具栏与历史禁用态、标题与崩溃/加载恢复、单文件站点目录隔离、站外链接、打不开时只关 HTML 预览）覆盖。
 - `scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：确认打开预览不会改写发行目录。
 - `TestMarkdownWebPageRendersCoreHTMLAndScrollsWithTheSource` 覆盖目录按钮与页面之间的 `outline` 消息，
   `TestMarkdownContentsIndentsHeadingsByLevel` 覆盖原生弹出列表按级别缩进且行不重叠，

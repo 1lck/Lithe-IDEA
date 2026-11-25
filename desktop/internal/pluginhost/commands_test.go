@@ -92,8 +92,14 @@ func TestCommandStoreRecordsAndReplacesInstallations(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, entry := range entries {
-		if strings.HasSuffix(entry.Name(), ".tmp") {
+		if strings.HasPrefix(entry.Name(), ".") || strings.HasSuffix(entry.Name(), ".tmp") {
 			t.Fatalf("temporary file %s was left behind", entry.Name())
+		}
+	}
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(filepath.Join(state, commandTestPlugin, commandRecordName))
+		if err != nil || info.Mode().Perm() != 0o600 {
+			t.Fatalf("record permissions = %v, %v", info, err)
 		}
 	}
 }

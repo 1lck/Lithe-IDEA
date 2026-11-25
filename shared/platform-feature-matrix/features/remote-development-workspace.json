@@ -19,6 +19,8 @@
       "desktop/internal/core/remote_session.go",
       "desktop/internal/remoteserver/remoteserver.go",
       "desktop/internal/remoteserver/remoteserver_test.go",
+      "desktop/internal/atomicfile/atomicfile.go",
+      "desktop/internal/atomicfile/atomicfile_test.go",
       "desktop/internal/installedpackagetest/installedpackagetest.go",
       "desktop/internal/core/remote_acceptance_test.go",
       ".agents/notes/implemented/feature/2026-11-21-remote-connections-window.md",
@@ -42,6 +44,8 @@
       "desktop/internal/core/remote_session.go",
       "desktop/internal/remoteserver/remoteserver.go",
       "desktop/internal/remoteserver/remoteserver_test.go",
+      "desktop/internal/atomicfile/atomicfile.go",
+      "desktop/internal/atomicfile/atomicfile_test.go",
       "desktop/internal/installedpackagetest/installedpackagetest.go",
       "desktop/internal/core/remote_acceptance_test.go",
       ".agents/notes/implemented/feature/2026-11-21-remote-connections-window.md",
@@ -49,7 +53,7 @@
     ]
   },
   "owner": "Workspace",
-  "verification": "在 macOS 和 Windows 客户端上，分别按 remote-connections 与 remote-workspace 两项的验证方式完整走一遍（#2231 第 13 节）。目标覆盖 Linux x86_64、Linux arm64、经跳板机访问的主机、本机容器和 SSH 主机上的容器，Windows 另加 WSL 发行版。每个组合依次验证：打开 → 信任 → 编辑保存与外部修改冲突 → 终端 → 搜索与 Git → 运行程序和脚本运行配置 → 端口转发与本机预览 → 断线重连后运行接着输出 → 关闭确认与保留进程 → 清理；最后确认本机和主机上都没有残留的 Lithe 进程。远程 Mac 不在范围内（#2231 D2：远端只支持 Linux），不验证。自动部分运行 desktop/internal/core/remote_acceptance_test.go（LITHE_TEST_REMOTE_SSH_HOST 等环境变量指定真实主机时才运行，CI 跳过），以及两项条目列出的单元测试和无头截图。",
+  "verification": "在 macOS 和 Windows 客户端上，分别按 remote-connections 与 remote-workspace 两项的验证方式完整走一遍（#2231 第 13 节）。目标覆盖 Linux x86_64、Linux arm64、经跳板机访问的主机、本机容器和 SSH 主机上的容器，Windows 另加 WSL 发行版。每个组合依次验证：打开 → 信任 → 编辑保存与外部修改冲突 → 终端 → 搜索与 Git → 运行程序和脚本运行配置 → 端口转发与本机预览 → 断线重连后运行接着输出 → 关闭确认与保留进程 → 清理；最后确认本机和主机上都没有残留的 Lithe 进程。远程 Mac 不在范围内（#2231 D2：远端只支持 Linux），不验证。自动部分运行 desktop/internal/core/remote_acceptance_test.go（LITHE_TEST_REMOTE_SSH_HOST 等环境变量指定真实主机时才运行，CI 跳过），以及两项条目列出的单元测试和无头截图。 #2257：desktop-go.sh test -race -tags 'dev vivahead' -count=1 ./internal/atomicfile ./internal/remoteserver 覆盖 0600 安装、同字节复用、符号链接替换、Windows 并发改名容错与 installedpackagetest。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
@@ -99,5 +103,5 @@
       "verificationStatus": "not-applicable"
     }
   },
-  "notes": "Viva：SSH 主机、Windows 上的 WSL 发行版、本机及 SSH/WSL 主机上的 Docker/Podman 容器，以及按本机 devcontainer.json 构建的容器，都经 Core 的 remote.* 打开为远程工作区（#2231 R0–R2 已合入）。连接管理见 remote-connections；工作区里的文件、终端、搜索、Git、运行、端口、关闭确认和断线重连见 remote-workspace。记为部分实现，原因有两个：远程 Mac 按 #2231 D2 不支持；远程工作区里的插件任务、构建工具、插件运行和调试属于 #2231 R3/R4，尚未实现。验证状态仍为待验证：自动验收已在 macOS（经 OpenSSH 连 Linux 容器）和 Windows（WSL）上通过，但按上面验证方式完成整机交互验收的结果还没有记录到本项。"
+  "notes": "Viva：SSH 主机、Windows 上的 WSL 发行版、本机及 SSH/WSL 主机上的 Docker/Podman 容器，以及按本机 devcontainer.json 构建的容器，都经 Core 的 remote.* 打开为远程工作区（#2231 R0–R2 已合入）。连接管理见 remote-connections；工作区里的文件、终端、搜索、Git、运行、端口、关闭确认和断线重连见 remote-workspace。记为部分实现，原因有两个：远程 Mac 按 #2231 D2 不支持；远程工作区里的插件任务、构建工具、插件运行和调试属于 #2231 R3/R4，尚未实现。验证状态仍为待验证：自动验收已在 macOS（经 OpenSSH 连 Linux 容器）和 Windows（WSL）上通过，但按上面验证方式完成整机交互验收的结果还没有记录到本项。 #2257：remoteserver.installFile 改用共享 atomicfile.InstallWithRename（保留 0600 权限与并发改名测试钩子）。"
 }

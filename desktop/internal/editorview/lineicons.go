@@ -13,7 +13,7 @@ const (
 	lineIconWidth = float32(16)
 	lineIconInset = float32(2)
 	// lineIconSize caps an icon's side, so a tall line still shows a small one.
-	lineIconSize = float32(12)
+	lineIconSize = float32(13)
 )
 
 // LineIcon is an icon drawn in the gutter of one zero-based line, in the zero-based slot (column)
@@ -70,29 +70,49 @@ func (v *View) paintLineIcons(canvas *gfx.Canvas, area gfx.Rect, look Look, firs
 	}
 }
 
+// LineIconAt returns the zero-based line, slot and cell bounds of the gutter icon under window
+// coordinates (x, y), if any. It allocates nothing and requires the view to have been painted.
+func (v *View) LineIconAt(x, y float32) (line, slot int, cell gfx.Rect, ok bool) {
+	g := &v.gutter
+	if !v.painted || len(g.icons) == 0 || x < v.iconX || y < v.area.Y || y >= v.area.Y+v.area.Height {
+		return 0, 0, gfx.Rect{}, false
+	}
+	offset := x - v.iconX
+	slot = int(offset / lineIconWidth)
+	if slot < 0 || slot >= g.slots || offset-float32(slot)*lineIconWidth >= lineIconWidth-lineIconInset {
+		return 0, 0, gfx.Rect{}, false
+	}
+	rows := v.rowCount()
+	if rows <= 0 {
+		return 0, 0, gfx.Rect{}, false
+	}
+	row := int((y - v.area.Y + v.scroll) / max(v.lineH, 1))
+	row = min(max(row, 0), rows-1)
+	line, _ = v.rowLine(row)
+	// paintLineIcons draws each icon only on a wrapped line's first visual row.
+	if row != v.lineRow(line) {
+		return 0, 0, gfx.Rect{}, false
+	}
+	for _, icon := range g.icons {
+		if icon.Line == line && icon.Slot == slot {
+			top := v.area.Y + float32(v.lineRow(line))*v.lineH - v.scroll
+			cell = gfx.Rect{X: v.iconX + float32(slot)*lineIconWidth, Y: top, Width: lineIconWidth, Height: v.lineH}
+			return line, slot, cell, true
+		}
+	}
+	return 0, 0, gfx.Rect{}, false
+}
+
 // lineIconPointer takes a press on a line icon. It reports whether the press was consumed.
 func (v *View) lineIconPointer(event gfx.PointerEvent) bool {
 	g := &v.gutter
 	if g.onIcon == nil || len(g.icons) == 0 || event.Button != gfx.PointerButtonPrimary {
 		return false
 	}
-	if event.X < v.iconX {
+	line, slot, cell, ok := v.LineIconAt(event.X, event.Y)
+	if !ok {
 		return false
 	}
-	offset := event.X - v.iconX
-	slot := int(offset / lineIconWidth)
-	if slot >= g.slots || offset-float32(slot)*lineIconWidth >= lineIconWidth-lineIconInset {
-		return false
-	}
-	row := int((event.Y - v.area.Y + v.scroll) / max(v.lineH, 1))
-	row = min(max(row, 0), v.rowCount()-1)
-	line, _ := v.rowLine(row)
-	for _, icon := range g.icons {
-		if icon.Line == line && icon.Slot == slot {
-			top := v.area.Y + float32(v.lineRow(line))*v.lineH - v.scroll
-			g.onIcon(line, slot, gfx.Rect{X: v.iconX + float32(slot)*lineIconWidth, Y: top, Width: lineIconWidth, Height: v.lineH})
-			return true
-		}
-	}
-	return false
+	g.onIcon(line, slot, cell)
+	return true
 }

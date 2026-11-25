@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -591,7 +592,43 @@ func (r *renderer) tree(c ui.C, n *Node) {
 		toggled = i
 		item := state.rows[i].item
 		open := !state.expanded(item)
-		c.After(func() { state.open[item.ID] = open })
+		c.After(func() {
+			state.open[item.ID] = open
+			if item.HasChildren {
+				r.s.Send(Event{Name: "expand", Node: n.ID, Item: item.ID, Value: open})
+			}
+		})
+	}
+	// Only viewport changes cross Core; a failed event pauses until explicit Retry.
+	if r.s.options.Page != nil {
+		if state.paging == nil {
+			state.paging = ui.NewEffectKeyed(func(ctx context.Context, key pageKey) (bool, error) {
+				bounded, cancel := context.WithTimeout(ctx, 2*time.Second)
+				defer cancel()
+				var result struct {
+					Load bool `json:"load"`
+				}
+				err := r.s.options.Page(bounded, map[string]any{"operation": "treePage", "cursor": key.Cursor, "lastCursor": key.LastCursor, "count": key.Count, "lastCount": key.LastCount, "rows": key.Rows, "lastVisible": key.Visible}, &result)
+				return result.Load, err
+			})
+		}
+		_, last := state.tree.Visible()
+		key := pageKey{n.Cursor, state.cursor, len(n.Items), state.count, len(state.rows), max(0, last)}
+		ui.Effect(c.Part("paging"), state.paging, key)
+		if load, err, ok := state.paging.Take(); ok {
+			if err != nil {
+				if r.s.options.Failed != nil {
+					r.s.options.Failed(err)
+				}
+			} else if load && r.s.Err() == nil {
+				cursor, count := n.Cursor, len(n.Items)
+				c.After(func() {
+					state.cursor = cursor
+					state.count = count
+					r.s.Send(Event{Name: "loadMore", Node: n.ID, Cursor: cursor})
+				})
+			}
+		}
 	}
 	i, ok := state.tree.Chosen()
 	if !ok {
@@ -602,7 +639,7 @@ func (r *renderer) tree(c ui.C, n *Node) {
 	info, _ := canvas.ClickInfo()
 	item, tree, session := state.rows[i].item, n.ID, r.s
 	activate := byKey || info.Clicks >= 2
-	branch := len(item.Children) > 0 && toggled != i
+	branch := (len(item.Children) > 0 || item.HasChildren) && toggled != i
 	open := !state.expanded(item)
 	c.After(func() {
 		if item.ID != state.selected {
@@ -614,6 +651,9 @@ func (r *renderer) tree(c ui.C, n *Node) {
 		}
 		if branch {
 			state.open[item.ID] = open
+			if item.HasChildren {
+				session.Send(Event{Name: "expand", Node: tree, Item: item.ID, Value: open})
+			}
 		}
 		session.Send(Event{Name: "activate", Node: tree, Item: item.ID})
 	})

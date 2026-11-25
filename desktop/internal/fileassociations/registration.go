@@ -7,7 +7,9 @@ package fileassociations
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/syntax"
@@ -16,6 +18,17 @@ import (
 var ErrConflict = errors.New("system file associations changed; refresh before applying")
 var ErrNotPackaged = errors.New("file association registration requires an installed application")
 var ErrUnsupported = errors.New("file association registration is not supported on this platform")
+var ErrConfirmationPending = errors.New("a previous macOS default-application confirmation is still pending")
+
+// FormatError preserves the exact suffixes and native failures in a partial batch.
+// The settings view localizes the message; the operation log retains the cause.
+type FormatError struct {
+	Extensions []string
+	Err        error
+}
+
+func (e *FormatError) Error() string { return strings.Join(e.Extensions, ", ") + ": " + e.Err.Error() }
+func (e *FormatError) Unwrap() error { return e.Err }
 
 // Handler is an OS observation, rather than a stored Lithe preference.
 type Handler struct {
@@ -101,7 +114,11 @@ func (m *Manager) Apply(ctx context.Context, baseline State, selected []string, 
 		return current, ErrConflict
 	}
 	err = applyNative(ctx, current.native, plan.Extensions, menuLabel)
-	after, readErr := readNative(ctx, formats)
+	// A consent timeout can follow successful writes. Keep the readback bounded
+	// independently so cancellation cannot make the pre-write snapshot look current.
+	readCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	after, readErr := readNative(readCtx, formats)
 	if readErr != nil {
 		return current, errors.Join(err, readErr)
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/webpreview"
+	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 )
 
@@ -30,6 +31,13 @@ type fakePreview struct {
 	closed    bool
 	// reloads, backs and forwards count what the host asked of the page's history.
 	reloads, backs, forwards int
+	canGoBack, canGoForward  bool
+	loading                  bool
+	title                    string
+	processFailure           app.WebProcessFailure
+	loadFailure              string
+	currentPath              string
+	focused                  int
 }
 
 func (f *fakePreview) ID() gfx.NativeViewID { return f.id }
@@ -50,9 +58,18 @@ func (f *fakePreview) SetDocument(data []byte, mime string) {
 	f.mimes = append(f.mimes, mime)
 }
 
-func (f *fakePreview) Reload()  { f.reloads++ }
-func (f *fakePreview) Back()    { f.backs++ }
-func (f *fakePreview) Forward() { f.forwards++ }
+func (f *fakePreview) Reload()                               { f.reloads++ }
+func (f *fakePreview) Back()                                 { f.backs++ }
+func (f *fakePreview) Forward()                              { f.forwards++ }
+func (f *fakePreview) CanGoBack() bool                       { return f.canGoBack }
+func (f *fakePreview) CanGoForward() bool                    { return f.canGoForward }
+func (f *fakePreview) IsLoading() bool                       { return f.loading }
+func (f *fakePreview) Title() string                         { return f.title }
+func (f *fakePreview) Crashed() bool                         { return f.processFailure != app.WebProcessNoFailure }
+func (f *fakePreview) ProcessFailure() app.WebProcessFailure { return f.processFailure }
+func (f *fakePreview) LoadFailure() string                   { return f.loadFailure }
+func (f *fakePreview) CurrentPath() string                   { return f.currentPath }
+func (f *fakePreview) Focus()                                { f.focused++ }
 
 // load is the page finishing loading: it is ready and says so.
 func (f *fakePreview) load() {
@@ -74,7 +91,7 @@ func sentOf[T any](f *fakePreview) []T {
 // fakePreviews makes h's web host ready and its previews open fakes, listed as they open.
 func fakePreviews(h *harness) *[]*fakePreview {
 	pages := &[]*fakePreview{}
-	h.app.webReady = true
+	h.config.Web.OnReady()
 	h.app.previews.open = func(config webpreview.Config) (previewView, error) {
 		page := &fakePreview{id: gfx.NativeViewID(len(*pages) + 1), config: config}
 		*pages = append(*pages, page)
@@ -331,7 +348,7 @@ func TestPreviewPagesKeepTheHiddenOnesUpToTheLimit(t *testing.T) {
 // preview to the page Viva draws, and no other page is tried.
 func TestMarkdownPageIsNativeOnceAWebPageCannotOpen(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
-	h.app.webReady = true
+	h.config.Web.OnReady()
 	tries := 0
 	h.app.previews.open = func(webpreview.Config) (previewView, error) {
 		tries++

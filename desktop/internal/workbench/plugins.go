@@ -371,39 +371,113 @@ func (a *App) uninstallPlugin(id string) {
 // Core its plugin-declared folders, so a plugin that was disabled or removed loses its
 // highlighting, its windows and its hidden folders in the same pass that registers a new one.
 func (a *App) reloadPluginLanguages() {
-	if a.plugins == nil {
+	if a.plugins == nil || a.plugins.Manager == nil {
 		return
 	}
 	registry := a.syntaxRegistry()
-	var initial *languageLoad
+	generation := a.pluginReloadGeneration.Add(1)
 	if a.initialLanguageLoad.Load() == nil {
-		initial = &languageLoad{done: make(chan struct{})}
-		a.initialLanguageLoad.Store(initial)
+		a.initialLanguageLoad.CompareAndSwap(nil, &languageLoad{done: make(chan struct{})})
+	}
+	finishInitial := func() {
+		if l := a.initialLanguageLoad.Load(); l != nil {
+			l.finish()
+		}
 	}
 	a.background(nil, pluginStateTimeout, func(ctx context.Context) func(*App) {
+		if a.pluginReloadGeneration.Load() != generation {
+			return nil
+		}
 		entries, err := a.plugins.Manager.Installed()
 		if err != nil {
-			if initial != nil {
-				close(initial.done)
+			if a.pluginReloadGeneration.Load() == generation {
+				finishInitial()
 			}
 			return func(a *App) {
-				a.backgroundFailed("plugin_languages", err)
+				if a.pluginReloadGeneration.Load() == generation {
+					a.backgroundFailed("plugin_languages", err)
+				}
 			}
 		}
-		languages, loadErr := a.plugins.LoadLanguages(ctx, entries)
-		failedCount := 0
-		if initial != nil {
-			// Publish the first language snapshot on the worker before allowing restored
-			// documents to resolve. They need no tool window or visibility results.
-			failed, _ := registry.SetPluginLanguages(languages)
-			failedCount = len(failed)
-			close(initial.done)
+		abortOnCancel := func(err error) (func(*App), bool) {
+			cancelErr := ctx.Err()
+			if cancelErr == nil {
+				return nil, false
+			}
+			if !errors.Is(err, cancelErr) {
+				err = errors.Join(err, cancelErr)
+			}
+			if a.pluginReloadGeneration.Load() == generation {
+				finishInitial()
+			}
+			return func(a *App) {
+				if a.pluginReloadGeneration.Load() != generation {
+					return
+				}
+				// log-exempt: 用户取消：插件重读任务已取消。
+				if !errors.Is(cancelErr, context.Canceled) {
+					a.backgroundFailed("plugin_languages", err)
+				}
+			}, true
 		}
-		windows, windowsErr := a.plugins.ToolWindows(ctx, entries)
-		commands, commandsErr := a.plugins.ToolCommands(ctx, entries)
-		vcsPlugins, vcsErr := a.plugins.VcsPlugins(ctx, entries)
-		hidden := a.configureVisibility(ctx, entries, vcsPlugins)
+		snapshot, snapshotErr := a.plugins.ReadInstalled(ctx, entries)
+		if apply, cancelled := abortOnCancel(snapshotErr); cancelled {
+			return apply
+		}
+		languages, loadErr := a.plugins.LoadLanguagesFromSnapshot(ctx, snapshot)
+		loadErr = errors.Join(snapshotErr, loadErr)
+		if apply, cancelled := abortOnCancel(loadErr); cancelled {
+			return apply
+		}
+		failedCount := 0
+		publishedEarly := false
+		if initial := a.initialLanguageLoad.Load(); initial != nil && !initial.closed.Load() {
+			a.pluginReloadMu.Lock()
+			if a.pluginReloadGeneration.Load() != generation {
+				a.pluginReloadMu.Unlock()
+				return nil
+			}
+			if !initial.closed.Load() {
+				// Publish the first language snapshot on the worker before allowing restored
+				// documents to resolve. They need no tool window or visibility results.
+				failed, _ := registry.SetPluginLanguages(languages)
+				failedCount = len(failed)
+				publishedEarly = true
+				initial.finish()
+			}
+			a.pluginReloadMu.Unlock()
+		}
+		if a.pluginReloadGeneration.Load() != generation {
+			return nil
+		}
+		windows, windowsErr := snapshot.ToolWindows()
+		for _, window := range windows {
+			if ctx.Err() != nil || a.pluginReloadGeneration.Load() != generation {
+				return nil
+			}
+			if window.Icon.Path == "" {
+				continue
+			}
+			if err := a.pluginIcons.Read(window.PluginID, window.Package, window.Icon); err != nil {
+				a.backgroundFailedIn(ctx, "plugin_icon", fmt.Errorf("%s: %w", window.PluginID, err))
+			}
+		}
+		commands, commandsErr := snapshot.ToolCommands()
+		vcsPlugins, vcsErr := snapshot.VcsPlugins()
+		a.pluginReloadMu.Lock()
+		stale := a.pluginReloadGeneration.Load() != generation
+		var hidden hiddenDirectories
+		if !stale {
+			hidden = a.configureVisibility(ctx, snapshot, vcsPlugins)
+		}
+		a.pluginReloadMu.Unlock()
+		if stale {
+			return nil
+		}
 		return func(a *App) {
+			if a.pluginReloadGeneration.Load() != generation {
+				return
+			}
 			a.applyHiddenDirectories(hidden)
 			if p := a.project; p != nil && !p.everywhereSymbols.discovering {
 				p.everywhereSymbols.discoveryStarted = false
@@ -426,9 +500,10 @@ func (a *App) reloadPluginLanguages() {
 				a.backgroundFailed("plugin_vcs_providers", vcsErr)
 			}
 			a.setPluginTools(windows, vcsWindows(vcsPlugins))
-			if initial == nil {
+			if !publishedEarly {
 				failed, _ := registry.SetPluginLanguages(languages)
 				failedCount = len(failed)
+				finishInitial()
 			}
 			if failedCount > 0 {
 				a.backgroundFailed("plugin_languages", fmt.Errorf("%d plugin languages were rejected", failedCount))

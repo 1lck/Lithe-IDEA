@@ -124,7 +124,7 @@ func (t *fakeTerminal) Done() <-chan TerminalExit { return t.done }
 
 func openWorkbenchService(t *testing.T) (*Service, *fakeWorkbench, WorkspaceContext, *notifyKernel) {
 	t.Helper()
-	kernel := &notifyKernel{}
+	kernel := &realActionDecoder{notifyKernel: &notifyKernel{}}
 	service, err := Open(kernel, store.At(t.TempDir()), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -137,7 +137,7 @@ func openWorkbenchService(t *testing.T) (*Service, *fakeWorkbench, WorkspaceCont
 	if err != nil {
 		t.Fatal(err)
 	}
-	return service, workbench, service.Contexts.Open(root), kernel
+	return service, workbench, service.Contexts.Open(root), kernel.notifyKernel
 }
 
 func contextJSONOf(workspace WorkspaceContext) string {
@@ -214,7 +214,7 @@ func TestEditorEditsCarryVersionAndMapFailures(t *testing.T) {
 
 func TestSnapshotRefusesWhatExceedsTheBudget(t *testing.T) {
 	service, workbench, workspace, _ := openWorkbenchService(t)
-	workbench.snapshot = strings.Repeat("x", maxSnapshotBytes+1)
+	workbench.snapshot = strings.Repeat("x", DocumentSnapshotMaxBytes+1)
 	_, refusal := respond(t, service, "a", "documents/getSnapshot", `{`+contextJSONOf(workspace)+`,"documentID":"d1"}`)
 	if refusal == nil || refusal.Code != CodeLimitExceeded {
 		t.Fatalf("oversize snapshot = %+v", refusal)

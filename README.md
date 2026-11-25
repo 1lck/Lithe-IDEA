@@ -339,12 +339,12 @@ node scripts/i18n/generate-i18n.mjs --check
   </tr>
   <tr>
     <td width="112" align="center">
-      <a href="https://torchai.ai/sign-up?aff=FdkE">
-        <img src="./docs/assets/sponsors/torchai.jpg" width="64" alt="TorchAI">
+      <a href="https://www.deepsiderapi.com/?utm_source=lithe">
+        <img src="./docs/assets/sponsors/deepsider-api.jpg" width="112" alt="DeepSider API">
       </a>
     </td>
     <td>
-      <a href="https://torchai.ai/sign-up?aff=FdkE"><strong>TorchAI</strong></a> provides convenient large language model relay access for coding, content, and automation. Thank you to TorchAI for supporting Lithe!
+      <a href="https://www.deepsiderapi.com/?utm_source=lithe"><strong>DeepSider API</strong></a> is a unified LLM API gateway for GPT, Claude, Gemini, DeepSeek, and more. Official provider channels, no shared account pools or reverse-engineered APIs. Rates start at 29% of official pricing, with real-time usage tracking and transparent billing.
     </td>
   </tr>
   <tr>

@@ -5,11 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"sort"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 )
 
 // ToolCommand is one command a plugin declares under ui.commands. Core validated the
@@ -28,19 +26,20 @@ type ToolCommand struct {
 // ToolCommands reads the commands of every enabled plugin, ordered like the tool windows. A broken
 // manifest is reported without hiding the others.
 func (s *Service) ToolCommands(ctx context.Context, entries []pluginmanager.Entry) ([]ToolCommand, error) {
+	snapshot, readErr := s.ReadInstalled(ctx, entries)
+	contributions, err := snapshot.ToolCommands()
+	return contributions, errors.Join(readErr, err)
+}
+
+// ToolCommands reads its contribution sections from the same installed bytes.
+func (snapshot InstalledSnapshot) ToolCommands() ([]ToolCommand, error) {
 	var commands []ToolCommand
 	var failures []error
-	selected, selectionErr := s.selectInstalled(ctx, entries, false)
-	if selectionErr != nil {
-		failures = append(failures, selectionErr)
-	}
-	sort.Slice(selected, func(i, j int) bool { return selected[i].Installed.ID < selected[j].Installed.ID })
-	for _, entry := range selected {
-		manifest, err := readBounded(filepath.Join(entry.Installed.Path, pluginpkg.ManifestFile), MaxManifestBytes)
-		if err != nil {
-			failures = append(failures, fmt.Errorf("%s: %w", entry.Installed.ID, err))
-			continue
-		}
+	// Sort a copy of the headers so other consumers keep Core's selection order.
+	selected := append([]installedManifest(nil), snapshot.manifests...)
+	sort.Slice(selected, func(i, j int) bool { return selected[i].entry.Installed.ID < selected[j].entry.Installed.ID })
+	for _, installed := range selected {
+		entry, manifest := installed.entry, installed.manifest
 		var declared struct {
 			UI struct {
 				Commands []struct {
@@ -58,7 +57,7 @@ func (s *Service) ToolCommands(ctx context.Context, entries []pluginmanager.Entr
 		}
 		first := len(commands)
 		for _, command := range declared.UI.Commands {
-			if command.ID == "" || command.ToolWindowID == "" {
+			if command.ID == "" {
 				continue
 			}
 			commands = append(commands, ToolCommand{

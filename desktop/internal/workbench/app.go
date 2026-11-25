@@ -54,6 +54,7 @@ import (
 // the calls that read the disk or run Git, so a screen can be checked against answers the
 // test chooses.
 type Kernel interface {
+	workspaceReadKernel
 	CLIOpenTarget(context.Context, string) (core.CLITarget, error)
 	ReadSourceSettings(context.Context, json.RawMessage) (core.SourceSettingsState, error)
 	PlanSourceSettingsEdits(context.Context, core.SourceSettingsSnapshot, []core.SourceSettingsEdits, bool) ([]core.SourceSettingsWrite, error)
@@ -439,6 +440,8 @@ type settings struct {
 	DisableAutoCompletion bool `json:"disableAutoCompletion,omitempty"`
 	// VimMode turns on the Vim keys of every editor; off by default (vim_mode.go).
 	VimMode bool `json:"vimMode,omitempty"`
+	// RunPerformanceCollapsed keeps the CPU/memory graph hidden while showing its summary.
+	RunPerformanceCollapsed bool `json:"runPerformanceCollapsed,omitempty"`
 	// DisableAutoSave stops saving changed files a moment after typing stops
 	// (document_autosave.go); auto-save is on by default.
 	DisableAutoSave bool `json:"disableAutoSave,omitempty"`
@@ -571,6 +574,7 @@ type project struct {
 	tree fileTree
 	// pluginViews are the plugin views the project's tool windows show, by window (plugin_view.go).
 	pluginViews map[string]*pluginViewState
+	workflow    pluginWorkflowUI
 	// build is the Run tool window's provider-backed instances and output.
 	build buildState
 	// buildSessions are the build provider sessions the project started. They live beside build
@@ -656,13 +660,14 @@ type App struct {
 	// savedBackground is the window background last stored (window_background.go).
 	savedBackground gfx.Color
 	focus           focusTarget
-	// debugHostedPort and debugInitializeWindow replace, in tests, asking the
-	// language server for a debug port and Core's initialize deadline. Production
-	// leaves both zero.
-	debugHostedPort       func(ctx context.Context, p *project, adapter debugAdapter) (int, error)
-	debugInitializeWindow time.Duration
-	kernel                Kernel
-	store                 *store.Store
+	// debugHostedPort, debugInitializeWindow, and debugInitializeTrigger replace,
+	// in tests, asking the language server for a debug port and Core's initialize
+	// deadline. Production leaves all three zero.
+	debugHostedPort        func(ctx context.Context, p *project, adapter debugAdapter) (int, error)
+	debugInitializeWindow  time.Duration
+	debugInitializeTrigger <-chan struct{}
+	kernel                 Kernel
+	store                  *store.Store
 	// startupPath is the project folder the window opens once it exists (Options.OpenPath).
 	startupPath      string
 	startupFile      string
@@ -705,6 +710,10 @@ type App struct {
 	// initialLanguageLoad lets early opens of unknown extensionless files wait for the
 	// enabled language snapshot while the project restores known paths immediately.
 	initialLanguageLoad atomic.Pointer[languageLoad]
+	// pluginReloadGeneration numbers reloadPluginLanguages calls so stale completions are
+	// dropped; pluginReloadMu serializes early language publication and visibility writes.
+	pluginReloadGeneration atomic.Uint64
+	pluginReloadMu         sync.Mutex
 
 	settings settings
 	// fonts is the font of each scope the settings name, worked out by applyFonts.
@@ -756,9 +765,6 @@ type App struct {
 	pluginStartupCancel context.CancelFunc
 	// prompts are the questions plugins ask the user, one sheet at a time.
 	prompts pluginPrompts
-	// web opens the pages of plugin web tool windows; webReady is set once it can.
-	web      app.WebHost
-	webReady bool
 	// pluginPages are the open pages of web tool windows by chrome identifier.
 	pluginPages map[string]*pluginPage
 	// previews are the web pages of the editor area: Markdown pages and file viewers.
@@ -1137,7 +1143,13 @@ func (a *App) openPlugins(options Options) {
 	service.BuildConfigurationIssue = func(ctx context.Context, err error) {
 		a.backgroundFailedIn(ctx, "plugin_build_configuration_watch", documentLogError(err))
 	}
+	service.WorkspaceWatchIssue = func(ctx context.Context, err error) {
+		a.backgroundFailedIn(ctx, "plugin_workspace_watch", documentLogError(err))
+	}
 	service.RuntimeIssue = a.recordPluginRuntimeIssue
+	service.ContextIssue = func(ctx context.Context, err error) {
+		a.backgroundFailedIn(ctx, "plugin_workspace_context_notification", err)
+	}
 	service.SetRuntimeLanguage(a.language().Code())
 	if err := service.AttachWorkbench(pluginWorkbench{app: a}); err != nil {
 		a.operationFailed("plugin_host_services", err)

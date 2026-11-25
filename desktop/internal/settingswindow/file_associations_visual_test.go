@@ -5,6 +5,7 @@ package settingswindow
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -104,7 +105,41 @@ func TestVisualFileAssociations(t *testing.T) {
 				if len(s.picked) != len(s.state.Formats) {
 					t.Fatal("select all omitted virtualized formats")
 				}
-				if err := session.Screenshot(filepath.Join(out, "file-associations-"+language.Code()+"-"+theme+".png")); err != nil {
+				// Use the real activation callback, as when returning from system
+				// Default Apps. Only a read may start; the draft must survive it.
+				if config.OnActivate == nil {
+					t.Fatal("settings has no activation refresh callback")
+				}
+				config.OnActivate()
+				if s.request == nil || s.request.action != "activate" {
+					t.Fatal("returning to settings did not reread system defaults")
+				}
+				pending := s.request
+				config.OnActivate()
+				if s.request != pending || !s.refreshWhenIdle {
+					t.Fatal("activation during an operation did not defer its readback")
+				}
+				d.pump()
+				await()
+				if len(s.picked) != len(s.state.Formats) {
+					t.Fatal("activation refresh discarded the selection")
+				}
+				helpKey := "desktop.associations.helpMac"
+				if runtime.GOOS == "windows" {
+					helpKey = "desktop.associations.helpWindows"
+				}
+				help := i18n.Shared(language, helpKey)
+				info := d.hintHit(help).Bounds
+				if err := d.driver.Move(info.X+info.Width/2, info.Y+info.Height/2); err != nil {
+					t.Fatal(err)
+				}
+				if err := session.Advance(time.Second); err != nil {
+					t.Fatal(err)
+				}
+				if !d.showsHelp(help) {
+					t.Fatal("file association help did not appear")
+				}
+				if err := session.Screenshot(filepath.Join(out, "file-associations-help-"+language.Code()+"-"+theme+".png")); err != nil {
 					t.Fatal(err)
 				}
 				d.click(i18n.Shared(language, "desktop.associations.clearSelection"))

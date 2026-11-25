@@ -224,6 +224,8 @@ func (a *App) toolBody(c ui.C, tool item, p *project) {
 			a.problemsPanel(c, p)
 		case itemBuild:
 			a.buildToolView(c, p)
+		case itemOutput:
+			a.pluginOutputView(c, p)
 		case itemRun:
 			a.runView(c, p)
 		case itemTests:

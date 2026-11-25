@@ -41,6 +41,35 @@ func newBackend(t *testing.T) *backend {
 	}
 }
 
+func TestSessionRefreshCoalescesAndClosedShowingCannotRefreshTheNext(t *testing.T) {
+	b := newBackend(t)
+	var refresh func()
+	unwatched := 0
+	s := b.session(func(o *Options) {
+		o.Watch = func(_ string, callback func()) func() {
+			refresh = callback
+			return func() { unwatched++ }
+		}
+	})
+	show(s)
+	refresh()
+	refresh()
+	s.Take()
+	b.answered(s)
+	b.answered(s)
+	if got := b.events(); !slices.Equal(got, []string{"open", "refresh"}) {
+		t.Fatalf("events=%v", got)
+	}
+	old := refresh
+	s.Close()
+	show(s)
+	old()
+	s.Take()
+	if unwatched != 1 || len(s.queue) != 0 {
+		t.Fatalf("old callback queued work after reopen: %v", s.queue)
+	}
+}
+
 // session is a closed session wired to the backend; it closes with the test.
 func (b *backend) session(adjust ...func(*Options)) *Session {
 	options := Options{

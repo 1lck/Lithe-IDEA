@@ -119,6 +119,9 @@ type markdownPreviewState struct {
 
 // isMarkdownDocument reports whether d is a Markdown file by its language or name.
 func isMarkdownDocument(d *document) bool {
+	if d != nil && d.previewKind == "Markdown" {
+		return true
+	}
 	if d == nil || d.virtual {
 		return false
 	}
@@ -600,7 +603,7 @@ func (a *App) followDocumentLink(p *project, path, destination string, anchor fu
 	if !ok {
 		return
 	}
-	root := p.root
+	root := p.previewWorkspaceRoot()
 	a.background(p, kernelCallTimeout, func(ctx context.Context) func(*App) {
 		target, err := kernel.ResolveMarkdownReference(ctx, path, root, destination, core.MarkdownLink)
 		if err != nil {

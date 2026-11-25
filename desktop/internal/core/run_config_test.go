@@ -25,7 +25,7 @@ func TestProviderRunsResolveAndLaunchInputs(t *testing.T) {
 	}
 	reference := RunProviderReference{PluginID: "dev.example.engine", BuildSystemID: "engine", Root: "app", Run: "application",
 		ProjectID: "app", TargetID: "main", UserArguments: []string{}}
-	runs, err := json.Marshal([]RunProviderRun{{ProjectPath: "app", Name: "Run Main", Reference: reference}})
+	runs, err := json.Marshal([]RunProviderRun{{ProjectPath: "app", Name: "Run Main", Reference: &reference}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestRunConfigurationOptionsRoundTrip(t *testing.T) {
 	}
 	reference := RunProviderReference{PluginID: "dev.example.engine", BuildSystemID: "engine", Root: "app", Run: "application",
 		ProjectID: "app", TargetID: "main", UserArguments: []string{}}
-	runs, err := json.Marshal([]RunProviderRun{{ProjectPath: "app", Name: "Run Main", Reference: reference}})
+	runs, err := json.Marshal([]RunProviderRun{{ProjectPath: "app", Name: "Run Main", Reference: &reference}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,5 +210,48 @@ func TestBuiltInProcessRunRoundTrip(t *testing.T) {
 	writeRunConfigChanges(t, root, removed)
 	if resolved, err := client.ResolveRunConfigurations(ctx, root, nil); err != nil || len(resolved.Configurations) != 0 {
 		t.Fatalf("resolve after delete = %+v, %v", resolved, err)
+	}
+}
+
+// A generated run-configuration-type snapshot entry resolves as a `build.run-type`
+// configuration with a stable `generated:run-type:*` ID and its declared RunTypeKey.
+func TestGeneratedRunTypeSnapshotResolvesAsDeclaredKind(t *testing.T) {
+	client := NewClient()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runs, err := json.Marshal([]RunProviderRun{{
+		ProjectPath: "sub",
+		Name:        "build",
+		CWD:         "sub",
+		Execution:   "task",
+		Selector:    "tasker.target:sub:build",
+		RunType: &RunTypeReference{
+			PluginID:      "dev.example.tasker",
+			BuildSystemID: "tasker",
+			Type:          "target",
+			Values: map[string]json.RawMessage{
+				"targets": json.RawMessage(`["build"]`),
+			},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.GenerateRunConfigurations(ctx, root, runs); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := client.ResolveRunConfigurations(ctx, root, nil)
+	if err != nil || len(resolved.Configurations) != 1 {
+		t.Fatalf("resolve = %+v, %v", resolved, err)
+	}
+	cfg := resolved.Configurations[0]
+	key, ok := cfg.RunTypeReference()
+	if !ok || !strings.HasPrefix(cfg.ID, "generated:run-type:") || cfg.Provider != RunTypeProvider || cfg.UserDefined() ||
+		key != (RunTypeKey{PluginID: "dev.example.tasker", BuildSystemID: "tasker", Type: "target"}) || cfg.Cwd != "sub" {
+		t.Fatalf("configuration = %+v key = %+v ok = %v", cfg, key, ok)
 	}
 }

@@ -51,6 +51,10 @@ type Options struct {
 	// window thread, so a host that waits for its background work when it ends can count
 	// the call before it starts.
 	Go func(work func())
+	// Watch connects one showing to a backend invalidation callback.
+	Watch func(instance string, refresh func()) func()
+	// Page asks Core whether a changed viewport should load another bounded page.
+	Page func(context.Context, any, any) error
 }
 
 // Event is one view event the host sends. Name is the contract's event name; the other
@@ -63,6 +67,7 @@ type Event struct {
 	Setting  string
 	Item     string
 	Viewport *Viewport
+	Cursor   string
 }
 
 // Viewport is the visible part of a canvas in view-box coordinates.
@@ -112,6 +117,9 @@ type Session struct {
 	generation uint64
 	cancel     context.CancelFunc
 	queue      []Event
+	unwatch    func()
+	refresh    atomic.Bool
+	watchEpoch atomic.Uint64
 	settings   *settling
 	viewports  map[string]*settling
 
@@ -159,6 +167,20 @@ func (s *Session) Open() {
 	}
 	s.open = true
 	s.instance = "view-" + strconv.FormatUint(instances.Add(1), 10)
+	if s.options.Watch != nil {
+		epoch := s.watchEpoch.Add(1)
+		s.unwatch = s.options.Watch(s.instance, func() {
+			s.mu.Lock()
+			current := s.watchEpoch.Load() == epoch
+			if current {
+				s.refresh.Store(true)
+			}
+			s.mu.Unlock()
+			if current && s.options.Wake != nil {
+				s.options.Wake()
+			}
+		})
+	}
 	s.queue = append(s.queue[:0], Event{Name: "open"})
 	s.pump()
 }
@@ -172,6 +194,14 @@ func (s *Session) Close() {
 	}
 	if s.cancel != nil {
 		s.cancel()
+	}
+	s.mu.Lock()
+	s.watchEpoch.Add(1)
+	s.refresh.Store(false)
+	s.mu.Unlock()
+	if s.unwatch != nil {
+		s.unwatch()
+		s.unwatch = nil
 	}
 	// heard is set when open goes out, so a view closed before its first paint sends
 	// neither open nor close.
@@ -243,6 +273,14 @@ func (s *Session) Send(event Event) {
 	s.pump()
 }
 
+// Refresh coalesces backend invalidations on the window thread.
+func (s *Session) Refresh() {
+	s.refresh.Store(true)
+	if s.options.Wake != nil {
+		s.options.Wake()
+	}
+}
+
 // SettingsChanged sends settings once the values stop changing for settleDelay. A
 // change while one waits restarts the wait; the event carries the values at sending.
 func (s *Session) SettingsChanged() {
@@ -272,6 +310,9 @@ func (s *Session) ViewportMoved(canvas string, viewport Viewport) {
 func (s *Session) Take() (wait time.Duration) {
 	if s == nil || !s.open {
 		return 0
+	}
+	if s.refresh.Swap(false) {
+		s.enqueue(Event{Name: "refresh"})
 	}
 	s.mu.Lock()
 	done := s.done
@@ -436,6 +477,9 @@ func (s *Session) encode(event Event) json.RawMessage {
 	if event.Item != "" {
 		params["item"] = event.Item
 	}
+	if event.Cursor != "" {
+		params["cursor"] = event.Cursor
+	}
 	if event.Viewport != nil {
 		params["viewport"] = event.Viewport
 	}
@@ -504,8 +548,13 @@ type toggleState struct {
 	last bool
 }
 
-// treeState is a tree's selection and its open items, which the host keeps: opening an
-// item never reaches the plugin, and selecting one sends select.
+// A tree keeps stable selection and expansion while the backend supplies its
+// complete retained range. Lazy branches also emit expansion events.
+type pageKey struct {
+	Cursor, LastCursor              string
+	Count, LastCount, Rows, Visible int
+}
+
 type treeState struct {
 	tree ui.TreeState
 	// open holds the items the user opened or closed, by item ID; an item not in it is
@@ -517,6 +566,9 @@ type treeState struct {
 	// rows are the visible items, flattened in order, as the last paint showed them.
 	rows     []treeRow
 	selected string
+	cursor   string
+	count    int
+	paging   *ui.EffectState[bool, pageKey]
 }
 
 // treeRow is one visible tree item and its depth.
@@ -610,7 +662,7 @@ func (s *Session) tree(id string) *treeState {
 			row := state.rows[i]
 			return ui.TreeNode{
 				Depth:    row.depth,
-				Branch:   len(row.item.Children) > 0,
+				Branch:   len(row.item.Children) > 0 || row.item.HasChildren,
 				Expanded: state.expanded(row.item),
 				Selected: row.item.ID == state.selected,
 			}

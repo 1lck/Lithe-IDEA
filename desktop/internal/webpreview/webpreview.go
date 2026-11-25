@@ -62,8 +62,15 @@ type webView interface {
 	Reload()
 	Back()
 	Forward()
+	CanGoBack() bool
+	CanGoForward() bool
+	IsLoading() bool
+	Title() string
+	IsCrashed() bool
+	ProcessFailure() app.WebProcessFailure
 	Eval(script string)
 	PostMessage(text string)
+	Focus()
 	Close()
 }
 
@@ -142,6 +149,10 @@ type Config struct {
 	// Request answers what a request of the site page serves, from its decoded path from the
 	// root (core.Client.ResolveHTMLPreviewRequest); nil serves the file alone.
 	Request func(ctx context.Context, path string) (core.HTMLPreviewResource, error)
+	// OnLoad reports navigation steps of the page when set.
+	OnLoad func(app.WebLoad)
+	// OnProcessFailed reports when the page's web process terminates or crashes.
+	OnProcessFailed func(app.WebProcessFailure)
 	// Log reports a failure of the page's resources to the client's log. Only tests leave it
 	// nil, and then a failure is not recorded: the page never writes logs of its own.
 	Log func(stage string, err error)
@@ -178,6 +189,8 @@ func Open(config Config) (*Page, error) {
 		URL:                 p.address(),
 		Scheme:              &app.WebScheme{Name: SchemeName, ServeAsync: p.serve},
 		OnMessage:           p.receive,
+		OnLoad:              config.OnLoad,
+		OnProcessFailed:     p.processFailed,
 		Navigate:            p.navigate,
 		BridgeMainFrameOnly: true,
 	}
@@ -228,12 +241,18 @@ func (p *Page) SetDocument(data []byte, mime string) {
 	}
 }
 
-// Reload loads the page again; the site page keeps where it is scrolled.
+// Reload loads the page again; the site page keeps where it is scrolled unless it crashed,
+// failed to load, or is off the site.
 func (p *Page) Reload() {
 	if p.view == nil {
 		return
 	}
 	if p.config.Page == SitePage {
+		if p.view.IsCrashed() || p.site.loadError != "" || !p.site.onSite {
+			p.site.reloading, p.site.scroll, p.site.loadError = false, nil, ""
+			p.view.Reload()
+			return
+		}
 		p.reloadSite()
 		return
 	}
@@ -250,6 +269,59 @@ func (p *Page) Back() {
 func (p *Page) Forward() {
 	if p.view != nil {
 		p.view.Forward()
+	}
+}
+
+// CanGoBack and CanGoForward report whether the page's history has an entry each way.
+func (p *Page) CanGoBack() bool    { return p.view != nil && p.view.CanGoBack() }
+func (p *Page) CanGoForward() bool { return p.view != nil && p.view.CanGoForward() }
+
+// IsLoading reports whether the page is currently loading a navigation.
+func (p *Page) IsLoading() bool { return p.view != nil && p.view.IsLoading() }
+
+// Title returns the page's current document title.
+func (p *Page) Title() string {
+	if p.view == nil {
+		return ""
+	}
+	return p.view.Title()
+}
+
+// Crashed reports whether the page's web process is gone.
+func (p *Page) Crashed() bool { return p.view != nil && p.view.IsCrashed() }
+
+// ProcessFailure names why the page's web process is gone, or WebProcessNoFailure.
+func (p *Page) ProcessFailure() app.WebProcessFailure {
+	if p.view == nil {
+		return app.WebProcessNoFailure
+	}
+	return p.view.ProcessFailure()
+}
+
+// LoadFailure returns the last main-frame navigation error of a site page, or empty.
+func (p *Page) LoadFailure() string { return p.site.loadError }
+
+// CurrentPath returns the decoded site path currently shown by a site page, or empty.
+func (p *Page) CurrentPath() string {
+	if p.config.Page != SitePage || !p.site.onSite {
+		return ""
+	}
+	return p.site.shown
+}
+
+// Focus gives the page the keyboard.
+func (p *Page) Focus() {
+	if p.view != nil {
+		p.view.Focus()
+	}
+}
+
+func (p *Page) processFailed(failure app.WebProcessFailure) {
+	p.log("process", errors.New(failure.String()))
+	p.site.loading = false
+	p.site.reloading, p.site.scroll = false, nil
+	if p.config.OnProcessFailed != nil {
+		p.config.OnProcessFailed(failure)
 	}
 }
 

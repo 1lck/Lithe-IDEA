@@ -12,6 +12,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/processledger"
 )
 
 // setConsoleCtrlHandler is kernel32!SetConsoleCtrlHandler. x/sys does not wrap
@@ -152,6 +154,8 @@ func startBackend(config Config) (backend, error) {
 	}
 	windows.CloseHandle(process.Thread)
 	attributes.Delete()
+	// A terminal's shell is recorded until it ends, so a leftover can be offered for ending at start-up.
+	untrack := processledger.Track(processledger.KindTerminal, int(process.ProcessId))
 
 	output := os.NewFile(uintptr(outRead), "conpty-out")
 	input := os.NewFile(uintptr(inWrite), "conpty-in")
@@ -180,7 +184,9 @@ func startBackend(config Config) (backend, error) {
 		},
 		wait: func() (int, error) {
 			defer windows.CloseHandle(process.Process)
-			if event, err := windows.WaitForSingleObject(process.Process, windows.INFINITE); err != nil || event != windows.WAIT_OBJECT_0 {
+			event, err := windows.WaitForSingleObject(process.Process, windows.INFINITE)
+			untrack()
+			if err != nil || event != windows.WAIT_OBJECT_0 {
 				return 0, errors.New("localshell: waiting for the shell failed")
 			}
 			// The console keeps its output pipe open after the program is gone;

@@ -133,6 +133,8 @@ Viva 由 `desktop/go.mod` 的 `replace` 固定到 [Lithe-IDEA/viva](https://gith
 
 ## 插件契约只在 Rust Core
 
+新增或修改插件 API、决定是否引入新能力或协议版本前，必须先读 [develop-lithe 的“API 复用与版本演进”](.agents/skills/develop-lithe/SKILL.md#api-复用与版本演进)，其中规定 API-01–45 的领域扩展、所有系统 API 的升版限制，以及日志、错误码和四语 SDK 的交付要求；不能只凭旧文档或已有升版先例决定。
+
 插件契约、插件开发指南与参考、四个官方插件后端 SDK（Rust、Go、Node、Java）和它们的端到端测试只有一份，
 在 Rust Core 仓库 [Lithe-IDEA/Lithe-core-rust](https://github.com/Lithe-IDEA/Lithe-core-rust) 的
 [`shared/plugins/`](https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/shared/plugins)，和执行契约的
@@ -147,7 +149,7 @@ Core 代码在同一个仓库、同一个 PR 里修改。本仓库不保存契�
 - 新增或修改宿主方法、宿主通知的 PR，即使只是给已有 API 加一个子方法，也要在 PR 描述里附一张
   “原计划编号 | 方法 | 用途”表，每个方法占一行，格式参照
   [#1653](https://github.com/1lck/Lithe-IDEA/pull/1653) 的描述。原计划编号只用
-  [API 实施计划](docs/development/macos-plugin-api-plan.md)里的 API-01–44，不得自编新号；
+  [API 实施计划](docs/development/macos-plugin-api-plan.md)里的 API-01–45，不得自编新号；
   不属于任何编号的方法写 —。同一个 Core PR 里，每个方法在两处各加一行：
   [API 总表](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/shared/plugins/reference/api-catalog.md)的中英两张方法表
   （API、方法、用途、权限、协议），以及更新记录的“宿主方法（按 API 编号）”索引（API、方法、协议、日期、PR）。

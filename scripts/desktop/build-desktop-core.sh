@@ -372,7 +372,11 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # The plugin delta branch (#187) includes current Core main, including the
 # built-in file association catalog and plans (#186). It adds the pinned
 # companion index and verifies and reconstructs ZIPs for marketplace updates.
-PINNED_CORE_REVISION="076ce04e314ecdde790b36ee3f374becb11951a0"
+# Lithe-core-rust main at 1310ee36 (PR #198): builds on c6cef0b (#187/#196), adds PR #197 hover Markdown
+# language preservation, and extends editor actions `actionIcons` with the four generic gutter
+# navigation icon tokens (`navigate-implemented`, `navigate-implementing`, `navigate-overridden`,
+# `navigate-overriding`).
+PINNED_CORE_REVISION="1310ee36258230e83fe1513ab71b67e2af157edd"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

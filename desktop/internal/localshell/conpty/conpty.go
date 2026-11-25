@@ -22,13 +22,14 @@
 package conpty
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/atomicfile"
 )
 
 // ErrUnavailable means this build carries no ConPTY: only the Windows builds for amd64 and
@@ -89,53 +90,11 @@ func digest(files []file) string {
 	return hex.EncodeToString(sum.Sum(nil)[:16])
 }
 
-// place makes path hold data, writing it through a temporary file in the same folder.
+// place installs an immutable resource with the same atomic policy as other
+// bundled helpers. Windows already-loaded DLLs can be reused when bytes match.
 func place(path string, data []byte) error {
-	if holds(path, data) {
-		return nil
-	}
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("conpty: create the folder: %w", err)
-	}
-	temporary, err := os.CreateTemp(dir, ".install-*")
-	if err != nil {
-		return fmt.Errorf("conpty: create %s: %w", filepath.Base(path), err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath) // no-op once the rename succeeded
-	if _, err := temporary.Write(data); err != nil {
-		temporary.Close()
-		return fmt.Errorf("conpty: write %s: %w", filepath.Base(path), err)
-	}
-	if err := temporary.Sync(); err != nil {
-		temporary.Close()
-		return fmt.Errorf("conpty: sync %s: %w", filepath.Base(path), err)
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("conpty: close %s: %w", filepath.Base(path), err)
-	}
-	if err := os.Chmod(temporaryPath, 0o700); err != nil {
-		return fmt.Errorf("conpty: make %s executable: %w", filepath.Base(path), err)
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		// Another client may have installed the same set meanwhile and loaded it; Windows
-		// refuses to replace a loaded DLL or a running console host, and the file then
-		// already holds these bytes.
-		if holds(path, data) {
-			return nil
-		}
+	if err := atomicfile.Install(path, data, 0o700); err != nil {
 		return fmt.Errorf("conpty: install %s: %w", filepath.Base(path), err)
 	}
 	return nil
-}
-
-// holds reports whether path is a regular file with exactly data in it.
-func holds(path string, data []byte) bool {
-	info, err := os.Stat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Size() != int64(len(data)) {
-		return false
-	}
-	existing, err := os.ReadFile(path)
-	return err == nil && bytes.Equal(existing, data)
 }

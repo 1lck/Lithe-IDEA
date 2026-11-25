@@ -2,7 +2,7 @@ package i18n
 
 import "strconv"
 
-// statusIndentSpaces is the indentation item when Tab inserts spaces, for example "4 spaces".
+// statusIndentSpaces is the indentation item when Tab inserts spaces, for example "Spaces: 4".
 func statusIndentSpaces(language Language, count int) string {
 	return SharedFormat(language, "desktop.status.indentSpaces", map[string]string{"count": strconv.Itoa(count)})
 }

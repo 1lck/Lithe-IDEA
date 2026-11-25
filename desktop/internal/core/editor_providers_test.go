@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 )
 
@@ -11,9 +12,13 @@ import (
 // refuse it under the same list.
 func TestEditorHostProviderTypesPassCoreRegistration(t *testing.T) {
 	client, ctx := NewClient(), testContext(t)
+	if !slices.Contains(EditorHost.ProviderTypes, "colorDecorations") {
+		t.Fatal("the host must advertise colorDecorations with the pinned Core")
+	}
 	options := map[string]map[string]any{
-		"completion":     {"function": "keys.completion", "triggerCharacters": []string{"."}},
-		"semanticTokens": {"function": "keys.semanticTokens", "legend": map[string]any{"tokenTypes": []string{"property"}, "tokenModifiers": []string{}}},
+		"colorDecorations": {"function": "keys.colors", "colorLegend": []map[string]string{{"id": "accent", "light": "#000000", "dark": "#FFFFFF"}}},
+		"completion":       {"function": "keys.completion", "triggerCharacters": []string{"."}},
+		"semanticTokens":   {"function": "keys.semanticTokens", "legend": map[string]any{"tokenTypes": []string{"property"}, "tokenModifiers": []string{}}},
 	}
 	for _, kind := range EditorHost.ProviderTypes {
 		provider, ok := options[kind]

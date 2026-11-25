@@ -2,10 +2,12 @@ package workbench
 
 import (
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/vivaui/viva/gfx"
 )
@@ -21,6 +23,80 @@ func markdownHoverResult(t *testing.T, contents string, span *core.PluginDocumen
 		t.Fatal(err)
 	}
 	return value
+}
+
+// hoverContentsCase is a normalized result from the linked Core's protocol fixture.
+// Core tests verify the raw server response; these cases verify its desktop presentation.
+type hoverContentsCase struct {
+	Name         string          `json:"name"`
+	Expected     json.RawMessage `json:"expected"`
+	CodeLanguage string          `json:"codeLanguage"`
+	CodeLine     string          `json:"codeLine"`
+}
+
+func hoverContentsCases(t *testing.T) []hoverContentsCase {
+	t.Helper()
+	data, err := os.ReadFile(contractfixture.CoreFixture("lsp/hover-contents-v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Cases []hoverContentsCase `json:"cases"`
+	}
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	if len(fixture.Cases) == 0 {
+		t.Fatal("Core hover fixture has no cases")
+	}
+	return fixture.Cases
+}
+
+func (c hoverContentsCase) result(t *testing.T) json.RawMessage {
+	t.Helper()
+	result, err := json.Marshal(map[string]json.RawMessage{"hover": c.Expected})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+func TestHoverContentsContractRendersLanguageCodeBlocks(t *testing.T) {
+	for _, c := range hoverContentsCases(t) {
+		t.Run(c.Name, func(t *testing.T) {
+			f := newSemanticFixture(t)
+			f.h.app.semantics.hoverDelay = -1
+			if string(c.Expected) == "null" {
+				rect := f.caretRectAt(t, 0, 1)
+				f.move(t, rect.X+2, rect.Y+2)
+				f.waitForRequests(t, 1)
+				f.deliver(t, "op-1", pluginMethodHover, c.result(t))
+				if f.h.app.semantics.hover.open {
+					t.Fatal("an empty hover opened a popup")
+				}
+				return
+			}
+			f.openPointerHover(t, c.result(t))
+			page := f.h.app.semantics.hover.page
+			if c.CodeLanguage == "" {
+				if c.Name == "markup-plaintext" && !strings.Contains(page.label, "literal *text* and ```rust") {
+					t.Fatalf("plaintext was interpreted as Markdown: %q", page.label)
+				}
+				return
+			}
+			// The document is Java, so a Rust block must use its own declared language.
+			awaitDocumentState(t, f.h, func() bool { return page.tokens != nil })
+			if !strings.Contains(page.label, c.CodeLine) {
+				t.Fatalf("hover does not render its code: %q", page.label)
+			}
+			if runs := f.h.app.hoverCodeRuns(page, c.CodeLanguage, c.CodeLine, nil); len(runs) == 0 {
+				t.Fatalf("no %s colors for %q", c.CodeLanguage, c.CodeLine)
+			}
+			if runs := f.h.app.hoverCodeRuns(page, f.d.languageID, c.CodeLine, nil); len(runs) != 0 {
+				t.Fatalf("block used the document language instead: %+v", runs)
+			}
+		})
+	}
 }
 
 // caretRectAt is the caret's rectangle with the caret at line and column of the fixture's
@@ -97,6 +173,32 @@ func TestPointerHoverRendersMarkdownRightUnderTheRow(t *testing.T) {
 	}
 	if hover.rect.Width > semanticHoverMaxWidth+2*semanticHoverPadX {
 		t.Fatalf("popup width %v exceeds the maximum", hover.rect.Width)
+	}
+}
+
+// Native views cover the page's own layer. Editor popups must therefore use
+// an overlay band as well as being declared after the workbench.
+func TestPointerHoverPaintsAboveTheNativeContentLayer(t *testing.T) {
+	f := newSemanticFixture(t)
+	f.h.app.semantics.hoverDelay = -1
+	f.openPointerHover(t, hoverResult(t, "Hover over native content"))
+	var editorLayer uint16
+	foundEditor, foundHover := false, false
+	for _, hit := range f.h.driver.Snapshot().Hits {
+		if hit.ID == f.d.hit {
+			editorLayer, foundEditor = hit.Layer, true
+		}
+	}
+	for _, hit := range f.h.driver.Snapshot().Hits {
+		if hit.Role == gfx.RoleMenu && hit.Bounds == f.h.app.semantics.hover.rect {
+			foundHover = true
+			if hit.Layer <= editorLayer {
+				t.Fatalf("hover layer %d does not stand above native content on editor layer %d", hit.Layer, editorLayer)
+			}
+		}
+	}
+	if !foundEditor || !foundHover {
+		t.Fatalf("editor present: %v, hover present: %v", foundEditor, foundHover)
 	}
 }
 

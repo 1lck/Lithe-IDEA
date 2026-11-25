@@ -78,7 +78,7 @@ func TestGenerateRunConfigurationsNeverWritesTheWorkspace(t *testing.T) {
 	}
 	reference := RunProviderReference{PluginID: "dev.example.engine", BuildSystemID: "engine", Root: "app", Run: "application",
 		ProjectID: "app", TargetID: "main", UserArguments: []string{}}
-	runs, err := json.Marshal([]RunProviderRun{{ProjectPath: "app", Name: "Run Main", Reference: reference}})
+	runs, err := json.Marshal([]RunProviderRun{{ProjectPath: "app", Name: "Run Main", Reference: &reference}})
 	if err != nil {
 		t.Fatal(err)
 	}
