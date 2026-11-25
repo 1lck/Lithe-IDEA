@@ -38,7 +38,7 @@ func (a *App) conflictMessage(d *document) string {
 }
 
 // documentConflict declares the notice for d: a warning icon, the message and the two ways
-// out, keeping the editor's text or loading the disk's.
+// out: keep the editor's text, or load the disk's version / discard a deleted document.
 func (a *App) documentConflict(c ui.C, d *document) {
 	busy := d.saving || d.checking || d.checkPending || d.resolvingConflict || d.view.IsComposing()
 	background, border, foreground := gfx.RGB24(0xFFF6E9), gfx.RGB24(0xF4CD9A), gfx.RGB24(0x000000)
@@ -59,7 +59,14 @@ func (a *App) documentConflict(c ui.C, d *document) {
 					if ui.Button(c.Key("keep"), keepLabel).Link().Disabled(busy).Clicked() {
 						c.After(func() { a.keepDocumentEditor(a.project, d) })
 					}
-					if ui.Button(c.Key("load"), i18n.Shared(a.language(), "native.loadDiskVersion")).Link().Disabled(busy || d.conflictMissing).Clicked() {
+					if d.conflictMissing {
+						if ui.Button(c.Key("discard"), i18n.Shared(a.language(), "desktop.document.discardAndClose")).Link().Disabled(busy).Clicked() {
+							c.After(func() {
+								a.performed("document.discardDeleted", surfaceButton)
+								a.discardDeletedDocument(a.project, d)
+							})
+						}
+					} else if ui.Button(c.Key("load"), i18n.Shared(a.language(), "native.loadDiskVersion")).Link().Disabled(busy).Clicked() {
 						c.After(func() { a.loadDocumentDisk(a.project, d) })
 					}
 				})
@@ -67,6 +74,21 @@ func (a *App) documentConflict(c ui.C, d *document) {
 		})
 		ui.Row(c.Part("bottom")).FillWidth().Height(1).Shrink(0).Background(border)
 	})
+}
+
+// discardDeletedDocument closes the preserved editor only after the user explicitly
+// discards it. Neither the missing path nor a replacement that appeared is written.
+func (a *App) discardDeletedDocument(p *project, d *document) {
+	if p == nil || a.project != p || p.docs.find(d.id) != d || !d.conflicted || !d.conflictMissing || d.saving || d.checking || d.checkPending || d.resolvingConflict || d.view.IsComposing() {
+		return
+	}
+	a.recordLocalHistory(p, d.path, "unsavedDiscard", historyTexts{bufferText: d.view.TextSnapshot()})
+	a.removeDocument(p, d)
+	if p.docs.find(d.id) == nil {
+		// removeDocument normally preserves unsaved text for recovery; explicit discard
+		// must remove that checkpoint after the tab has actually closed.
+		a.flushCheckpoint(p, d, true)
+	}
 }
 
 func (a *App) conflictDecision(p *project, d *document, event core.DocumentEventType) (core.DocumentDecision, error) {

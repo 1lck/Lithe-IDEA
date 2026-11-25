@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/vivaui/viva/gfx"
@@ -222,5 +223,75 @@ func TestTreeErrorReasonDropsThePath(t *testing.T) {
 	}
 	if strings.Contains(reason, "/work") {
 		t.Fatalf("reason %q keeps the path", reason)
+	}
+}
+
+func TestProjectTreeCutAndPasteMovesOpenDocuments(t *testing.T) {
+	root := t.TempDir()
+	writeTreeFiles(t, root, "test/controller/TestController.java", "test1/.keep")
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	p := h.openTree(t, root)
+
+	oldPath := filepath.Join(root, "test", "controller", "TestController.java")
+	h.app.openFile(p, oldPath)
+	h.await("the open document", func() bool { return p.docs.byPath(oldPath) != nil })
+	doc := p.docs.byPath(oldPath)
+	h.await("the initial document check", func() bool { return !doc.checking && !doc.checkPending })
+	for _, watch := range p.docs.watches {
+		watch.close()
+	}
+	p.docs.watches = nil
+	h.settle()
+
+	// Expand test so test/controller is in the tree, then cut and paste it into test1.
+	h.app.listTree(p, "test")
+	h.await("the controller folder", func() bool { return p.tree.find("test/controller") != nil })
+	controller := p.tree.find("test/controller")
+	target := p.tree.find("test1")
+	if controller == nil || target == nil {
+		t.Fatalf("missing tree nodes: controller=%v target=%v", controller, target)
+	}
+
+	// Start a real read at the old path, move the directory, then let that read finish.
+	// Its missing-file result must not mark the moved tab as deleted.
+	started, release := make(chan struct{}), make(chan struct{})
+	var startOnce, releaseOnce sync.Once
+	releaseCheck := func() { releaseOnce.Do(func() { close(release) }) }
+	defer releaseCheck()
+	h.app.documentReader = func(path string) ([]byte, error) {
+		if path == oldPath {
+			startOnce.Do(func() {
+				close(started)
+				select {
+				case <-release:
+				case <-p.ctx.Done():
+				}
+			})
+		}
+		return readDocument(path)
+	}
+	doc.checkPending = true
+	h.app.scheduleDocumentChecks(p)
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("old-path document check did not start")
+	}
+
+	h.app.treeCut(p, controller)
+	h.app.treePaste(p, target)
+	releaseCheck()
+
+	newPath := filepath.Join(root, "test1", "controller", "TestController.java")
+	h.await("the moved file on disk", func() bool {
+		_, err := os.Stat(newPath)
+		return err == nil
+	})
+	h.await("the tab moved to the new path", func() bool {
+		d := p.docs.byPath(newPath)
+		return d != nil && !d.conflicted && !d.conflictMissing && !d.checking && !d.checkPending
+	})
+	if p.docs.byPath(oldPath) != nil {
+		t.Fatal("the old path tab was left behind after cut and paste")
 	}
 }

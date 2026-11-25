@@ -36,6 +36,12 @@ Viva 为打开文档的父目录共享一个原生目录监听，注册后再次
 
 文件被删除后，即使编辑器原本干净，也不得因关闭标签或项目丢弃仅存内容。磁盘恢复到原基线后解除冲突。用户明确允许重建已删除文件后，保存使用同目录暂存文件和原生的不覆盖提交；如果新目录项先出现，保留双方内容并重新提示冲突。
 
+[Issue #2405](https://github.com/1lck/Lithe-IDEA/issues/2405) 中，整个父目录被移走后，创建暂存文件会因父目录不存在而失败。明确允许重建时，原生写入适配器先补齐缺失的父目录；普通保存和自动保存不能因此获得重建权限。目录属于用户文档路径，随文档保留，不是应用缓存，也不从发行安装目录推导写入位置，不改变代码签名或 Sparkle 增量更新基线。
+
+重建失败时保留编辑内容，并恢复删除提示。用户可选择“丢弃并关闭”；只有明确点击该动作才关闭标签，并清除恢复草稿，避免下次启动重新出现已丢弃的内容。重建失败与丢弃操作都不能覆盖后来出现的文件。
+
+在项目树内剪切粘贴目录时，已打开的标签必须与重命名、拖动一样更新路径和监听。每次后台磁盘检查捕获发起时的路径；检查返回时路径已变化，就重新检查当前路径，不能把旧路径缺失的结果套到新路径上。例如把 `test/controller` 移到 `test1/controller` 后，旧检查晚到不得显示删除提示。
+
 ### 保存与输入的顺序
 
 浏览器或原生编辑器可能还有输入尚未交给文档。保存、运行及调试前，必须先等待编辑器的输入同步，再捕获要写入的正文；同步失败或等待期间取消时，不得开始写盘。随后仍通过磁盘字节核对，不能恢复成无条件写入。
@@ -56,6 +62,7 @@ Viva 当前对硬链接采取保守拒绝，尚未接入单次确认：保存时
 - 单文件句柄监听：替换式保存后可能继续关联旧对象。父目录观察加激活时核对更可靠。
 - 时间戳、长度或保存后短暂忽略：都不能判断真实内容。跨程序强制加锁会破坏协作，各平台语义也不同。
 - 拒绝读取所有硬链接：会把正常的 XML 误判为非文本。
+- 只在保存失败时重试创建暂存文件：父目录一直缺失时不会成功，用户仍无法关闭。父目录恢复必须属于明确认可的重建操作，同时提供丢弃出口。
 
 ## 后果
 
@@ -63,7 +70,8 @@ Viva 当前对硬链接采取保守拒绝，尚未接入单次确认：保存时
 
 ## 验证
 
-- `scripts/desktop/desktop-go.sh test ./internal/documentio ./internal/workbench`
+- `scripts/desktop/desktop-go.sh test -tags 'dev vivahead' ./internal/documentio ./internal/workbench`：覆盖父目录缺失时重建、失败后丢弃并移除草稿、剪切粘贴时标签跟随，以及旧路径检查晚到。
+- `LITHE_VISUAL_OUTPUT_DIR="$PWD/.artifacts/2405-document-conflict" scripts/desktop/desktop-go.sh test -tags 'dev vivahead lithevisual' -run '^TestVisualDeletedDocument$' ./internal/workbench`：生成明暗主题、中英文的删除提示截图，必须实际检查图片；无头截图不代替原生窗口验收。
 - 共享生命周期场景位于 Core 仓库的 [documents/lifecycle-v1.json](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/fixtures/documents/lifecycle-v1.json)。
 - `./scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：打开、编辑、保存的工作流不改写安装目录。
 - 实机验证仍需完成：在 macOS 和 Windows 上做外部修改、删除、重命名和替换式保存的完整工作台流程。
@@ -74,5 +82,7 @@ Viva 当前对硬链接采取保守拒绝，尚未接入单次确认：保存时
 - `desktop/internal/documentio/`
 - `desktop/internal/workbench/documents.go`
 - `desktop/internal/workbench/document_observation.go`
+- `desktop/internal/workbench/document_conflict.go`
+- `desktop/internal/workbench/filetree_dnd.go`
 - `desktop/internal/editorview/view.go`
 - [Core 仓库的文档生命周期](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/application-boundary.md)
