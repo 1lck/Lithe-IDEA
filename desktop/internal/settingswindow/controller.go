@@ -550,9 +550,6 @@ type Options struct {
 	// is false until Core has answered. Nil hides the stop time, for a platform where a
 	// stopped program is ended at once.
 	StopTime func() (rule StopTime, ok bool)
-	// SweepsLeftovers says the client finds, at start-up, the processes an earlier run left
-	// behind; false hides the setting for them.
-	SweepsLeftovers bool
 	// SetKeymap hands a change of Values.Keymap to the settings owner, like SetTabRows.
 	SetKeymap            func(shortcuts.Overrides)
 	SetEditorPreferences func(core.EditorStoredPreferences, core.EditorPreferences)
