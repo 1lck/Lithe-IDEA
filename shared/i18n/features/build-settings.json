@@ -1086,16 +1086,6 @@
       ]
     },
     {
-      "id": "desktop.buildSettings.workspaceOptions",
-      "description": "Open a detected build instance’s workspace options from its settings page.",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "name": "string"
-      }
-    },
-    {
       "id": "desktop.buildSettings.workspaceOptionsAt",
       "description": "Open a detected build instance’s workspace options from its settings page.",
       "platforms": [
@@ -1245,7 +1235,6 @@
       "desktop.buildSettings.steppingTab": "Debuggers › Stepping",
       "desktop.buildSettings.searchAllTools": "View all {count} in Toolchains…",
       "desktop.toolchains.discoveryIncomplete": "Some enabled plugins could not be read. The tool list may be incomplete; check the logs and reload after fixing them.",
-      "desktop.buildSettings.workspaceOptions": "{name} workspace options",
       "desktop.buildSettings.workspaceOptionsAt": "{name} workspace options ({root})"
     },
     "zh-CN": {
@@ -1385,7 +1374,6 @@
       "desktop.buildSettings.steppingTab": "调试器 › 单步",
       "desktop.buildSettings.searchAllTools": "在工具链中查看全部 {count} 个…",
       "desktop.toolchains.discoveryIncomplete": "部分已启用插件的配置无法读取，工具列表可能不完整。请查看日志，修复后重新加载。",
-      "desktop.buildSettings.workspaceOptions": "{name} 工作区选项",
       "desktop.buildSettings.workspaceOptionsAt": "{name} 工作区选项（{root}）"
     }
   }

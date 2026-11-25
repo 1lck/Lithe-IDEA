@@ -191,7 +191,7 @@ func (w *window) kindDetail(c ui.C, language i18n.Language, page *core.SettingsP
 			if target.PluginID != w.contributorID {
 				continue
 			}
-			label := i18n.SharedFormat(language, "desktop.buildSettings.workspaceOptions", map[string]string{"name": target.Name})
+			label := i18n.SharedFormat(language, "desktop.build.instanceOptions", map[string]string{"name": target.Name})
 			if target.Root != "" {
 				label = i18n.SharedFormat(language, "desktop.buildSettings.workspaceOptionsAt", map[string]string{"name": target.Name, "root": target.Root})
 			}
