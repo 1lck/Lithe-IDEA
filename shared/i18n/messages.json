@@ -7056,13 +7056,6 @@
       ]
     },
     {
-      "id": "desktop.build.optionsTitle",
-      "description": "Build window toolbar button and dialog title for which folders build system detection skips",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.build.detection",
       "description": "Heading of the Build options dialog section that sets how build systems are detected",
       "platforms": [
