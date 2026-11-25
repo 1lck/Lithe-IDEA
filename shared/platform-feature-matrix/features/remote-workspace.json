@@ -129,6 +129,7 @@
       "desktop/internal/workbench/remote_preferences.go",
       "desktop/internal/settingswindow/remote_preferences_state.go",
       "desktop/internal/settingswindow/remote_workspace_view.go",
+      "desktop/internal/settingswindow/remote_workspace_view_test.go",
       "desktop/internal/core/remote_process.go",
       "desktop/internal/core/remote_process_test.go",
       "desktop/internal/workbench/remote_run.go",
