@@ -364,7 +364,7 @@ func (a *App) drawRefIntegrateDialog(c ui.C, p *project) {
 		description = i18n.SharedFormat(lang, "native.pullIntoTheCurrentBranchWithAMerge", map[string]string{"arg1": name})
 	}
 	open := true
-	closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Description: description, Width: 460}, nil, func() {
+	closed := ui.Modal(c, &open, title, ui.ModalSpec{Description: description, Width: 460}, nil, func() {
 		if ui.Button(c, i18n.Shared(lang, "desktop.gitReview.cancel")).Outline().Clicked() {
 			open = false
 		}

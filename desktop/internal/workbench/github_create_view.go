@@ -12,7 +12,7 @@ func (a *App) drawCreatePullRequestDialog(c ui.C, p *project) {
 	cr := &a.prCreate
 	lang := a.language()
 	open := true
-	closed := ui.ModalWith(c, &open, i18n.Shared(lang, "desktop.github.newPullRequest"), ui.ModalSpec{Width: reviewDialogWidth, Height: reviewDialogHeight}, func() {
+	closed := ui.Modal(c, &open, i18n.Shared(lang, "desktop.github.newPullRequest"), ui.ModalSpec{Width: reviewDialogWidth, Height: reviewDialogHeight}, func() {
 		ui.Column(c).Fill().Gap(8).Children(func() {
 			if cr.err != "" {
 				ui.Paragraph(c, cr.err, 3).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)

@@ -113,7 +113,7 @@ func (a *App) terminalFindBar(c ui.C, t *terminal) {
 		f.count, f.current = t.view.Find(query)
 	}
 	ui.Row(c.Part("term-find-row" + strconv.Itoa(t.id))).FillWidth().PadX(8).PadY(4).Items(ui.Center).Gap(6).Background(a.colors.Panel).Children(func() {
-		field := ui.TextFieldID(c, id, &f.field, words.Find, words.Find).Icon(icons.Search).Grow(1).MinWidth(0)
+		field := ui.TextField(c, &f.field, words.Find, words.Find, ui.WithID(id)).Icon(icons.Search).Grow(1).MinWidth(0)
 		if field.Submitted() {
 			f.count, f.current = t.view.FindStep(-1)
 		}

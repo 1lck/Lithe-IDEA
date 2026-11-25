@@ -159,7 +159,7 @@ func (a *App) drawHistoryRewriteDialog(c ui.C, p *project) {
 	size := a.theme.Metrics.FontSizeS
 	open := true
 	spec := ui.ModalSpec{Description: i18n.Shared(lang, "git.historyReview.description"), Width: reviewDialogWidth, Height: reviewDialogHeight}
-	closed := ui.ModalWith(c, &open, historyRewriteTitle(lang, r.operation), spec, func() {
+	closed := ui.Modal(c, &open, historyRewriteTitle(lang, r.operation), spec, func() {
 		ui.Column(c).Fill().Gap(8).Children(func() {
 			if r.err != "" {
 				ui.Paragraph(c, r.err, 4).FontSize(size).Color(a.theme.Danger)
@@ -260,7 +260,7 @@ func (a *App) drawHistoryConfirmDialog(c ui.C, p *project) {
 		action = i18n.Shared(lang, "native.revert")
 	}
 	open := true
-	closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Description: description, Width: 460}, nil, func() {
+	closed := ui.Modal(c, &open, title, ui.ModalSpec{Description: description, Width: 460}, nil, func() {
 		if ui.Button(c, i18n.Shared(lang, "desktop.gitReview.cancel")).Outline().Clicked() {
 			open = false
 		}
@@ -279,7 +279,7 @@ func (a *App) drawHistoryResetDialog(c ui.C, p *project) {
 	lang := a.language()
 	open := true
 	description := i18n.SharedFormat(lang, "git.resetToCommitPrompt", map[string]string{"hash": shortHash(h.reset.revision)})
-	closed := ui.ModalWith(c, &open, i18n.Shared(lang, "git.resetToCommit"), ui.ModalSpec{Description: description, Width: 460}, func() {
+	closed := ui.Modal(c, &open, i18n.Shared(lang, "git.resetToCommit"), ui.ModalSpec{Description: description, Width: 460}, func() {
 		ui.Column(c).FillWidth().Gap(4).Children(func() {
 			for _, mode := range historyResetModes {
 				button := ui.Button(c, historyResetModeText(lang, mode)).FillWidth()

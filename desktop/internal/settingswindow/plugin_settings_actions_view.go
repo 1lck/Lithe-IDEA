@@ -36,7 +36,7 @@ func (w *window) pluginSettingActions(c ui.C) {
 	}
 	if confirmation := p.actionConfirmation; confirmation != nil {
 		question := i18n.SharedFormat(language, "desktop.pluginSettings.actionConfirm", map[string]string{"action": confirmation.Title})
-		ui.Modal(c, &p.confirmOpen, confirmation.Title, func() {
+		ui.Modal(c, &p.confirmOpen, confirmation.Title, ui.ModalSpec{}, func() {
 			ui.Wrap(c, question).FontSize(12).Color(w.pal.text)
 		}, func() {
 			if ui.Button(c, i18n.Shared(language, "desktop.pluginSettings.actionCancel")).Outline().Disabled(p.running).Clicked() {

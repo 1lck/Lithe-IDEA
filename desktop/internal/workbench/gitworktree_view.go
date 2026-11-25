@@ -728,7 +728,7 @@ func (a *App) worktreeConfirm(c ui.C, title, prompt, targetPath, note, confirm s
 			c.After(run)
 		}
 	}
-	if ui.ModalWith(c, &open, title, ui.ModalSpec{Description: prompt, Width: branchDialogWidth}, body, footer) {
+	if ui.Modal(c, &open, title, ui.ModalSpec{Description: prompt, Width: branchDialogWidth}, body, footer) {
 		c.After(a.cancelWorktreeDialog)
 	}
 }
@@ -835,7 +835,7 @@ func (a *App) drawWorktreeCreateDialog(c ui.C, p *project) {
 			c.After(func() { a.submitCreateWorktree(p) })
 		}
 	}
-	if ui.ModalWith(c, &open, t.CreateTitle, ui.ModalSpec{Width: branchDialogWidth}, body, footer) {
+	if ui.Modal(c, &open, t.CreateTitle, ui.ModalSpec{Width: branchDialogWidth}, body, footer) {
 		c.After(a.cancelWorktreeDialog)
 	}
 	if submitted && ready {

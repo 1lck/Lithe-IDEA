@@ -20,7 +20,7 @@ func (a *App) inlineEditView(c ui.C, p *project) {
 		title = t.ReviewTitle
 	}
 	open := true
-	closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Width: 640}, func() {
+	closed := ui.Modal(c, &open, title, ui.ModalSpec{Width: 640}, func() {
 		ui.Column(c).FillWidth().Gap(8).Children(func() {
 			if !s.hasResult {
 				scope := i18n.Shared(a.language(), "desktop.ai.inlineEdit.editSelection")

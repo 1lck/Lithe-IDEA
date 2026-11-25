@@ -532,7 +532,7 @@ func (w *window) status(c ui.C) {
 // name of a filter to save.
 func (w *window) dialogs(c ui.C) {
 	logs := &w.text.Logs
-	ui.ModalWith(c, &w.clearOpen, logs.ClearTitle, ui.ModalSpec{Description: logs.ClearMessage, Width: 420}, nil, func() {
+	ui.Modal(c, &w.clearOpen, logs.ClearTitle, ui.ModalSpec{Description: logs.ClearMessage, Width: 420}, nil, func() {
 		if ui.Button(c, logs.Cancel).Outline().Clicked() {
 			w.clearOpen = false
 		}
@@ -541,7 +541,7 @@ func (w *window) dialogs(c ui.C) {
 			w.clearOpen = false
 		}
 	})
-	closed := ui.ModalWith(c, &w.bookmarkOpen, logs.NameForFilter, ui.ModalSpec{Width: 360}, func() {
+	closed := ui.Modal(c, &w.bookmarkOpen, logs.NameForFilter, ui.ModalSpec{Width: 360}, func() {
 		field := ui.TextField(c, &w.bookmarkName, logs.NameForFilter, logs.NameForFilter).FillWidth()
 		if field.Submitted() {
 			w.saveBookmark()

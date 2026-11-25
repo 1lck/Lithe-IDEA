@@ -135,7 +135,7 @@ func (w *window) keymapSchemeCard(c ui.C) {
 	if s.operation == "delete" {
 		title = i18n.Shared(w.marketLanguage(), "desktop.keymapSchemes.delete")
 	}
-	ui.ModalWith(c.Part("scheme-name"), &s.open, title, ui.ModalSpec{Width: 410}, func() {
+	ui.Modal(c.Part("scheme-name"), &s.open, title, ui.ModalSpec{Width: 410}, func() {
 		if s.operation != "delete" {
 			ui.TextField(c, &s.name, i18n.Shared(w.marketLanguage(), "desktop.keymapSchemes.name"), "").FillWidth()
 		}

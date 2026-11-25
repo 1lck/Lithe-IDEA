@@ -70,7 +70,7 @@ func (a *App) drawSyncDialog(c ui.C, p *project) {
 // the user dismisses it.
 func (a *App) syncDialogOf(c ui.C, p *project, title, description string, body, footer func()) {
 	open := true
-	if ui.ModalWith(c, &open, title, ui.ModalSpec{Description: description, Width: branchDialogWidth}, body, footer) {
+	if ui.Modal(c, &open, title, ui.ModalSpec{Description: description, Width: branchDialogWidth}, body, footer) {
 		c.After(func() { p.log.sync.dialog = syncDialogNone })
 	}
 }

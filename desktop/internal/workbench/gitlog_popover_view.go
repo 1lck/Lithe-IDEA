@@ -43,7 +43,7 @@ func (a *App) drawLogPopover(c ui.C, p *project, which logPopover, anchor ui.Box
 	}
 	open := true
 	spec := ui.PopoverSpec{Align: ui.Start, Offset: 4, Width: width, ConsumeOutsidePress: true}
-	ui.PopoverWith(c, anchor, &open, spec, func() {
+	ui.Popover(c, anchor, &open, spec, func() {
 		switch l.popover {
 		case logPopoverBranch:
 			a.drawLogBranchFilter(c, p)
@@ -154,7 +154,7 @@ func (a *App) drawLogUserFilter(c ui.C, p *project) {
 	l, v, g := &p.log, &a.logView, a.text.Git
 	query := strings.ToLower(strings.TrimSpace(v.userSearch.Text()))
 	ui.Row(c).PadY(4).PadX(4).Children(func() {
-		ui.TextFieldID(c, logUserSearchID, &v.userSearch, g.SearchUsers, g.SearchUsers).Grow(1)
+		ui.TextField(c, &v.userSearch, g.SearchUsers, g.SearchUsers, ui.WithID(logUserSearchID)).Grow(1)
 	})
 	ui.Scroll(c).Scrollbars().FillWidth().MaxHeight(logListMaxHeight).Children(func() {
 		if l.user != "" {
@@ -231,7 +231,7 @@ func (a *App) drawLogPathFilter(c ui.C, p *project) {
 	}
 	ui.Column(c).FillWidth().Gap(8).Children(func() {
 		ui.Text(c, g.PathTitle).Weight(gfx.WeightMedium)
-		if ui.TextFieldID(c, logPathID, &v.pathField, g.PathTitle, g.PathPlaceholder).FillWidth().Submitted() {
+		if ui.TextField(c, &v.pathField, g.PathTitle, g.PathPlaceholder, ui.WithID(logPathID)).FillWidth().Submitted() {
 			c.After(func() { apply(v.pathField.Text()) })
 		}
 		ui.Row(c).FillWidth().Gap(8).Items(ui.Center).Children(func() {

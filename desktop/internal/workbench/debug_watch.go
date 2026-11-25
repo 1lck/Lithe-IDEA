@@ -377,7 +377,7 @@ func (a *App) debugWatchEditField(c ui.C, p *project) {
 		c.After(func() { a.commitDebugWatchEdit(p) })
 	}
 	label := i18n.Shared(a.language(), "native.editWatch")
-	field := ui.TextFieldID(c, id, &w.edit, label, a.text.Debug.WatchPlaceholder).FillWidth()
+	field := ui.TextField(c, &w.edit, label, a.text.Debug.WatchPlaceholder, ui.WithID(id)).FillWidth()
 	field.OnKey(func(event gfx.KeyEvent) gfx.EventResult {
 		if event.Key != gfx.KeyEscape {
 			return gfx.EventResult{}

@@ -178,7 +178,7 @@ func (a *App) drawShelveDialog(c ui.C, p *project) {
 	s, lang := &p.shelf, a.language()
 	title := i18n.Shared(lang, "native.shelveChanges")
 	open, submitted := true, false
-	closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Width: 440}, func() {
+	closed := ui.Modal(c, &open, title, ui.ModalSpec{Width: 440}, func() {
 		ui.Column(c).FillWidth().Gap(10).Children(func() {
 			label := i18n.Shared(lang, "native.name")
 			submitted = ui.TextField(c, &s.message, label, label).FillWidth().Submitted()
@@ -206,7 +206,7 @@ func (a *App) drawShelfDropDialog(c ui.C, p *project) {
 	shelf := *s.dropping
 	open, drop := true, false
 	spec := ui.ModalSpec{Width: 420, Description: i18n.Shared(lang, "native.thisRemovesTheSavedPatchFromLitheAndCannotBeUndone")}
-	closed := ui.ModalWith(c, &open, i18n.Shared(lang, "git.saved.drop"), spec, func() {
+	closed := ui.Modal(c, &open, i18n.Shared(lang, "git.saved.drop"), spec, func() {
 		ui.Column(c).FillWidth().Gap(4).Children(func() {
 			ui.Text(c, shelf.Message).Color(a.colors.Text).Ellipsis()
 			ui.Text(c, a.shelfSummary(shelf)).Muted()

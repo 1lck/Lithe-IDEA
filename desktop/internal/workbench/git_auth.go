@@ -118,7 +118,7 @@ func (a *App) gitAuthDialog(c ui.C) {
 	if head.Remote {
 		title = i18n.Shared(lang, "desktop.remoteAuth.title")
 	}
-	closed := ui.ModalWith(c, &g.open, title, ui.ModalSpec{Width: gitAuthDialogWidth}, func() {
+	closed := ui.Modal(c, &g.open, title, ui.ModalSpec{Width: gitAuthDialogWidth}, func() {
 		ui.Column(c).FillWidth().Gap(10).Children(func() {
 			if head.Retry {
 				ui.Wrap(c, i18n.Shared(lang, "desktop.gitAuth.retryMessage"))
