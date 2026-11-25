@@ -376,7 +376,11 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # language preservation, and extends editor actions `actionIcons` with the four generic gutter
 # navigation icon tokens (`navigate-implemented`, `navigate-implementing`, `navigate-overridden`,
 # `navigate-overriding`).
-PINNED_CORE_REVISION="1310ee36258230e83fe1513ab71b67e2af157edd"
+# Lithe-core-rust main at e8927412 (PR #200): closes the parent write handle on the SSH `-E` evidence
+# log before spawning `ssh.exe` so Win32-OpenSSH no longer fails with ERROR_SHARING_VIOLATION (32 /
+# Broken pipe), inherits owner-only DACL on PrivateDirectory, and keeps Evidence alive until
+# `end_transport` reaps the SSH process.
+PINNED_CORE_REVISION="e8927412b6324636f2636b58c521758451d97fc4"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do
