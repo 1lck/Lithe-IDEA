@@ -48,7 +48,7 @@ func (a *App) consolePageView(c ui.C) {
 func (a *App) drawConsoleToolbar(c ui.C) {
 	v, t := &a.consoleView, &a.text.Console
 	ui.Row(c).Height(logToolbarHeight).Shrink(0).Items(ui.Center).Gap(4).PadX(6).Children(func() {
-		ui.TextFieldID(c, consoleSearchID, &v.search, t.Find, t.Find).MinWidth(150).Grow(1).MaxWidth(320)
+		ui.TextField(c, &v.search, t.Find, t.Find, ui.WithID(consoleSearchID)).MinWidth(150).Grow(1).MaxWidth(320)
 		if v.searchFor != "" && v.counted {
 			if v.total == 0 {
 				a.drawConsoleCount(c, t.NoMatches)

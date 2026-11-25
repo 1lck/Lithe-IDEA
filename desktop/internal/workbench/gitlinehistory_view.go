@@ -21,7 +21,7 @@ func (a *App) drawLineHistoryDialog(c ui.C, p *project) {
 		"start": strconv.Itoa(h.start),
 		"end":   strconv.Itoa(h.end),
 	})
-	closed := ui.ModalWith(c, &open, i18n.Shared(lang, "desktop.lineHistory.title"), ui.ModalSpec{Description: description, Width: reviewDialogWidth, Height: reviewDialogHeight}, func() {
+	closed := ui.Modal(c, &open, i18n.Shared(lang, "desktop.lineHistory.title"), ui.ModalSpec{Description: description, Width: reviewDialogWidth, Height: reviewDialogHeight}, func() {
 		ui.Column(c).Fill().Gap(8).Children(func() {
 			if h.err != "" {
 				ui.Paragraph(c, h.err, 3).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)

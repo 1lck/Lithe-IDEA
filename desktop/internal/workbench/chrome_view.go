@@ -445,7 +445,7 @@ func (a *App) hiddenToolWindowList(c ui.C, anchor ui.Box, z zone) {
 	if z != zoneLeftTop && z != zoneRightTop {
 		spec.Align = ui.End
 	}
-	ui.PopoverWith(c, anchor, &open, spec, func() {
+	ui.Popover(c, anchor, &open, spec, func() {
 		ui.Column(c).FillWidth().Gap(chromeMenuItems).Children(func() {
 			for _, i := range a.chrome.hidden {
 				row, clicked := a.hiddenToolWindowRow(c.KeyInt(i), i)
@@ -630,7 +630,7 @@ func (a *App) projectMenu(c ui.C, anchor ui.Box) {
 	picked, removed := -1, -1
 	spec := ui.PopoverSpec{Align: ui.Start, Offset: chromeMenuOffset, Width: chromeMenuWidth, ConsumeOutsidePress: true}
 	open := true
-	ui.PopoverWith(c, anchor, &open, spec, func() {
+	ui.Popover(c, anchor, &open, spec, func() {
 		ui.Scroll(c).Scrollbars().FillWidth().MaxHeight(chromeMenuMaxHeight).Gap(chromeMenuItems).Children(func() {
 			created = a.menuAction(c.Part("new"), icons.Plus, a.text.Title.NewProjectItem)
 			chosen = a.menuAction(c.Part("open"), icons.FolderOpen, a.text.Title.OpenItem)

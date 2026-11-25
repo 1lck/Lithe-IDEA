@@ -21,8 +21,9 @@ type Host struct {
 	Icon func(name string) (gfx.Icon, bool)
 	// Images reads the PNGs of the plugin's package a canvas draws; nil draws none.
 	Images *Images
-	// Info draws the host's ⓘ for an info text.
-	Info func(c ui.C, text string)
+	// Info draws the host's ⓘ for an info text. It is a callback the renderer calls with
+	// the paint's own c, as Viva's PageConfig.View is; it keeps no context.
+	Info func(c ui.C, text string) // viva:ignore kept-context
 	// Settings is the settings page of a region; nil in a tool window.
 	Settings SettingsHost
 }
@@ -96,7 +97,7 @@ func Draw(c ui.C, s *Session, host *Host, fill bool) {
 			canvas.RequestFrameIn(wait)
 		}
 	}
-	r := &renderer{c: c, s: s, host: host}
+	r := &renderer{s: s, host: host}
 	// The paint measures the width the nodes are laid out in: the view's, less the body's
 	// padding in a tool window. It sends open, and later resize; the scroll bars of the
 	// body float over it, so they take none of the width.
@@ -155,7 +156,6 @@ func hasTree(nodes []Node) bool {
 
 // renderer declares the nodes of one view in one paint.
 type renderer struct {
-	c    ui.C
 	s    *Session
 	host *Host
 	// fillTree says a tree declared now is a top-level node of a view that fills its

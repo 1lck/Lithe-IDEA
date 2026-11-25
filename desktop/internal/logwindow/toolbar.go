@@ -448,7 +448,7 @@ func (w *window) rangeEditor(c ui.C, anchor ui.Box) {
 		w.rangeEnd = end.Format(toolbarTimeFormat)
 	}
 	spec := ui.PopoverSpec{Width: toolbarRangeWidth, Align: ui.Start, Offset: toolbarMenuGap}
-	ui.PopoverWith(c, anchor, &w.menus.timeRange, spec, func() {
+	ui.Popover(c, anchor, &w.menus.timeRange, spec, func() {
 		start, startOK := parseRangeTime(w.rangeStart)
 		end, endOK := parseRangeTime(w.rangeEnd)
 		readable := startOK && endOK

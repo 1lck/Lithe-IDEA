@@ -313,7 +313,7 @@ func (a *App) notificationPanel(c ui.C, anchor ui.Box) {
 		align = ui.Start
 	}
 	spec := ui.PopoverSpec{Side: components.PopoverTop, Align: align, Offset: chromeMenuOffset, Width: notificationPanelWidth, ConsumeOutsidePress: true}
-	ui.PopoverWith(c, anchor, &center.open, spec, func() {
+	ui.Popover(c, anchor, &center.open, spec, func() {
 		ui.Row(c).FillWidth().Height(28).Items(ui.Center).Gap(8).Children(func() {
 			ui.Text(c, i18n.Shared(language, "desktop.notifications.title")).Weight(gfx.WeightSemibold).Grow(1).Ellipsis()
 			a.notificationClearButton(c)

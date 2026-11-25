@@ -56,7 +56,7 @@ func (a *App) everywherePopup(c ui.C) {
 	ui.Stack(c).Fill().Children(func() {
 		anchor = ui.Row(c).Absolute().Left((bounds.Width - width) / 2).Top(84).Width(width).Height(1)
 	})
-	closed := ui.PopoverWith(c, anchor, &v.open, ui.PopoverSpec{
+	closed := ui.Popover(c, anchor, &v.open, ui.PopoverSpec{
 		Width: width, Offset: 1, Align: ui.Start, KeepOpenOnAnchor: true,
 	}, func() {
 		ui.Column(c).FillWidth().Height(height).Gap(8).Children(func() {
@@ -65,8 +65,8 @@ func (a *App) everywherePopup(c ui.C) {
 			} else {
 				a.everywhereScopes(c, p, language)
 			}
-			field := ui.TextFieldID(c, everywhereQueryID, &v.query, i18n.Shared(language, "desktop.everywhere.title"),
-				i18n.Shared(language, "native.typeToSeeCommands")).
+			field := ui.TextField(c, &v.query, i18n.Shared(language, "desktop.everywhere.title"),
+				i18n.Shared(language, "native.typeToSeeCommands"), ui.WithID(everywhereQueryID)).
 				Icon(icons.Search).Action(icons.X, i18n.Shared(language, "native.clearSearch"))
 			if field.ActionClicked() {
 				a.performed("workspace.search.clear", surfaceButton)
@@ -229,7 +229,7 @@ func (a *App) everywhereFilter(c ui.C, p *project, language i18n.Language) {
 	if button.Clicked() {
 		v.filterOpen = !v.filterOpen
 	}
-	ui.PopoverWith(c, button, &v.filterOpen, ui.PopoverSpec{Align: ui.End, Width: 300}, func() {
+	ui.Popover(c, button, &v.filterOpen, ui.PopoverSpec{Align: ui.End, Width: 300}, func() {
 		option := func(label, action string, value *bool) {
 			before := *value
 			ui.Checkbox(c, value, label)

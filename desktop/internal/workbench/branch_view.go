@@ -51,7 +51,7 @@ func branchInset(depth int) float32 { return chromeEdge + float32(depth)*branchI
 func (a *App) drawBranchPopup(c ui.C, p *project, anchor ui.Box) {
 	b, t := &a.branch, a.text.Branch
 	spec := ui.PopoverSpec{Align: ui.Start, Offset: chromeMenuOffset, Width: branchPopupWidth, ConsumeOutsidePress: true}
-	ui.PopoverWith(c, anchor, &b.open, spec, func() {
+	ui.Popover(c, anchor, &b.open, spec, func() {
 		ui.Column(c).FillWidth().MaxHeight(branchPopupMaxHeight).Gap(chromeMenuItems).Children(func() {
 			a.drawBranchPanel(c, p, t)
 		})
@@ -199,7 +199,7 @@ func (a *App) drawWorkspaceBranchRepo(c ui.C, p *project, t i18n.BranchMessages,
 	// The press that closes the panel goes on to the popup, so a click on another repository opens
 	// that one's panel at once.
 	spec := ui.PopoverSpec{Side: components.PopoverRight, Align: ui.Start, Offset: chromeMenuOffset, Width: branchPopupWidth}
-	ui.PopoverWith(c, row, &b.repoOpen, spec, func() {
+	ui.Popover(c, row, &b.repoOpen, spec, func() {
 		ui.Column(c).FillWidth().MaxHeight(branchPopupMaxHeight).Gap(chromeMenuItems).Children(func() {
 			if a.drawBranchActions(c, p, b.currentReference(), query, false) {
 				ui.Divider(c)
@@ -582,7 +582,7 @@ func (a *App) drawBranchDialog(c ui.C, p *project) {
 // dismisses it.
 func (a *App) branchDialogOf(c ui.C, title, description string, body, footer func()) {
 	open := true
-	if ui.ModalWith(c, &open, title, ui.ModalSpec{Description: description, Width: branchDialogWidth}, body, footer) {
+	if ui.Modal(c, &open, title, ui.ModalSpec{Description: description, Width: branchDialogWidth}, body, footer) {
 		c.After(a.cancelBranchDialog)
 	}
 }

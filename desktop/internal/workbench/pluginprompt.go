@@ -132,7 +132,7 @@ func (a *App) pluginPromptView(c ui.C) {
 	// The modal is named by the prompt's own open flag, so a following prompt
 	// is a new dialog; it is raised again for each paint the prompt is first.
 	prompt.open = true
-	dismissed := ui.ModalWith(c, &prompt.open, prompt.title, ui.ModalSpec{Width: 520, Height: 320}, func() {
+	dismissed := ui.Modal(c, &prompt.open, prompt.title, ui.ModalSpec{Width: 520, Height: 320}, func() {
 		if prompt.quick != nil {
 			if a.quickInputBody(c, prompt.quick) {
 				chosen = 1

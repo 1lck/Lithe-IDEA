@@ -195,7 +195,7 @@ func (w *window) pluginInstallModal(c ui.C) {
 	if outcome == pluginInstallFailed {
 		title = i18n.Shared(language, "desktop.marketplace.installFailed")
 	}
-	closed := ui.ModalWith(c, &dialog.open, title,
+	closed := ui.Modal(c, &dialog.open, title,
 		ui.ModalSpec{Width: 620, Description: description}, func() {
 			ui.Column(c).FillWidth().Gap(8).Children(func() {
 				switch {

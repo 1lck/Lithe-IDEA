@@ -156,7 +156,7 @@ func (a *App) drawStartupSweep(c ui.C) {
 	}
 	language := a.language()
 	open := true
-	closed := ui.ModalWith(c, &open, i18n.Shared(language, "desktop.startupSweep.title"), ui.ModalSpec{Width: 460}, func() {
+	closed := ui.Modal(c, &open, i18n.Shared(language, "desktop.startupSweep.title"), ui.ModalSpec{Width: 460}, func() {
 		ui.Column(c.Part("startup-sweep")).FillWidth().Gap(8).Children(func() {
 			ui.Paragraph(c, i18n.SharedFormat(language, "desktop.startupSweep.body", map[string]string{"arg1": strconv.Itoa(len(s.leftovers))}), 4).
 				FontSize(a.theme.Metrics.FontSizeS)

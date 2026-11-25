@@ -73,7 +73,7 @@ func (a *App) drawBlameDialog(c ui.C, p *project) {
 	b := &p.review.blame
 	open := true
 	title := i18n.SharedFormat(a.language(), "desktop.gitReview.blameTitle", map[string]string{"file": b.path})
-	closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Width: reviewDialogWidth, Height: reviewDialogHeight}, func() {
+	closed := ui.Modal(c, &open, title, ui.ModalSpec{Width: reviewDialogWidth, Height: reviewDialogHeight}, func() {
 		switch {
 		case b.loading:
 			a.gitEmpty(c, i18n.Shared(a.language(), "git.loadingDiff"))
@@ -124,7 +124,7 @@ func (a *App) drawUntrackedDialog(c ui.C, p *project) {
 	directory := u.trail[len(u.trail)-1]
 	open := true
 	title := i18n.SharedFormat(a.language(), "desktop.gitReview.untrackedTitle", map[string]string{"path": directory})
-	closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Width: 620, Height: 440}, func() {
+	closed := ui.Modal(c, &open, title, ui.ModalSpec{Width: 620, Height: 440}, func() {
 		switch {
 		case u.loading:
 			a.gitEmpty(c, i18n.Shared(a.language(), "git.loadingDiff"))
@@ -173,7 +173,7 @@ func (a *App) drawRollbackDialog(c ui.C, p *project) {
 	r := &p.review.rollback
 	open := true
 	count := strconv.Itoa(len(r.changes))
-	closed := ui.ModalWith(c, &open, i18n.Shared(a.language(), "git.rollback.title"), ui.ModalSpec{Width: 520,
+	closed := ui.Modal(c, &open, i18n.Shared(a.language(), "git.rollback.title"), ui.ModalSpec{Width: 520,
 		Description: i18n.SharedFormat(a.language(), "git.rollbackPathsConfirm", map[string]string{"count": count})}, func() {
 		ui.Column(c).FillWidth().Gap(8).Children(func() {
 			ui.Paragraph(c, i18n.Shared(a.language(), "git.rollback.warning"), 4).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)

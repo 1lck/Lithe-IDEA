@@ -154,7 +154,7 @@ func (a *App) newProjectModal(c ui.C) {
 		divider, sidebar = gfx.RGB24(0x333438), gfx.RGB24(0x232427)
 	}
 	open := true
-	ui.ModalWith(c, &open, i18n.Shared(language, "desktop.newProject.title"), ui.ModalSpec{Width: 880, Height: 660}, func() {
+	ui.Modal(c, &open, i18n.Shared(language, "desktop.newProject.title"), ui.ModalSpec{Width: 880, Height: 660}, func() {
 		ui.Row(c).Fill().Children(func() {
 			a.newProjectSidebar(c, language, sidebar, divider)
 			ui.Column(c).Width(1).FillHeight().Shrink(0).Background(divider)

@@ -117,7 +117,7 @@ func (w *window) stopTimeCard(c ui.C, value ProcessTermination) {
 			if ui.Button(c.Part("shorter"), i18n.Shared(language, "desktop.settings.processTermination.stopTimeShorter")).Icon(icons.Minus).IconOnly().Ghost().Small().Disabled(!known || seconds <= rule.Min).Clicked() {
 				w.setStopTime(value, rule, seconds-1)
 			}
-			box := ui.TextFieldID(c, stopTimeFieldID, field, title, "").Width(60).Disabled(!known)
+			box := ui.TextField(c, field, title, "", ui.WithID(stopTimeFieldID)).Width(60).Disabled(!known)
 			box.OnKey(func(event gfx.KeyEvent) gfx.EventResult {
 				if event.Key == gfx.KeyEnter && !event.Release {
 					w.commitStopTime(value, rule)

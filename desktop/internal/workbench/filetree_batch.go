@@ -224,7 +224,7 @@ func (a *App) treeRemovalDialog(c ui.C, p *project) {
 		})
 		open = false
 	}
-	closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Description: description, Width: 440}, nil, func() {
+	closed := ui.Modal(c, &open, title, ui.ModalSpec{Description: description, Width: 440}, nil, func() {
 		if ui.Button(c, i18n.Shared(lang, "desktop.files.cancel")).Outline().Clicked() {
 			open = false
 		}

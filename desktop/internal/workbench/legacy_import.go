@@ -242,7 +242,7 @@ func (a *App) legacyImportView(c ui.C) {
 	chosen := slices.ContainsFunc(s.items, func(item legacyImportItem) bool { return item.chosen })
 	confirmed, cancelled := false, false
 	spec := ui.ModalSpec{Description: i18n.SharedFormat(language, "desktop.legacyImport.description", map[string]string{"source": s.found.Source}), Width: 480}
-	closed := ui.ModalWith(c, &s.open, i18n.Shared(language, "desktop.legacyImport.title"), spec, func() {
+	closed := ui.Modal(c, &s.open, i18n.Shared(language, "desktop.legacyImport.title"), spec, func() {
 		ui.Column(c.Part("legacy-import")).FillWidth().Gap(6).Children(func() {
 			for index := range s.items {
 				entry := &s.items[index]
