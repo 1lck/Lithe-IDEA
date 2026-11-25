@@ -23,13 +23,8 @@ import (
 )
 
 // Discovery is inert here: the test owns source failures, never the user's SDKs.
-type catalogSourceKernel struct{ *testKernel }
 
-func (*catalogSourceKernel) ToolchainDiscoveryPlanOf(context.Context, json.RawMessage, string) (core.ToolchainDiscoveryPlan, error) {
-	return core.ToolchainDiscoveryPlan{}, nil
-}
-
-func TestGlobalToolchainsDoNotHideAnUnreadableEnabledPlugin(t *testing.T) {
+func TestGlobalToolchainsRetainValidPluginAndReportUnreadableOne(t *testing.T) {
 	preferences, root := store.At(t.TempDir()), t.TempDir()
 	service, err := pluginservice.Open(core.NewClient(), preferences, root)
 	if err != nil {
@@ -71,15 +66,89 @@ func TestGlobalToolchainsDoNotHideAnUnreadableEnabledPlugin(t *testing.T) {
 			}
 		}
 	}
-	app := &App{kernel: &catalogSourceKernel{&testKernel{Client: core.NewClient()}}, store: preferences, plugins: service}
+	app := &App{kernel: &testKernel{Client: core.NewClient()}, store: preferences, plugins: service}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, err = (settingsToolchains{app: app}).LoadScope(ctx, "global")
-	if !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("global SDK settings discarded the native read failure: %v", err)
+	log := &treeRecordingLog{}
+	app.logSink = log
+	snapshot, err := (settingsToolchains{app: app}).LoadScope(ctx, "global")
+	if err != nil {
+		t.Fatalf("global catalog should retain valid tools: %v", err)
 	}
+	if len(snapshot.Tools) == 0 || !snapshot.DiscoveryIncomplete {
+		t.Fatalf("catalog lost tools or partial warning: %+v", snapshot)
+	}
+	log.mu.Lock()
+	if len(log.events) != 1 || log.events[0].Fields["operation"] != "toolchain_settings_discovery" {
+		t.Errorf("partial global catalog recorded events %+v", log.events)
+	}
+	log.mu.Unlock()
 	if _, err := os.Stat(filepath.Join(preferences.Dir(), "toolchains", "global.json")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("a failed read wrote a global catalog: %v", err)
+	}
+}
+
+// A readable plugin remains in project settings when another plugin's
+// manifest disappeared. The partial failure must be logged once at the
+// boundary instead of silently turning into a complete-looking tool list.
+func TestProjectToolchainPartialManifestReadReportsDegradation(t *testing.T) {
+	preferences, pluginRoot, projectRoot := store.At(t.TempDir()), t.TempDir(), t.TempDir()
+	service, err := pluginservice.Open(core.NewClient(), preferences, pluginRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"dev.example.catalog-readable", "dev.example.catalog-unreadable"} {
+		staging, err := pluginpkg.NewStaging(pluginRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fixture, err := os.ReadFile("../toolchain/testdata/compiler.plugin.json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var document map[string]any
+		if err := json.Unmarshal(fixture, &document); err != nil {
+			t.Fatal(err)
+		}
+		document["id"] = id
+		definition := document["toolDefinitions"].([]any)[0].(map[string]any)
+		definition["id"] = id + ":compiler"
+		manifest, err := json.Marshal(document)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(staging, pluginpkg.ManifestFile), manifest, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		installed, err := pluginpkg.Install(pluginRoot, id, "1.0.0", staging)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := pluginstate.New(preferences).SetEnabled(id, true); err != nil {
+			t.Fatal(err)
+		}
+		if id == "dev.example.catalog-unreadable" {
+			if err := os.Remove(filepath.Join(installed.Path, pluginpkg.ManifestFile)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	log := &treeRecordingLog{}
+	app := &App{kernel: &testKernel{Client: core.NewClient()}, store: preferences, plugins: service, logSink: log}
+	app.toolchainRoot.Store(&projectRoot)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	snapshot, err := (settingsToolchains{app: app}).Load(ctx)
+	if err != nil {
+		t.Fatalf("readable manifests should still load project settings: %v", err)
+	}
+	if len(snapshot.Tools) == 0 || !snapshot.DiscoveryIncomplete {
+		t.Fatal("the readable plugin was lost or incomplete status was not reported")
+	}
+	log.mu.Lock()
+	defer log.mu.Unlock()
+	if len(log.events) != 1 || log.events[0].Fields["operation"] != "toolchain_settings_discovery" {
+		t.Fatalf("missing one degradation event: %+v", log.events)
 	}
 }
 

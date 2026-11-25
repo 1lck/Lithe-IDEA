@@ -319,8 +319,8 @@ func (a *App) loadProjectTools(ctx context.Context, tools []string) (map[string]
 	if a.projectToolLists != nil {
 		return a.projectToolLists(ctx, tools)
 	}
-	manifests, err := a.toolchainManifests(ctx)
-	if err != nil && len(manifests) == 0 {
+	manifests, _, err := a.usableToolchainManifests(ctx, "new_project_toolchain_discovery")
+	if err != nil {
 		return nil, err
 	}
 	options := a.toolchainOptions(ctx, "", manifests)

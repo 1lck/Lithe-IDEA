@@ -71,7 +71,7 @@ func (a *App) resolveAdapterProcess(ctx context.Context, adapter debugAdapter, p
 		if _, err := pluginhost.ResolvePackagePaths(adapter.Directory, plan.RequiredPackagePaths); err != nil {
 			return "", nil, nil, err
 		}
-		manifests, err := a.toolchainManifests(ctx)
+		manifests, _, err := a.usableToolchainManifests(ctx, "toolchain_debug_discovery")
 		if err != nil {
 			return "", nil, nil, err
 		}
@@ -86,7 +86,7 @@ func (a *App) resolveAdapterProcess(ctx context.Context, adapter debugAdapter, p
 				return "", nil, nil, err
 			}
 		} else {
-			selected, err = a.resolveToolchainSelection(ctx, root, ".", plan.Launch.Tool, plan.Launch.MinimumVersion)
+			selected, err = a.resolveToolchainSelectionFrom(ctx, root, ".", plan.Launch.Tool, plan.Launch.MinimumVersion, manifests)
 			if err != nil {
 				return "", nil, nil, err
 			}

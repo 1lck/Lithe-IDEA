@@ -115,6 +115,36 @@ func (d *windowDriver) applyBuild() {
 	d.pump()
 }
 
+// An unreadable enabled plugin must not make the remaining valid tools look
+// like a complete catalog. The same warning is visible in both scopes.
+func TestToolchainsShowPartialDiscoveryWarningInBothScopes(t *testing.T) {
+	for _, scope := range []string{scopeGlobal, scopeProject} {
+		t.Run(scope, func(t *testing.T) {
+			fixture := fixtureSnapshot()
+			fixture.DiscoveryIncomplete = true
+			loader := &scopedToolchainLoader{fakeToolchainLoader{snapshot: fixture}}
+			w, d := toolchainWindow(t, loader)
+			if scope == scopeProject {
+				w.toolchains.setScope(scopeProject)
+				w.inv.Invalidate()
+				d.until("the project scope", func() bool {
+					return w.toolchains.current().loaded && w.toolchains.scope == scopeProject
+				})
+				d.pump()
+			}
+			if !d.text(en("desktop.toolchains.discoveryIncomplete")) {
+				t.Fatal("partial tool discovery is not visible to the user")
+			}
+			if !d.text("Compiler") {
+				t.Fatal("the readable tool was hidden by another plugin's missing manifest")
+			}
+			if !d.has(en("desktop.toolchains.reload")) {
+				t.Fatal("no way to reload after repairing the unreadable plugin")
+			}
+		})
+	}
+}
+
 // The chosen tool lists what it falls back to, each installation once and the link that opens
 // the directory field, which stays closed until it is asked for and writes no draft.
 func TestToolchainChoicesListAutomaticAndOpenTheDirectoryOnDemand(t *testing.T) {
