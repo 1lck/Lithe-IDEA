@@ -722,7 +722,7 @@
     "debugger.variablesEmpty": "Pause on a frame to inspect values.",
     "debugger.watch": "Watch",
     "debugger.watchEmpty": "Add expressions to inspect while paused.",
-    "desktop.build.instanceOptions": "{name} Options",
+    "desktop.build.instanceOptions": "{name} workspace options",
     "desktop.build.toggleOff": "Off",
     "desktop.build.toggleOn": "On",
     "desktop.build.toggleOption": "{option} ({state})",

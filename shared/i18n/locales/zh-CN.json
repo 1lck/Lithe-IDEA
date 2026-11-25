@@ -722,7 +722,7 @@
     "debugger.variablesEmpty": "暂停在栈帧上以查看变量值。",
     "debugger.watch": "监视",
     "debugger.watchEmpty": "添加表达式，以便暂停时查看。",
-    "desktop.build.instanceOptions": "{name} 选项",
+    "desktop.build.instanceOptions": "{name} 工作区选项",
     "desktop.build.toggleOff": "关",
     "desktop.build.toggleOn": "开",
     "desktop.build.toggleOption": "{option}（{state}）",
