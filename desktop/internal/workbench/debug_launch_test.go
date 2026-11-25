@@ -3,14 +3,20 @@ package workbench
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
+
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginstate"
 )
 
 // countedDebugCreate observes whether native preparation reached the engine.
@@ -55,6 +61,21 @@ func TestDebugMissingTargetIsRejectedBeforeStartingTheAdapter(t *testing.T) {
 }
 
 func TestDebugRuntimeArgumentsComeFromTheToolDefinition(t *testing.T) {
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeName := "jre/bin/vm"
+	if filepath.Ext(debugFixtureProgramName()) == ".exe" {
+		runtimeName += ".exe"
+	}
+	executable := filepath.Join(home, runtimeName)
+	if err := os.MkdirAll(filepath.Dir(executable), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	copyTestBinary(t, executable)
+	t.Setenv("FICTIONAL_VM_HOME", home)
+	t.Setenv(syntheticWorkbenchInterpMarkerEnv, filepath.Join(home, "probe-marker"))
 	h := debugHarness(t)
 	p := openDebugPanel(t, h, t.TempDir())
 	adapter := p.debug.adapters[0]
@@ -73,14 +94,20 @@ func TestDebugRuntimeArgumentsComeFromTheToolDefinition(t *testing.T) {
 	definition := toolManifest["toolDefinitions"].([]any)[0].(map[string]any)
 	toolID := adapter.PluginID + ":vm"
 	definition["id"] = toolID
-	definition["launch"] = []string{"${executable}", "${runtimeArguments}", "${entry}", "${arguments}"}
+	definition["launch"] = []string{"${executable}", "${runtimeArguments}", "${arguments}", "${entry}"}
+	definition["executableLayouts"].([]any)[0].(map[string]any)["path"] = runtimeName
+	definition["executables"].([]any)[0].(map[string]any)["path"] = runtimeName
+	definition["version"] = map[string]any{"arguments": []string{"--version"}, "pattern": "SyntheticInterp ([0-9.]+)"}
 	manifest["toolDefinitions"] = []any{definition}
 	manifest["requiresTools"] = []string{toolID}
+	manifest["permissions"] = []string{"debug.launch", "run.start", "backend.launch"}
+	manifest["activationEvents"] = []string{"onDebug:fixture", "onWorkspaceOpen"}
+	manifest["backend"] = map[string]any{"launch": map[string]string{"kind": "packaged", "path": debugFixtureProgramName()}}
 	requires := manifest["requires"].(map[string]any)
-	requires["toolDefinitions"], requires["debugAdapters"] = 0, 0
+	requires["toolDefinitions"], requires["backend"] = 0, 0
 	declared := manifest["debugAdapters"].([]any)[0].(map[string]any)
 	declared["configurations"].(map[string]any)["launch"].(map[string]any)["targetBindings"] = map[string]any{"args": "target.arguments", "env": "target.environment"}
-	declared["launch"].(map[string]any)["process"].(map[string]any)["launch"] = map[string]any{"kind": "runtime", "tool": toolID, "entry": "adapter-entry", "runtimeArguments": []string{"--runtime"}}
+	declared["launch"].(map[string]any)["process"].(map[string]any)["launch"] = map[string]any{"kind": "runtime", "tool": toolID, "entry": "adapter-entry", "runtimeArguments": []string{"-test.count=1"}}
 	adapter.Manifest, err = json.Marshal(manifest)
 	if err != nil {
 		t.Fatal(err)
@@ -92,24 +119,81 @@ func TestDebugRuntimeArgumentsComeFromTheToolDefinition(t *testing.T) {
 	if err := os.WriteFile(entry, []byte("fixture entry"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	runtime := filepath.Join(adapter.Directory, debugFixtureProgramName())
-	home := adapter.Directory
-	h.app.toolchainResolve = func(_ context.Context, root, directory, tool, minimum string) (core.ToolchainSelection, error) {
-		if root != p.root || directory != "." || tool != toolID {
-			t.Fatalf("wrong runtime selection: %s %s %s", root, directory, tool)
-		}
-		return core.ToolchainSelection{Executable: runtime, Home: &home, Environment: map[string]string{"VM_HOME": home}}, nil
+	// An incomplete installation has a version directory but no readable manifest.
+	const brokenID = "dev.lithe.test.unreadable"
+	broken := filepath.Join(filepath.Dir(filepath.Dir(adapter.Directory)), brokenID, "1.0.0")
+	if err := os.MkdirAll(broken, 0o700); err != nil {
+		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := pluginstate.New(h.app.store).SetEnabled(brokenID, true); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	plan, err := h.app.prepareDebugLaunch(ctx, debugStart{adapter: adapter, request: "launch"}, filepath.Join(t.TempDir(), "state"), p, "", 1, "unavailable")
 	if err != nil {
+		var r *core.MarketplaceRejection
+		if errors.As(err, &r) {
+			t.Fatalf("prepare: %s: %v", r.Field, err)
+		}
 		t.Fatal(err)
 	}
-	expected := []string{"--runtime", entry, "-test.run=^TestDebugAdapterRunner$"}
-	if plan.Executable != runtime || !reflect.DeepEqual(plan.Arguments, expected) || plan.Environment["VM_HOME"] != home {
+	expected := []string{"-test.count=1", "-test.run=^TestDebugAdapterRunner$", entry}
+	if plan.Executable != executable || !reflect.DeepEqual(plan.Arguments, expected) || plan.Environment["FICTIONAL_VM_HOME"] != home {
 		t.Fatalf("tool definition launch = %+v, arguments want %v", plan, expected)
 	}
+	manifests, discoveryErr := h.app.toolchainManifests(ctx)
+	if len(manifests) == 0 || discoveryErr == nil {
+		t.Fatalf("expected a partially readable catalog, got %d manifests and %v", len(manifests), discoveryErr)
+	}
+	verifyPartialCatalogRun(t, h, p, ctx, adapter, toolID, entry)
+	if err := os.WriteFile(filepath.Join(p.root, "debug.marker"), []byte("debug"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p.debug.adapters[0] = adapter
+	h.app.startDebug(p)
+	awaitStateWithin(t, h, 30*time.Second, "runtime adapter frames", func() bool {
+		if p.debug.failure != "" {
+			t.Fatalf("runtime adapter: %s", p.debug.failure)
+		}
+		return p.debug.state == "paused" && len(p.debug.frames) == 2
+	})
+	h.app.stopDebug(p)
+	awaitStateWithin(t, h, 20*time.Second, "runtime adapter stopped", func() bool { return p.debug.activeSession() == nil })
+}
+
+// verifyPartialCatalogRun exercises the runtime entry planner and run/start with the real installed registry.
+func verifyPartialCatalogRun(t *testing.T, h *harness, p *project, ctx context.Context, adapter debugAdapter, toolID, entry string) {
+	t.Helper()
+	run, err := h.app.resolveBackendToolEntry(ctx, adapter.PluginID, p.root, pluginbackend.ToolEntryLaunch{Tool: toolID, Entry: entry, Arguments: []string{"-test.list=^TestDebugAdapterRunner$"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, ok := h.app.plugins.Contexts.ByPath(p.root)
+	if !ok {
+		t.Fatal("workspace context not open")
+	}
+	params, err := json.Marshal(map[string]any{
+		"context": workspace.ContextRef, "label": "Partial catalog runtime", "process": map[string]any{
+			"executable": map[string]string{"kind": "tool", "tool": toolID}, "arguments": run.Arguments, "workingDirectory": ".", "environment": map[string]string{},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	caller := pluginhost.WithCaller(ctx, pluginhost.Caller{PluginID: adapter.PluginID, SessionID: "fixture-session"})
+	reply, failure := h.app.plugins.HostServices.Respond(caller, pluginhost.MethodPrefix+"run/start", params)
+	if failure != nil {
+		t.Fatalf("run/start: %+v", failure)
+	}
+	var result struct{ RunID string }
+	if err := json.Unmarshal(reply, &result); err != nil || result.RunID == "" {
+		t.Fatalf("run/start response: %s, %v", reply, err)
+	}
+	awaitStateWithin(t, h, 15*time.Second, "run process output", func() bool {
+		session := p.runEntry(result.RunID)
+		return session != nil && !session.running && strings.Contains(session.output.all(), "TestDebugAdapterRunner")
+	})
 }
 
 func debugAdapterWithProgramSetting(t *testing.T, adapter debugAdapter, candidates []string) debugAdapter {

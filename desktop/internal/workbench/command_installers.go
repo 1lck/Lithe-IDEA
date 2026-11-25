@@ -105,7 +105,7 @@ func (s settingsCommandInstalls) Missing(ctx context.Context, pluginID string) (
 		installers[installer.ID] = installer
 	}
 	var missing []settingswindow.MissingCommand
-	var tools map[string]string
+	tools := sync.OnceValue(func() map[string]string { return s.toolNames(ctx) })
 	for _, consumer := range requirements.Consumers {
 		commands := make([]string, 0, len(consumer.Commands))
 		installerID := ""
@@ -128,10 +128,7 @@ func (s settingsCommandInstalls) Missing(ctx context.Context, pluginID string) (
 		if installer, ok := installers[installerID]; ok {
 			entry.Installer = installer.ID
 			if installer.Tool != nil {
-				if tools == nil {
-					tools = s.toolNames(ctx)
-				}
-				entry.Tool = toolName(tools, *installer.Tool)
+				entry.Tool = toolName(tools(), *installer.Tool)
 			}
 		}
 		missing = append(missing, entry)
@@ -172,12 +169,22 @@ func commandConsumerCapability(kind string) string {
 // toolNames are the display names of the enabled plugins' tool definitions by ID; nil when
 // the registry cannot be read, which shows the IDs.
 func (s settingsCommandInstalls) toolNames(ctx context.Context) map[string]string {
-	manifests, _, _ := s.app.usableToolchainManifests(ctx, "command_installer_tool_discovery")
+	const operation = "command_installer_tool_discovery"
+	manifests, _, err := s.app.usableToolchainManifests(ctx, operation)
+	if err != nil {
+		if ctx.Err() == nil {
+			s.app.backgroundFailedIn(ctx, operation, err)
+		}
+		return nil
+	}
 	if len(manifests) == 0 {
 		return nil
 	}
 	registry, err := s.app.kernel.ToolchainRegistryOf(ctx, manifests)
 	if err != nil {
+		if ctx.Err() == nil {
+			s.app.backgroundFailedIn(ctx, operation, err)
+		}
 		return nil
 	}
 	names := make(map[string]string, len(registry.Definitions))
