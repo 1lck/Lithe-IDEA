@@ -23,11 +23,6 @@ import (
 )
 
 // Discovery is inert here: the test owns source failures, never the user's SDKs.
-type catalogSourceKernel struct{ *testKernel }
-
-func (*catalogSourceKernel) ToolchainDiscoveryPlanOf(context.Context, json.RawMessage, string) (core.ToolchainDiscoveryPlan, error) {
-	return core.ToolchainDiscoveryPlan{}, nil
-}
 
 func TestGlobalToolchainsRetainValidPluginAndReportUnreadableOne(t *testing.T) {
 	preferences, root := store.At(t.TempDir()), t.TempDir()
@@ -71,7 +66,7 @@ func TestGlobalToolchainsRetainValidPluginAndReportUnreadableOne(t *testing.T) {
 			}
 		}
 	}
-	app := &App{kernel: &catalogSourceKernel{&testKernel{Client: core.NewClient()}}, store: preferences, plugins: service}
+	app := &App{kernel: &testKernel{Client: core.NewClient()}, store: preferences, plugins: service}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	log := &treeRecordingLog{}
@@ -139,7 +134,7 @@ func TestProjectToolchainPartialManifestReadReportsDegradation(t *testing.T) {
 		}
 	}
 	log := &treeRecordingLog{}
-	app := &App{kernel: &catalogSourceKernel{&testKernel{Client: core.NewClient()}}, store: preferences, plugins: service, logSink: log}
+	app := &App{kernel: &testKernel{Client: core.NewClient()}, store: preferences, plugins: service, logSink: log}
 	app.toolchainRoot.Store(&projectRoot)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
