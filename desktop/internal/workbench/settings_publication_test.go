@@ -59,7 +59,7 @@ func TestSettingsPublicationReachesMatchingWindowsAndKeepsProjectLayers(t *testi
 		kernel := &testKernel{Client: core.NewClient()}
 		h := newHarnessWithOptions(t, Options{Kernel: kernel, PluginKernel: kernel, PluginRoot: pluginRoot, Store: s, Languages: []string{"en"}})
 		h.open(root)
-		h.app.project.build = buildState{selected: -1, instances: []buildInstance{{PluginID: id, modelLoaded: true}}}
+		h.app.project.build = buildState{selected: -1, instances: []buildInstance{{BuildInstance: core.BuildInstance{ModelSource: "provider"}, PluginID: id, modelLoaded: true}}}
 		return h
 	}
 	windows := []*harness{makeWindow(shared, rootA), makeWindow(shared, rootA), makeWindow(shared, rootB), makeWindow(other, rootA)}

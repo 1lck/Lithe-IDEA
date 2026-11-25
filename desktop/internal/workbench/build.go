@@ -859,6 +859,8 @@ func (a *App) loadBuildSystems(p *project) {
 				Manifest:         plugin.Manifest,
 				PackageDirectory: plugin.Directory,
 				System:           system,
+				// Core projects workspace tasks from an empty model without starting a tool.
+				modelLoaded: detected.ModelSource == "",
 			}
 			if len(detected.Model) != 0 && string(detected.Model) != "null" {
 				if err := json.Unmarshal(detected.Model, &instance.Model); err == nil {
@@ -966,21 +968,26 @@ func (a *App) reloadBuildModel(p *project, index int) {
 		return
 	}
 	instance := &p.build.instances[index]
-	instance.modelLoaded, instance.modelError, instance.modelStopped = false, "", false
 	p.reloadBuildDependencies()
 	p.revokeBuildTests(instance.ID)
+	if instance.ModelSource == "" {
+		return
+	}
+	instance.modelLoaded, instance.modelError, instance.modelStopped = false, "", false
 	a.loadBuildModelWith(p, index, true)
 }
 
-// buildModel loads instance's model from the source Core named for it at detection: a command
-// the host runs, or the plugin's provider process. A system that declares a provider process may
-// still read its model with a command, so the model's source decides, not the provider. resolved,
-// when given, is the build executable the caller already resolved.
+// buildModel loads the model from the source Core named at detection. A build system without a
+// model contributes only its declaration. resolved, when supplied, is the caller's build executable.
 func (a *App) buildModel(ctx context.Context, p *project, instance buildInstance, kernel Kernel, feed *buildSyncFeed, messages i18n.BuildMessages, refresh bool, resolved ...buildExecution) (core.BuildModel, error) {
-	if instance.ModelSource == "command" {
+	switch instance.ModelSource {
+	case "":
+		return core.BuildModel{}, nil
+	case "command":
 		return a.commandModel(ctx, p, instance, kernel, feed, messages, resolved...)
+	default:
+		return a.providerModel(ctx, p, instance, kernel, feed, refresh, resolved...)
 	}
-	return a.providerModel(ctx, p, instance, kernel, feed, refresh, resolved...)
 }
 
 // commandModel runs a command-sourced model plan and decodes its output. The
