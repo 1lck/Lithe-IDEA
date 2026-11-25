@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/rope"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/syntax"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/vivaui/viva/gfx"
@@ -48,6 +50,35 @@ func viewTextInForeground(view *editorview.View, color uint32) string {
 		}
 	}
 	return text.String()
+}
+
+func TestIndentGuideScopesUseOnlyMatchedStructuralBraces(t *testing.T) {
+	grammar := syntax.NewRegistry().Syntax("go")
+	source := `package sample
+func use() {
+    _ = "{literal}"
+    // {comment}
+    if (true) {
+        _ = []int{1}
+    }
+}
+`
+	rainbow, err := resolveBuiltinRainbow(t.Context(), rope.New([]byte(source)), grammar, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []editorview.IndentGuideScope{
+		{Open: strings.Index(source, "() {") + len("() "), Close: strings.LastIndexByte(source, '}')},
+		{Open: strings.Index(source, "(true) {") + len("(true) "), Close: strings.Index(source, "\n    }") + len("\n    ")},
+		{Open: strings.Index(source, "{1}"), Close: strings.Index(source, "{1}") + 2},
+	}
+	if !slices.Equal(rainbow.indentScopes, want) {
+		t.Fatalf("indent guide scopes = %+v, want %+v", rainbow.indentScopes, want)
+	}
+	withoutBraces, err := resolveBuiltinRainbow(t.Context(), rope.New([]byte("package sample\nvar x = (1)")), grammar, false, false)
+	if err != nil || withoutBraces.indentScopes == nil || len(withoutBraces.indentScopes) != 0 {
+		t.Fatalf("parentheses-only analysis = %+v, error %v, want a known empty result", withoutBraces.indentScopes, err)
+	}
 }
 
 func TestBracketPairHighlightsEitherEndWithRainbowOff(t *testing.T) {

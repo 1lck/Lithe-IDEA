@@ -11,6 +11,8 @@ import (
 type EditorStoredPreferences struct {
 	LineNumbers               *bool    `json:"lineNumbers,omitempty"`
 	Whitespace                *bool    `json:"whitespace,omitempty"`
+	IndentGuides              *bool    `json:"indentGuides,omitempty"`
+	RainbowIndentGuides       *bool    `json:"rainbowIndentGuides,omitempty"`
 	InlayHints                *bool    `json:"inlayHints,omitempty"`
 	RainbowBrackets           *bool    `json:"rainbowBrackets,omitempty"`
 	RainbowVariables          *bool    `json:"rainbowVariables,omitempty"`
@@ -25,6 +27,9 @@ type EditorStoredPreferences struct {
 type EditorPreferences struct {
 	LineNumbers                      bool     `json:"lineNumbers"`
 	Whitespace                       bool     `json:"whitespace"`
+	IndentGuides                     bool     `json:"indentGuides"`
+	RainbowIndentGuides              bool     `json:"rainbowIndentGuides"`
+	RainbowIndentGuidesEffective     bool     `json:"rainbowIndentGuidesEffective"`
 	InlayHints                       bool     `json:"inlayHints"`
 	RainbowBrackets                  bool     `json:"rainbowBrackets"`
 	RainbowVariables                 bool     `json:"rainbowVariables"`

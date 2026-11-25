@@ -64,6 +64,22 @@ func TestVisualEditorEssentialsSettings(t *testing.T) {
 				}
 				if scene == "editor-settings" {
 					d := &windowDriver{t: t, w: w, driver: session.Driver()}
+					indentGuideLabel := i18n.Shared(look.language, "desktop.editorPrefs.indentGuides")
+					rainbowGuideLabel := i18n.Shared(look.language, "desktop.editorPrefs.rainbowIndentGuides")
+					d.click(rainbowGuideLabel)
+					if err = session.Advance(300 * time.Millisecond); err != nil {
+						t.Fatal(err)
+					}
+					if err = session.Screenshot(filepath.Join(out, "editor-settings-rainbow-guides-"+look.theme+".png")); err != nil {
+						t.Fatal(err)
+					}
+					d.click(indentGuideLabel)
+					if err = session.Advance(300 * time.Millisecond); err != nil {
+						t.Fatal(err)
+					}
+					if err = session.Screenshot(filepath.Join(out, "editor-settings-guides-disabled-"+look.theme+".png")); err != nil {
+						t.Fatal(err)
+					}
 					switchLabel := i18n.Shared(look.language, "desktop.editorPrefs.rainbowBrackets")
 					variablesLabel := i18n.Shared(look.language, "desktop.editorPrefs.rainbowVariables")
 					d.click(switchLabel)

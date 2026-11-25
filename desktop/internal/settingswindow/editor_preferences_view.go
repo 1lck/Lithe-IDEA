@@ -38,6 +38,16 @@ func (w *window) editorPresentationCard(c ui.C) {
 		if ui.Switch(c.Part("whitespace"), &current.Whitespace, i18n.Shared(lang, "desktop.editorPrefs.whitespace")).Changed() {
 			w.setEditorPresentation(current)
 		}
+		if ui.Switch(c.Part("indent-guides"), &current.IndentGuides, i18n.Shared(lang, "desktop.editorPrefs.indentGuides")).Changed() {
+			w.setEditorPresentation(current)
+		}
+		ui.Row(c.Part("rainbow-indent-guides-row")).MarginLeft(20).Items(ui.Center).Gap(6).Children(func() {
+			if ui.Switch(c.Part("rainbow-indent-guides"), &current.RainbowIndentGuides, i18n.Shared(lang, "desktop.editorPrefs.rainbowIndentGuides")).
+				Disabled(!current.IndentGuides).Changed() {
+				w.setEditorPresentation(current)
+			}
+			w.infoButton(c.Part("rainbow-indent-guides-info"), i18n.Shared(lang, "desktop.editorPrefs.rainbowIndentGuidesHelp"))
+		})
 		ui.Row(c).FillWidth().Items(ui.Center).Gap(6).Children(func() {
 			if ui.Switch(c.Part("inlay-hints"), &current.InlayHints, i18n.Shared(lang, "desktop.editorPrefs.inlayHints")).Changed() {
 				w.setEditorPresentation(current)
@@ -110,6 +120,12 @@ func (w *window) setEditorPresentation(value core.EditorPreferences) {
 	}
 	if value.RainbowVariables != w.sess.values.EditorPreferences.RainbowVariables {
 		stored.RainbowVariables = &value.RainbowVariables
+	}
+	if value.IndentGuides != w.sess.values.EditorPreferences.IndentGuides {
+		stored.IndentGuides = &value.IndentGuides
+	}
+	if value.RainbowIndentGuides != w.sess.values.EditorPreferences.RainbowIndentGuides {
+		stored.RainbowIndentGuides = &value.RainbowIndentGuides
 	}
 	if resolved, ok := w.resolveEditorPresentation(stored); ok {
 		stored.AutoSaveDelayMilliseconds = &resolved.AutoSaveDelayMilliseconds

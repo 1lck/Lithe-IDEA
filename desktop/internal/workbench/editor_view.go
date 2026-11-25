@@ -217,7 +217,18 @@ func (a *App) documentInput(p *project, d *document) {
 	d.draw = func(dc *ui.DrawContext) {
 		v := d.view
 		prefs := a.editorPreferences
-		v.SetPresentation(editorview.Presentation{HideLineNumbers: !prefs.LineNumbers, ShowWhitespace: prefs.Whitespace, CursorStyle: prefs.CursorStyle, DisableCursorBlink: !prefs.CursorBlink})
+		presentation := editorview.Presentation{
+			HideLineNumbers: !prefs.LineNumbers, ShowWhitespace: prefs.Whitespace,
+			CursorStyle: prefs.CursorStyle, DisableCursorBlink: !prefs.CursorBlink,
+			IndentGuides: prefs.IndentGuides,
+		}
+		if prefs.RainbowIndentGuidesEffective {
+			presentation.IndentGuideColors = prefs.RainbowBracketLightColors
+			if a.colors.Dark {
+				presentation.IndentGuideColors = prefs.RainbowBracketDarkColors
+			}
+		}
+		v.SetPresentation(presentation)
 		v.Bind(d.hit, d.input.Parts())
 		// The minimap's button was declared by the last paint; its click turns the minimap of
 		// every view off or on, so the views painted after it in this paint follow too.

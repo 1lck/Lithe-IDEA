@@ -1,8 +1,10 @@
 package editorview
 
 import (
+	"slices"
 	"sort"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/syntax"
 	"github.com/vivaui/viva/gfx"
 )
 
@@ -13,9 +15,23 @@ type Presentation struct {
 	ShowWhitespace     bool
 	CursorStyle        string
 	DisableCursorBlink bool
+	IndentGuides       bool
+	IndentGuideColors  []string
 }
 
-func (v *View) SetPresentation(value Presentation) { v.presentation = value }
+func (v *View) SetPresentation(value Presentation) {
+	if !slices.Equal(v.presentation.IndentGuideColors, value.IndentGuideColors) {
+		v.indentGuideColors = v.indentGuideColors[:0]
+		for _, hex := range value.IndentGuideColors {
+			if color, ok := syntax.ParseColor(hex); ok {
+				value := uiColor(color)
+				value.Alpha = 0.45
+				v.indentGuideColors = append(v.indentGuideColors, value)
+			}
+		}
+	}
+	v.presentation = value
+}
 
 // SetSearchMatches installs Core's ordered byte ranges for this exact revision.
 // A text edit invalidates their paint immediately, before a new worker can answer.

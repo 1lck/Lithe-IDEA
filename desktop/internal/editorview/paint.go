@@ -116,6 +116,24 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	annotation := 0
 	top := area.Y + float32(firstRow-firstSub)*v.lineH - v.scroll
 	composeRow, composeAt, composeCells := v.compositionRoom()
+	guideUnit := 0
+	var guideScopes []indentScopeGuide
+	activeGuideScope := -1
+	var fallbackGuide fallbackIndentGuide
+	if v.presentation.IndentGuides {
+		guideUnit, _ = v.IndentSettings()
+		if v.indentGuideRevision == v.revision {
+			guideScopes = v.indentGuideScopes
+		}
+		if len(guideScopes) > 0 {
+			activeGuideScope = activeIndentScope(guideScopes, v.caret)
+		} else {
+			fallbackGuide = v.fallbackActiveGuide(caretLine, guideUnit)
+		}
+	}
+	var guideGap indentGuideGap
+	guideInk := look.Foreground
+	guideInk.Alpha *= 0.16
 	for line := firstLine; line <= lastLine; line++ {
 		l := v.ref(line)
 		wraps := v.rowsOf(l)
@@ -139,6 +157,17 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 			v.decor.colorLine, v.decor.colorBase = v.lineColors(l.start, l.start+l.size), l.start
 		}
 		lineHints := v.lineInlayHints(line)
+		guideCells, guideScope, activeGuideDepth := 0, -1, 0
+		if guideUnit > 0 {
+			if len(guideScopes) > 0 {
+				guideScope = indentScopeAtLine(guideScopes, line)
+			} else {
+				guideCells = v.indentGuideCells(l, &guideGap)
+				if line >= fallbackGuide.first && line <= fallbackGuide.last {
+					activeGuideDepth = fallbackGuide.depth
+				}
+			}
+		}
 		for k, row := range wraps {
 			y := top + float32(k)*v.lineH
 			if y+v.lineH <= area.Y {
@@ -155,6 +184,11 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 			}
 			if !v.wrapping() {
 				from, to = v.visibleCells()
+			}
+			if guideScope >= 0 {
+				v.paintScopeGuides(canvas, guideScopes, guideScope, activeGuideScope, from, to, shift, y, guideInk)
+			} else if guideCells >= guideUnit && guideUnit > 0 {
+				v.paintIndentGuides(canvas, guideCells, guideUnit, activeGuideDepth, from, to, shift, y, guideInk)
 			}
 			v.paintInline(canvas, line, from, to, shift, y)
 			end := l.size

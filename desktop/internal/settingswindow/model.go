@@ -348,7 +348,9 @@ func pageKeywords(language i18n.Language, id pageID) string {
 	case pageEditor:
 		return i18n.Shared(language, "desktop.editorPrefs.autoCompletion") + " " +
 			i18n.Shared(language, "desktop.editorPrefs.rainbowBrackets") + " " +
-			i18n.Shared(language, "desktop.editorPrefs.rainbowVariables")
+			i18n.Shared(language, "desktop.editorPrefs.rainbowVariables") + " " +
+			i18n.Shared(language, "desktop.editorPrefs.indentGuides") + " " +
+			i18n.Shared(language, "desktop.editorPrefs.rainbowIndentGuides")
 	case pageBuild:
 		return i18n.Shared(language, "desktop.buildSettings.keywordsBuild")
 	case pageToolchains:

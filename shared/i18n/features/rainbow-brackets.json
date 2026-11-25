@@ -30,6 +30,27 @@
       ]
     },
     {
+      "id": "desktop.editorPrefs.indentGuides",
+      "description": "Switch for displaying indentation guides in the editor",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.rainbowIndentGuides",
+      "description": "Switch for coloring indentation guides by depth",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.rainbowIndentGuidesHelp",
+      "description": "Information about depth coloring and the shared palettes",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.editorPrefs.rainbowLightColors",
       "description": "Shared rainbow colors for light editor themes",
       "platforms": [
@@ -99,6 +120,9 @@
       "desktop.editorPrefs.rainbowBracketsHelp": "Color matching brackets by nesting depth. Select a swatch to change its color.",
       "desktop.editorPrefs.rainbowVariables": "Rainbow variables",
       "desktop.editorPrefs.rainbowVariablesHelp": "Give matching variable names the same color. Uses the same light and dark palettes as rainbow brackets.",
+      "desktop.editorPrefs.indentGuides": "Indent guides",
+      "desktop.editorPrefs.rainbowIndentGuides": "Rainbow guides",
+      "desktop.editorPrefs.rainbowIndentGuidesHelp": "Color indent guides by depth using the shared rainbow palettes.",
       "desktop.editorPrefs.rainbowLightColors": "Light theme colors",
       "desktop.editorPrefs.rainbowDarkColors": "Dark theme colors",
       "desktop.editorPrefs.rainbowSaturation": "Saturation and brightness",
@@ -113,6 +137,9 @@
       "desktop.editorPrefs.rainbowBracketsHelp": "按嵌套层级为配对的括号着色。点击色块可更改颜色。",
       "desktop.editorPrefs.rainbowVariables": "彩虹变量",
       "desktop.editorPrefs.rainbowVariablesHelp": "同名变量显示为相同颜色，与彩虹括号共用明暗主题配色。",
+      "desktop.editorPrefs.indentGuides": "缩进参考线",
+      "desktop.editorPrefs.rainbowIndentGuides": "彩虹参考线",
+      "desktop.editorPrefs.rainbowIndentGuidesHelp": "使用共用的彩虹配色，按缩进层级为参考线着色。",
       "desktop.editorPrefs.rainbowLightColors": "浅色主题配色",
       "desktop.editorPrefs.rainbowDarkColors": "深色主题配色",
       "desktop.editorPrefs.rainbowSaturation": "饱和度和亮度",

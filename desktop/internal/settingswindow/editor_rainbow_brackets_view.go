@@ -90,7 +90,7 @@ func (w *window) rainbowControls(c ui.C, current core.EditorPreferences) {
 			w.infoButton(c.Part("variables-info"), i18n.Shared(lang, "desktop.editorPrefs.rainbowVariablesHelp"))
 		})
 	})
-	if !current.RainbowBrackets && !current.RainbowVariables {
+	if !current.RainbowBrackets && !current.RainbowVariables && !current.RainbowIndentGuidesEffective {
 		return
 	}
 	stored := w.sess.values.EditorStoredPreferences
@@ -160,6 +160,12 @@ func rainbowPreview(c ui.C, draft *rainbowPaletteEditor, dark, brackets, variabl
 	}
 	ui.Row(c).Items(ui.Center).Height(22).MarginLeft(12).PadX(5).Radius(4).Background(look.window).
 		Stroke(0.5, look.border).Children(func() {
+		if !brackets && !variables {
+			for i := range draft.swatches {
+				ui.Text(c, "│").Mono().Color(previewColor(i)).FontSize(12)
+			}
+			return
+		}
 		paint := func(samples string, i int) {
 			index := i % len(samples)
 			ui.Text(c, samples[index:index+1]).Mono().Color(previewColor(i)).FontSize(12)

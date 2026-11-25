@@ -224,17 +224,21 @@ type View struct {
 	mm      minimapState
 	// hlGen counts the highlighter's reports of lines colored anew, from its goroutine, so
 	// the minimap knows its colors are stale.
-	hlGen           atomic.Uint64
-	words           Messages
-	presentation    Presentation
-	whitespaceColor gfx.Color
-	searchRanges    []Range
-	searchRevision  int
-	symbolRanges    []Range
-	symbolRevision  int
-	symbolSelection span
-	bracketPair     [2]int
-	bracketRevision int
+	hlGen               atomic.Uint64
+	words               Messages
+	presentation        Presentation
+	whitespaceColor     gfx.Color
+	searchRanges        []Range
+	searchRevision      int
+	indentGuideColors   []gfx.Color
+	indentGuideScopes   []indentScopeGuide
+	indentGuideRevision int
+	indentGuideActive   fallbackIndentGuide
+	symbolRanges        []Range
+	symbolRevision      int
+	symbolSelection     span
+	bracketPair         [2]int
+	bracketRevision     int
 
 	// font is the font the view draws with, normalized; see SetFont. The cell size and line height
 	// below are measured from it at each paint.

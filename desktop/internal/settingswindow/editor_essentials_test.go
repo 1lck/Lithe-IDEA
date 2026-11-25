@@ -196,6 +196,60 @@ func TestEditorRainbowVariablesHasIndependentSwitchAndSharedPalette(t *testing.T
 	}
 }
 
+func TestEditorIndentGuidesPreserveRainbowPreference(t *testing.T) {
+	var stored core.EditorStoredPreferences
+	var resolved core.EditorPreferences
+	var writes int
+	w := newWindow(NewController(Options{SetEditorPreferences: func(s core.EditorStoredPreferences, r core.EditorPreferences) {
+		stored, resolved = s, r
+		writes++
+	}}), Values{Language: "en"})
+	w.sess.page = pageEditor
+	d := openWindow(t, w)
+	d.pump()
+	guides := i18n.Shared(i18n.English, "desktop.editorPrefs.indentGuides")
+	rainbow := i18n.Shared(i18n.English, "desktop.editorPrefs.rainbowIndentGuides")
+	light := i18n.Shared(i18n.English, "desktop.editorPrefs.rainbowLightColors")
+	swatch := i18n.SharedFormat(i18n.English, "desktop.editorPrefs.rainbowPaletteColor", map[string]string{"palette": light, "number": "1"})
+	parent, child := d.hit(guides), d.hit(rainbow)
+	if !parent.Checked || child.Checked || child.Disabled || child.Bounds.X <= parent.Bounds.X || d.has(swatch) {
+		t.Fatalf("unexpected default guide controls: parent=%+v, child=%+v", parent, child)
+	}
+	d.click(rainbow)
+	d.pump()
+	if !resolved.RainbowIndentGuidesEffective || stored.RainbowIndentGuides == nil || !*stored.RainbowIndentGuides || !d.has(swatch) {
+		t.Fatal("enabling rainbow guides alone should enable their shared palette")
+	}
+	d.click(guides)
+	d.pump()
+	child = d.hit(rainbow)
+	if !child.Disabled || !child.Checked || resolved.RainbowIndentGuidesEffective ||
+		stored.RainbowIndentGuides == nil || !*stored.RainbowIndentGuides || d.has(swatch) {
+		t.Fatal("disabling guides should preserve the configured rainbow preference and hide its palette")
+	}
+	writesBeforeClick := writes
+	d.clickHit(child)
+	d.pump()
+	if writes != writesBeforeClick {
+		t.Fatal("disabled rainbow switch should not write preferences")
+	}
+
+	reopened := newWindow(NewController(Options{SetEditorPreferences: func(s core.EditorStoredPreferences, r core.EditorPreferences) {
+		stored, resolved = s, r
+	}}), Values{Language: "en", EditorStoredPreferences: stored})
+	reopened.sess.page = pageEditor
+	second := openWindow(t, reopened)
+	second.pump()
+	if child = second.hit(rainbow); !child.Disabled || !child.Checked {
+		t.Fatal("reopened settings should retain the disabled, checked rainbow switch")
+	}
+	second.click(guides)
+	second.pump()
+	if child = second.hit(rainbow); child.Disabled || !child.Checked || !resolved.RainbowIndentGuidesEffective || !second.has(swatch) {
+		t.Fatal("re-enabling indent guides should restore rainbow guides and the palette")
+	}
+}
+
 func TestEditorEssentialsKeymapSchemesStayIndependent(t *testing.T) {
 	var published core.KeymapSchemeResult
 	w := newWindow(NewController(Options{SetKeymapSchemes: func(value core.KeymapSchemeResult) { published = value }}), Values{Language: "en"})
