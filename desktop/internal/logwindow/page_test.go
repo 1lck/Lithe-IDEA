@@ -282,10 +282,27 @@ func TestTableHeaderHandleResizesAColumn(t *testing.T) {
 func TestFollowingPausesWhenTheTableIsScrolledUp(t *testing.T) {
 	fixture, w, driver := bigFixture(t, 500)
 	m := fixture.model
-	m.follows = true
-	m.scrollRevision++
+	last := len(w.table.rows) - 1
+	lastVisible := func() bool {
+		id := w.table.list.RowID(last)
+		for _, hit := range tableRowHits(driver) {
+			if hit.ID == id {
+				return true
+			}
+		}
+		return false
+	}
+	if lastVisible() {
+		t.Fatal("last log row already visible before resuming")
+	}
+	m.resume()
 	w.inv.Invalidate()
-	settleWindow(t, driver)
+	if err := driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	if !lastVisible() {
+		t.Fatal("resuming did not paint the last log row on the first frame")
+	}
 	if !m.follows {
 		t.Fatal("the window stopped following by itself")
 	}

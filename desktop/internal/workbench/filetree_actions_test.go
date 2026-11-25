@@ -122,7 +122,13 @@ func TestProjectTreeLocatePaintsAnOffscreenFileAfterOneClick(t *testing.T) {
 	if locate.Disabled {
 		t.Fatal("Locate is unavailable for the active file")
 	}
-	h.click(center(locate.Bounds))
+	point := center(locate.Bounds)
+	if err := h.driver.Click(point.X, point.Y); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
 	if p.tree.selected == nil || p.tree.selected.path != paths[len(paths)-1] {
 		t.Fatalf("Locate selected %+v, want %s", p.tree.selected, paths[len(paths)-1])
 	}
