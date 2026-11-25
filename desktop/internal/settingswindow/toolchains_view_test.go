@@ -132,7 +132,7 @@ func TestToolchainsShowPartialDiscoveryWarningInBothScopes(t *testing.T) {
 				})
 				d.pump()
 			}
-			if !d.has(en("desktop.toolchains.discoveryIncomplete")) {
+			if !d.text(en("desktop.toolchains.discoveryIncomplete")) {
 				t.Fatal("partial tool discovery is not visible to the user")
 			}
 			if !d.text("Compiler") {
