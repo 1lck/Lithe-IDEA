@@ -77,7 +77,7 @@ func (a *App) diffToolbar(c ui.C, p *project, t *diffTab) {
 		if a.gitIconButton(c, i18n.Shared(lang, "git.diff.nextDifference"), icons.ArrowDown, false, n == 0 || t.current >= n-1) {
 			c.After(func() { t.step(1) })
 		}
-		if a.gitIconButton(c, i18n.Shared(lang, "git.openFile"), icons.Pencil, false, strings.Contains(t.change.Status, "D")) {
+		if a.gitIconButton(c, i18n.Shared(lang, "git.openFile"), icons.Pencil, false, strings.Contains(t.change.Status, "D") || t.saved != nil && t.saved.title != "") {
 			c.After(func() { a.openDiffFile(p, t) })
 		}
 		if len(t.files) > 1 {
@@ -85,7 +85,7 @@ func (a *App) diffToolbar(c ui.C, p *project, t *diffTab) {
 			if a.gitIconButton(c, i18n.Shared(lang, "git.diff.previousFile"), icons.ChevronLeft, false, t.busy || i <= 0) {
 				c.After(func() { a.stepFile(p, t, -1) })
 			}
-			count := i18n.SharedFormat(lang, "git.log.filesCount", map[string]string{"count": strconv.Itoa(len(t.files))})
+			count := a.text.Commit.Files(len(t.files))
 			ui.Text(c, count).FontSize(size).Color(a.colors.Subtle).Shrink(0)
 			if a.gitIconButton(c, i18n.Shared(lang, "git.diff.nextFile"), icons.ChevronRight, false, t.busy || i < 0 || i >= len(t.files)-1) {
 				c.After(func() { a.stepFile(p, t, 1) })
@@ -110,10 +110,7 @@ func (a *App) diffToolbar(c ui.C, p *project, t *diffTab) {
 			ui.Text(c, t.note).FontSize(size).Color(a.colors.Warning).Ellipsis().Shrink(1)
 		}
 		if t.file != nil {
-			count := i18n.Shared(lang, "git.diff.oneDifference")
-			if n != 1 {
-				count = i18n.SharedFormat(lang, "git.diff.differences", map[string]string{"count": strconv.Itoa(n)})
-			}
+			count := i18n.SharedFormat(lang, "git.diff.differences", map[string]string{"count": strconv.Itoa(n)})
 			ui.Text(c, count).FontSize(size).Color(a.colors.Subtle).Shrink(0)
 		}
 
@@ -130,7 +127,7 @@ func (a *App) diffToolbar(c ui.C, p *project, t *diffTab) {
 		if clicked {
 			t.settingsOpen = !t.settingsOpen
 		}
-		ui.Menu(c.Part("diff-settings-menu"), gear, &t.settingsOpen, func(menu *ui.MenuItems) {
+		ui.Menu(c, gear, &t.settingsOpen, func(menu *ui.MenuItems) {
 			menu.WidthRange(180, 260)
 			if menu.Item(i18n.Shared(lang, "desktop.diff.keepWhitespace")).Checked(!t.ignoreSpace).Disabled(t.saved != nil).Clicked() {
 				c.After(func() { a.setDiffWhitespace(p, t, false) })

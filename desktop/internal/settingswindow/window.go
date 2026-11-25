@@ -79,6 +79,7 @@ const (
 // its window thread, but for the fields that say so.
 type window struct {
 	cli              cliRegistration
+	associations     associationRegistration
 	searchDraft      searchPreferencesDraft
 	editorDelay      ui.Field
 	editorDelayReady bool
@@ -338,6 +339,7 @@ func (w *window) config() app.Config {
 		OnWake:         w.wake,
 		OnFrameChange:  w.framed,
 		OnClosed:       w.closed,
+		OnActivate:     w.refreshAssociations,
 		// Chords of printable keys reach the window as shortcuts, not as keys of the
 		// control that has the focus; the one the Keymap page records arrives here.
 		OnShortcut: w.recordShortcut,
@@ -586,6 +588,7 @@ func (w *window) reportMarket(ended bool, kept error) {
 // paint, and in every paint, so leaving a page does not cancel what it asked for.
 func (w *window) declareWork(c ui.C) {
 	w.declareCLI(c)
+	w.declareAssociations(c)
 	if d := &w.searchDraft; d.effect != nil && d.work != nil {
 		ui.Effect(c, d.effect, d.work)
 	}

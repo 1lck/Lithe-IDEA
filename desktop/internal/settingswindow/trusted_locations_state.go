@@ -261,12 +261,12 @@ func (l *trustedLocationsState) declare(c ui.C) {
 		return
 	}
 	if l.loadKey != 0 {
-		ui.Effect(c.Part("trusted-locations-load"), l.loadEffect, l.loadKey)
+		ui.Effect(c, l.loadEffect, l.loadKey)
 	}
 	if l.previewKey != 0 {
-		ui.Effect(c.Part("trusted-locations-preview"), l.previewEffect, l.previewKey)
+		ui.Effect(c, l.previewEffect, l.previewKey)
 	}
 	if l.saveKey != 0 {
-		ui.Effect(c.Part("trusted-locations-save"), l.saveEffect, l.saveKey)
+		ui.Effect(c, l.saveEffect, l.saveKey)
 	}
 }

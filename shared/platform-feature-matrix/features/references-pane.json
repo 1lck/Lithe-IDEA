@@ -15,7 +15,8 @@
       "desktop/internal/workbench/pluginsemantics_test.go",
       "desktop/internal/workbench/pluginsemantics_e2e_test.go",
       "desktop/internal/core/references.go",
-      "desktop/internal/core/references_test.go"
+      "desktop/internal/core/references_test.go",
+      "desktop/internal/workbench/result_tree_focus_test.go"
     ]
   },
   "windows": {
@@ -30,11 +31,12 @@
       "desktop/internal/workbench/pluginsemantics_test.go",
       "desktop/internal/workbench/pluginsemantics_e2e_test.go",
       "desktop/internal/core/references.go",
-      "desktop/internal/core/references_test.go"
+      "desktop/internal/core/references_test.go",
+      "desktop/internal/workbench/result_tree_focus_test.go"
     ]
   },
   "owner": "Language Tooling",
-  "verification": "Viva（2026-11-10）：Shift+F12 查找引用，以光标处弹出的可键盘导航列表（虚拟化窗口，上限 500）呈现，点击或回车打开所在文件位置；按文件分组与专用面板尚未接入。 从符号发起引用查询，验证结果分组、文件定位、关闭和重新查询。 Viva（2026-11-10）：用测试内联的合成语言服务器插件服务的文件（如调用系统 clangd 的 C 文件）发起引用查询，核对分组、行预览、文件定位、关闭与重新查询。 Viva（2026-11-17）：无头截图（references_visual_test.go，深浅主题 × 中英）核对结果树、竖排工具栏、搜索标签与预览；待在原生窗口核对单击预览、双击或回车打开、上一个/下一个用法、全部展开/折叠、拖动分隔条、关闭预览和关闭搜索标签。 Viva（2026-11-17）：引用结果的分组排序、可见行、步进和行文本改由 Core 计算，Core 契约 fixture（references-query-v1、references-lines-v1）经桌面端桥接测试；单元测试覆盖右键点在其他位置后菜单“查找用法”按点击处请求，无头截图核对右键菜单里的“查找用法”与快捷键。",
+  "verification": "Viva（2026-11-10）：Shift+F12 查找引用，以光标处弹出的可键盘导航列表（虚拟化窗口，上限 500）呈现，点击或回车打开所在文件位置；按文件分组与专用面板尚未接入。 从符号发起引用查询，验证结果分组、文件定位、关闭和重新查询。 Viva（2026-11-10）：用测试内联的合成语言服务器插件服务的文件（如调用系统 clangd 的 C 文件）发起引用查询，核对分组、行预览、文件定位、关闭与重新查询。 Viva（2026-11-17）：无头截图（references_visual_test.go，深浅主题 × 中英）核对结果树、竖排工具栏、搜索标签与预览；待在原生窗口核对单击预览、双击或回车打开、上一个/下一个用法、全部展开/折叠、拖动分隔条、关闭预览和关闭搜索标签。 Viva（2026-11-17）：引用结果的分组排序、可见行、步进和行文本改由 Core 计算，Core 契约 fixture（references-query-v1、references-lines-v1）经桌面端桥接测试；单元测试覆盖右键点在其他位置后菜单“查找用法”按点击处请求，无头截图核对右键菜单里的“查找用法”与快捷键。 #2237：结果刷新加入尚未绘制的新行时清空键盘焦点，确认保留原选中项；失焦时工具栏定位不抢焦点，重新聚焦之前的同一行仍更新选择，上下方向键继续选择与滚动。引用和问题预览继续显示选中项；用无头回归控制事件顺序，原生窗口仍需在目标平台验收。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

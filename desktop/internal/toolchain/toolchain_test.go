@@ -335,7 +335,7 @@ func TestSavePinPreservesUnrelatedEntriesAndDetectsConflicts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !containsLine(string(ignore), "/toolchains/local.json") {
+	if !containsLine(string(ignore), "/.gitignore") || !containsLine(string(ignore), "/toolchains/local.json") {
 		t.Fatalf("ignore file = %q", ignore)
 	}
 	// A stale baseline must not overwrite the file another editor changed.

@@ -89,6 +89,10 @@ func (a *App) pluginView(p *project, window *pluginservice.ToolWindow) *pluginVi
 		Wake:    wake,
 		Failed:  func(err error) { a.operationFailed(pluginViewOperation, err) },
 		Context: ctx,
+		Page:    a.plugins.PluginWorkflow,
+		Watch: func(instance string, refresh func()) func() {
+			return plugins.WatchView(current.PluginID, instance, refresh)
+		},
 		Go: func(work func()) {
 			a.tasks.running.Add(1)
 			go func() {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 )
 
 // waitLimit bounds every wait for an answer the page is posted.
@@ -72,8 +73,22 @@ func (h *fakeHost) CallBackend(ctx context.Context, _, function string, params j
 		close(h.started)
 		<-ctx.Done()
 		return nil, ctx.Err()
+	case "failure":
+		return nil, &pluginservice.FunctionError{Code: "plugin.function.failed", Message: "Choose a resource first.", PluginCode: "fixture.resourceRequired"}
 	}
 	return nil, Fail("plugin.function.unknown", "no such function")
+}
+
+func TestPagePreservesBackendFunctionFailure(t *testing.T) {
+	f := openFixture(t)
+	reply := f.request(t, 1, "functions.invoke", map[string]any{"function": "failure"})
+	var failure core.PluginWebError
+	if err := json.Unmarshal(reply["error"], &failure); err != nil {
+		t.Fatal(err)
+	}
+	if failure.Code != "plugin.function.failed" || failure.Message != "Choose a resource first." || failure.PluginErrorCode != "fixture.resourceRequired" {
+		t.Fatalf("backend failure lost its structured fields: %+v", failure)
+	}
 }
 
 func (h *fakeHost) ChooseFile(string, FileRequest) (string, error) {

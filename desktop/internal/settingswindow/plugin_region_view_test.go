@@ -285,6 +285,57 @@ func regionSettingsParam(t *testing.T, call regionCall) (effective, draft map[st
 	return effective, draft
 }
 
+// A region can refer to a setting or tool the current page cannot draw. These
+// synthetic nodes exercise the real settings host, including missing bindings
+// and bindings of the wrong kind; the following label must keep drawing.
+func TestRegionViewSkipsUnavailableNodesWithoutRenamingTheirNeighbors(t *testing.T) {
+	for _, node := range []string{
+		`{"type":"setting","setting":"missing"}`,
+		`{"type":"tool","tool":"missing"}`,
+		`{"type":"textField","id":"missing","setting":"missing"}`,
+		`{"type":"select","id":"missing","setting":"name"}`,
+		`{"type":"segmented","id":"missing","setting":"name"}`,
+		`{"type":"toggle","id":"missing","setting":"name"}`,
+	} {
+		var kind struct{ Type string }
+		if err := json.Unmarshal([]byte(node), &kind); err != nil {
+			t.Fatal(err)
+		}
+		t.Run(kind.Type, func(t *testing.T) {
+			source := &regionSource{calls: make(chan regionCall, 32), view: json.RawMessage(`[` + node + `,
+				{"type":"label","text":"Region is available"},
+				{"type":"label","text":"Available controls follow"},
+				{"type":"button","id":"probe","text":"Probe"}]`)}
+			fetch := func(context.Context) (marketplace.Snapshot, error) {
+				return marketplace.Snapshot{Index: core.MarketplaceIndex{Plugins: []core.MarketplacePlugin{{ID: regionPlugin, Name: "Region Fixture", LatestVersion: "1.0.0"}}}}, nil
+			}
+			w := newWindow(NewController(Options{
+				Text:        func() *i18n.Messages { return i18n.For(i18n.English) },
+				Marketplace: fetch, MarketplaceInstalled: fetch, PluginSettings: source,
+				PluginState: func(string) PluginState { return PluginState{Installed: true, Enabled: true, Version: "1.0.0"} },
+				InstalledPlugins: func() []PluginFacts {
+					return []PluginFacts{{ID: regionPlugin, Name: "Region Fixture", Version: "1.0.0", Settings: len(regionEditor().Snapshot.State.Rows)}}
+				},
+			}), Values{Theme: "dark"})
+			w.sess.page = pagePlugins
+			w.installed.tab = installedSettings
+			d := openWindow(t, w)
+			d.until("the region after its unavailable node", func() bool { return d.text("Region is available") && d.has("Probe") })
+			probe := d.hit("Probe").ID
+			if event := source.next(t); event.params["event"] != "open" {
+				t.Fatalf("the region opened with %v", event.params)
+			}
+			d.click("Probe")
+			if got := d.hit("Probe").ID; got != probe {
+				t.Fatalf("the neighboring button changed identity: %v -> %v", probe, got)
+			}
+			if event := source.next(t); event.params["event"] != "click" || event.params["node"] != "probe" {
+				t.Fatalf("the neighboring button sent %v, want its click", event.params)
+			}
+		})
+	}
+}
+
 // A region opens with the plugin's own Settings tab and carries the page's settings, a
 // changed draft rides on the next event, and the view closes when the tab is left or the
 // language changes, opening anew when it shows again.
@@ -498,5 +549,56 @@ func TestRegionToolRowOpensTheToolchainsPage(t *testing.T) {
 		if w.region != nil && w.region.picker != "" {
 			t.Fatalf("choose %v: the picker stayed open after leaving for the Toolchains page", choose)
 		}
+	}
+}
+
+func TestRegionViewSettingsHashTracksStateAndDraftChanges(t *testing.T) {
+	p := regionForm()
+	base := p.viewSettingsHash()
+	if again := p.viewSettingsHash(); again != base {
+		t.Fatalf("viewSettingsHash was not deterministic: %d != %d", again, base)
+	}
+	if allocs := testing.AllocsPerRun(50, func() { _ = p.viewSettingsHash() }); allocs != 0 {
+		t.Fatalf("viewSettingsHash allocated %.1f times per call, want 0", allocs)
+	}
+
+	p.controls[0][regionName].text = "app"
+	if p.viewSettingsHash() == base {
+		t.Fatal("viewSettingsHash did not change on text draft edit")
+	}
+	p.controls[0][regionName].text = "core"
+
+	p.controls[0][regionWatch].input.On = false
+	if p.viewSettingsHash() == base {
+		t.Fatal("viewSettingsHash did not change on boolean draft edit")
+	}
+	p.controls[0][regionWatch].input.On = true
+
+	p.controls[0][regionMode].input.Selected = 1
+	if p.viewSettingsHash() == base {
+		t.Fatal("viewSettingsHash did not change on enum draft edit")
+	}
+	p.controls[0][regionMode].input.Selected = 0
+
+	p.controls[0][regionChecks].input.Checks[1] = true
+	if p.viewSettingsHash() == base {
+		t.Fatal("viewSettingsHash did not change on multiSelect draft edit")
+	}
+	p.controls[0][regionChecks].input.Checks[1] = false
+
+	p.controls[0][regionThreads].reset = true
+	if p.viewSettingsHash() == base {
+		t.Fatal("viewSettingsHash did not change on reset flag change")
+	}
+	p.controls[0][regionThreads].reset = false
+
+	p.scope = 1
+	if p.viewSettingsHash() == base {
+		t.Fatal("viewSettingsHash did not change on scope switch")
+	}
+	p.scope = 0
+
+	if restored := p.viewSettingsHash(); restored != base {
+		t.Fatalf("viewSettingsHash after restoring state = %d, want %d", restored, base)
 	}
 }

@@ -53,6 +53,12 @@ type FunctionError struct {
 
 func (e *FunctionError) Error() string { return e.Code + ": " + e.Message }
 
+// PluginWebError preserves the structured failure when a backend call crosses
+// the desktop page adapter. Embedded event failures inherit this conversion.
+func (e *FunctionError) PluginWebError() core.PluginWebError {
+	return core.PluginWebError{Code: e.Code, Message: e.Message, PluginErrorCode: e.PluginCode}
+}
+
 // BackendHost keeps at most one backend process per plugin and starts it on
 // demand: when a workspace opens for a plugin that asks for it, when its
 // language server needs a launch answer, or when another plugin calls it.
@@ -346,16 +352,21 @@ func (h *BackendHost) DetachAll() func() {
 // Notify sends a host notification to a running backend that holds the grant.
 // A backend that is not running or not granted never sees it.
 func (h *BackendHost) Notify(ctx context.Context, pluginID, grant, method string, params json.RawMessage) {
+	_, _ = h.NotifyResult(ctx, pluginID, grant, method, params)
+}
+
+// NotifyResult reports whether a negotiated notification reached a ready backend.
+// Unlike Notify, it lets lifecycle callers retry from current state when a session started
+// after the state change that normally causes the notification.
+func (h *BackendHost) NotifyResult(ctx context.Context, pluginID, grant, method string, params json.RawMessage) (bool, error) {
 	session := h.Running(pluginID)
 	if session == nil || !session.granted(grant) {
-		return
+		return false, nil
 	}
-	// A notification may arrive before initialize completes; it is dropped then,
-	// because a backend that starts later reads the state itself.
 	if !session.isReady() {
-		return
+		return false, nil
 	}
-	_, _ = h.service.kernel.SendPluginHostNotification(ctx, session.Session.ID, method, params)
+	return h.service.kernel.SendPluginHostNotification(ctx, session.Session.ID, method, params)
 }
 
 // NotifyAll sends a host notification to every running backend that holds the grant.
@@ -612,6 +623,9 @@ func (b *BackendSession) observe(event core.BackendEvent) {
 			}
 			b.signal()
 			b.mu.Unlock()
+			if len(change.Removed) > 0 {
+				b.host.service.withdrawEditorProviderFunctions(b.PluginID, b.Session.ID, change.Removed)
+			}
 		}
 	case "requestCompleted":
 		b.mu.Lock()

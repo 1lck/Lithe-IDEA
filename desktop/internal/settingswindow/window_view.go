@@ -33,8 +33,8 @@ func (w *window) view(c ui.C) {
 		w.footer(c)
 	})
 	w.keymapImportDialog(c)
-	w.pluginInstallModal(c.Part("plugin-install"))
-	w.commandInstallModal(c.Part("command-install"))
+	w.pluginInstallModal(c)
+	w.commandInstallModal(c)
 	w.declareWork(c)
 	w.endRegion()
 }
@@ -429,27 +429,27 @@ func (w *window) breadcrumb(c ui.C) {
 	w.crumbs = w.appendCrumbs(w.crumbs[:0])
 	var chosen *crumb
 	ui.Row(c).FillWidth().Height(crumbHeight).Shrink(0).PadX(18).Gap(8).Items(ui.Center).Background(b.surface).Children(func() {
+		// Keys belong on interactive containers, not leaf Text elements.
 		for i := range w.crumbs {
 			crumb := &w.crumbs[i]
-			k := c.KeyInt(i)
 			if i > 0 {
-				ui.Text(k.Part("sep"), "›").FontSize(buildFont).Color(b.faint).Shrink(0)
+				ui.Text(c, "›").FontSize(buildFont).Color(b.faint).Shrink(0)
 			}
 			last := i == len(w.crumbs)-1
 			switch {
 			case last:
-				ui.Text(k, crumb.title).FontSize(buildFont).Weight(gfx.WeightSemibold).Color(b.text).Shrink(1).MinWidth(0).Ellipsis()
+				ui.Text(c, crumb.title).FontSize(buildFont).Weight(gfx.WeightSemibold).Color(b.text).Shrink(1).MinWidth(0).Ellipsis()
 			case crumb.link:
-				button := ui.ButtonBase(k, crumb.title).Shrink(1).MinWidth(0).Items(ui.Center)
+				button := ui.ButtonBase(c.KeyInt(i), crumb.title).Shrink(1).MinWidth(0).Items(ui.Center)
 				if button.Clicked() {
 					chosen = crumb
 				}
 				button.Children(func() {
-					ui.Text(k, crumb.title).FontSize(buildFont).Color(b.sub).Shrink(1).MinWidth(0).Ellipsis().
+					ui.Text(c, crumb.title).FontSize(buildFont).Color(b.sub).Shrink(1).MinWidth(0).Ellipsis().
 						StateFrom(button).Hover(ui.Look{}.Color(b.accent))
 				})
 			default:
-				ui.Text(k, crumb.title).FontSize(buildFont).Color(b.sub).Shrink(1).MinWidth(0).Ellipsis()
+				ui.Text(c, crumb.title).FontSize(buildFont).Color(b.sub).Shrink(1).MinWidth(0).Ellipsis()
 			}
 		}
 	})
@@ -589,6 +589,7 @@ func (w *window) generalPage(c ui.C) {
 	w.languagePick = languageCode(languageIndex(w.sess.values.Language))
 	w.pageScroll(c, pageGeneral, func() {
 		w.cliCard(c)
+		w.associationsCard(c)
 		w.card(c, settings.Appearance, settings.AppearanceHelp, func() {
 			choice := func() {
 				ui.Choice(c, &w.themePick, themeValues[:], w.themeLabel).Width(420).Shrink(1).MinWidth(0)

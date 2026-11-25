@@ -15,7 +15,7 @@ func TestPluginSettingsReloadInvalidatesOnlyOwningModelsAndKeepsRunningTask(t *t
 	p := h.app.project
 	running := h.app.beginBuildOperation(p, "build", "build", "", nil)
 	p.build.selected, p.build.instances = 1, []buildInstance{
-		{BuildInstance: core.BuildInstance{ID: "changed"}, PluginID: "changed.plugin", modelLoaded: true, modelLoading: true},
+		{BuildInstance: core.BuildInstance{ID: "changed", ModelSource: "provider"}, PluginID: "changed.plugin", modelLoaded: true, modelLoading: true},
 		{BuildInstance: core.BuildInstance{ID: "unrelated"}, PluginID: "other.plugin", modelLoaded: true},
 	}
 	h.app.reloadPluginBuildModels(p, "changed.plugin")

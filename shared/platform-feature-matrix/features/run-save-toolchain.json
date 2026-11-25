@@ -11,7 +11,10 @@
       "desktop/internal/workbench/toolchains_test.go",
       "desktop/internal/workbench/runs.go",
       "desktop/internal/workbench/runconfig_edit.go",
-      "desktop/internal/workbench/runconfig_edit_test.go"
+      "desktop/internal/workbench/runconfig_edit_test.go",
+      "desktop/internal/workbench/runconfig_steps.go",
+      "desktop/internal/workbench/runconfig_before_launch_test.go",
+      "desktop/internal/workbench/runconfig_form_view_test.go"
     ]
   },
   "windows": {
@@ -20,12 +23,15 @@
     "evidence": [
       "desktop/internal/workbench/toolchains.go",
       "desktop/internal/workbench/toolchains_test.go",
-      "desktop/internal/workbench/runs.go"
+      "desktop/internal/workbench/runs.go",
+      "desktop/internal/workbench/runconfig_steps.go",
+      "desktop/internal/workbench/runconfig_before_launch_test.go",
+      "desktop/internal/workbench/runconfig_form_view_test.go"
     ]
   },
   "owner": "Run",
-  "verification": "修改未保存文件后运行，验证同步、工具选择和版本不匹配诊断。 Run、Debug 与服务更新路径校验采用相同的自动 scope。 运行配置与工具链完成解析后才发布快照就绪状态；重叠加载不得保存临时 Current File 选择，已完成加载后的用户选择须保留。 打开运行配置编辑对话框，确认标题栏显示运行时图标、类型与生效来源胶囊，保存范围使用共享分段控件，项目环境入口整行可点击；保存范围、继承/覆盖说明和环境变量格式默认收进 ⓘ，路径输入、环境变量编辑器以及保存/取消按钮与设置页样式一致；窄窗口下内容仍可滚动且底部按钮可见。 显式 JAVA_HOME 优先于选择，Windows 不同大小写环境键不产生冲突。 Windows 并发保存运行配置、生成配置及构建配置时，读取快照、写入和回滚由同一事务锁保护；失败任务不能恢复掉另一个已完成任务的新值。 Provider 运行项以逐行数组编辑运行时参数及不透明入口，验证空值、空格、引号、反斜杠、Unicode 和参数内换行在保存/重开后保持；修改入口或参数不得丢失按次选项与工具选择，开页/取消不写入。macOS Reset 明确清空继承的按 Run 工具，Windows 保存通过原对话框的显式保存动作；1024 项数组只挂载视口行。该增量的原生存储/组件回归不代替完整 macOS/Windows 产品验收。 Reset 从已解析的团队/本机合并草稿清空所有按 Run 工具；重开仍保持清空，团队文件字节不得改变。macOS 参数按钮复用已打包 IDEA 图标。 两端 Run 编辑器使用 Core 可逆格式回显完整参数数组；仅修改其他选项后保存、重开并启动，空参数、空格、引号、反斜杠与 Unicode 的边界保持不变。",
-  "notes": "Run 与 Debug 的工具解析走同一套工具链层（项目固定、用户选择、发现）并由 Core 排序候选。Viva 的运行配置编辑对话框已能编辑参数、工作目录、环境变量与保存范围（本机/项目），只在用户点保存时经 runConfig.updateOptions 写回所选层并重新读取；打开、取消不写文件，不带 toolchain 字段，因此不改全局工具链。运行前保存未保存文档、工具选择与版本不匹配诊断、providerRunOptions（运行时参数、入口、按 Run 工具）编辑尚未接入。",
+  "verification": "修改未保存文件后运行，验证同步、工具选择和版本不匹配诊断。 Run、Debug 与服务更新路径校验采用相同的自动 scope。 运行配置与工具链完成解析后才发布快照就绪状态；重叠加载不得保存临时 Current File 选择，已完成加载后的用户选择须保留。 打开运行配置编辑对话框，确认标题栏显示运行时图标、类型与生效来源胶囊，保存范围使用共享分段控件，项目环境入口整行可点击；保存范围、继承/覆盖说明和环境变量格式默认收进 ⓘ，路径输入、环境变量编辑器以及保存/取消按钮与设置页样式一致；窄窗口下内容仍可滚动且底部按钮可见。 显式 JAVA_HOME 优先于选择，Windows 不同大小写环境键不产生冲突。 Windows 并发保存运行配置、生成配置及构建配置时，读取快照、写入和回滚由同一事务锁保护；失败任务不能恢复掉另一个已完成任务的新值。 Provider 运行项以逐行数组编辑运行时参数及不透明入口，验证空值、空格、引号、反斜杠、Unicode 和参数内换行在保存/重开后保持；修改入口或参数不得丢失按次选项与工具选择，开页/取消不写入。macOS Reset 明确清空继承的按 Run 工具，Windows 保存通过原对话框的显式保存动作；1024 项数组只挂载视口行。该增量的原生存储/组件回归不代替完整 macOS/Windows 产品验收。 Reset 从已解析的团队/本机合并草稿清空所有按 Run 工具；重开仍保持清空，团队文件字节不得改变。macOS 参数按钮复用已打包 IDEA 图标。 两端 Run 编辑器使用 Core 可逆格式回显完整参数数组；仅修改其他选项后保存、重开并启动，空参数、空格、引号、反斜杠与 Unicode 的边界保持不变。 严格 dev 属性校验下，TestRunConfigFormOptionalErrorsKeepTheirOwnIdentity 检查未知控件与多个标题区错误不污染后续元素；TestRunConfigBeforeLaunchToolbarEditsTheList 覆盖启动前步骤折叠和操作，外层 Column 消费调用方身份。",
+  "notes": "Run 与 Debug 的工具解析走同一套工具链层（项目固定、用户选择、发现）并由 Core 排序候选。Viva 的运行配置编辑对话框已能编辑参数、工作目录、环境变量与保存范围（本机/项目），只在用户点保存时经 runConfig.updateOptions 写回所选层并重新读取；打开、取消不写文件，不带 toolchain 字段，因此不改全局工具链。运行前保存未保存文档、工具选择与版本不匹配诊断、providerRunOptions（运行时参数、入口、按 Run 工具）编辑尚未接入。 运行配置表单和启动前步骤只把名字交给实际元素，保留调用方给出的启动前区域身份。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

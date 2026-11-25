@@ -95,7 +95,7 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 	return ui.Column(c.KeyInt(int(s))).Background(a.colors.Panel).Radius(workbenchPanelRadius).Clip().Children(func() {
 		// The header is a target of its own so a right-click on it offers to hide the tool
 		// window, as the earlier client's tool window headers did.
-		hk := c.KeyInt(int(s)).Part("header")
+		hk := c.Part("header")
 		title := tool.label(a.text)
 		headerRow := ui.Row(hk).FillWidth().Height(header).Shrink(0).Items(ui.Center).Gap(shellHeaderGap).PadSides(0, 8, 0, 12).
 			HitWith(ui.ID(hk), i18n.Shared(a.language(), "desktop.panel.header"), gfx.HitOptions{Value: title, SkipFocus: true})
@@ -224,6 +224,8 @@ func (a *App) toolBody(c ui.C, tool item, p *project) {
 			a.problemsPanel(c, p)
 		case itemBuild:
 			a.buildToolView(c, p)
+		case itemOutput:
+			a.pluginOutputView(c, p)
 		case itemRun:
 			a.runView(c, p)
 		case itemTests:
@@ -326,7 +328,7 @@ func (a *App) toolTabsWith(c ui.C, selected int, labels []string, choose func(in
 				chip = chip.Hover(ui.Look{}.Background(a.colors.Hover))
 			}
 			chip.Children(func() {
-				text := ui.Text(k, label).Ellipsis().Shrink(1)
+				text := ui.Text(c, label).Ellipsis().Shrink(1)
 				if on {
 					text.Color(a.colors.Text)
 				} else {

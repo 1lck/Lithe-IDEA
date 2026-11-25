@@ -2,7 +2,7 @@
   "id": "debug-performance",
   "area": "运行与调试",
   "group": "调试器",
-  "capability": "调试与测试目标进程树的实时 CPU 与内存图表",
+  "capability": "运行进程树的实时 CPU 与内存图表，可折叠为摘要并保存展开偏好；调试与测试目标进程采样仍待迁移",
   "macos": {
     "implementationStatus": "partial",
     "verificationStatus": "pending",
@@ -14,7 +14,9 @@
       "desktop/internal/workbench/chrome.go",
       "desktop/internal/workbench/run_performance.go",
       "desktop/internal/workbench/runs.go",
-      "desktop/internal/workbench/run_view.go"
+      "desktop/internal/workbench/run_view.go",
+      "desktop/internal/workbench/run_panels_test.go",
+      "desktop/internal/workbench/run_console_wrap_visual_test.go"
     ]
   },
   "windows": {
@@ -32,12 +34,14 @@
       "desktop/internal/pluginservice/processsample.go",
       "desktop/internal/pluginservice/processsample_windows.go",
       "desktop/internal/pluginservice/processsample_test.go",
-      "desktop/internal/pluginservice/processsample_windows_test.go"
+      "desktop/internal/pluginservice/processsample_windows_test.go",
+      "desktop/internal/workbench/run_panels_test.go",
+      "desktop/internal/workbench/run_console_wrap_visual_test.go"
     ]
   },
   "owner": "Debug",
-  "verification": "用Lithe启动本地调试目标，展开Performance确认CPU与内存数据，切换/结束会话、收起时释放采集。明暗主题检查折线与面积、底部基准线、紧凑高度，60秒窗口最新在右且历史左移，鼠标悬停两图显示同一真实采样的圆点/数值/时间；缺失数据不造零。 验证相同DAP会话重新启动新PID时清除旧历史；重复登记相同目标不重启；销毁Feature取消流。 Test 右侧 Performance/Details 共用一个可收缩区域，顶部两个标签切换；核对11pt常规标题和Islands文字色。测试运行选择本次启动器后代中的测试 worker 进程，实时CPU/内存曲线，多个worker切换。缺失worker或工具明确提示，不采样构建工具的启动器。 Windows：TestSumProcessTreeAddsDescendantsAndSkipsReusedParentIDs 与 TestSumProcessTreeEndsOnACycleAndMissesAnAbsentRoot 检查进程树求和与复用的父进程 ID；TestSampleProcessTreeReadsTheCurrentProcessFromTheWin32Table 在 Windows CI 读取测试进程自身。默认终端为 Windows Terminal 时运行一个程序并展开资源曲线，确认不再每 2 秒弹出终端窗口（#2068）。",
-  "notes": "Viva：运行期间每 2 秒在后台采样运行进程树的 CPU 与内存，在运行输出上方画两条曲线（run_performance.go），运行结束停止采样；调试与测试目标尚未接入采样。 Windows 采样经 sysinfo 的 Win32 进程表（Toolhelp 快照与进程计数器）在客户端进程内读取，不再每 2 秒启动 PowerShell，因此不会为 GUI 客户端弹出控制台窗口（#2068）；内存取任务管理器显示的专用工作集，与状态栏内存读数同源。macOS 与 Linux 仍每次运行一次 ps。",
+  "verification": "用Lithe启动本地调试目标，展开Performance确认CPU与内存数据，切换/结束会话、收起时释放采集。明暗主题检查折线与面积、底部基准线、紧凑高度，60秒窗口最新在右且历史左移，鼠标悬停两图显示同一真实采样的圆点/数值/时间；缺失数据不造零。 验证相同DAP会话重新启动新PID时清除旧历史；重复登记相同目标不重启；销毁Feature取消流。 Test 右侧 Performance/Details 共用一个可收缩区域，顶部两个标签切换；核对11pt常规标题和Islands文字色。测试运行选择本次启动器后代中的测试 worker 进程，实时CPU/内存曲线，多个worker切换。缺失worker或工具明确提示，不采样构建工具的启动器。 Windows：TestSumProcessTreeAddsDescendantsAndSkipsReusedParentIDs 与 TestSumProcessTreeEndsOnACycleAndMissesAnAbsentRoot 检查进程树求和与复用的父进程 ID；TestSampleProcessTreeReadsTheCurrentProcessFromTheWin32Table 在 Windows CI 读取测试进程自身。默认终端为 Windows Terminal 时运行一个程序并展开资源曲线，确认不再每 2 秒弹出终端窗口（#2068）。 #2072：在 Run 控制台创建两次 CPU/RSS 采样后，点击折叠应只保留 CPU/内存一行摘要及正常控制台内容，折线图收起；再次展开恢复曲线。退出并重新打开工作台，验证折叠偏好由 settings.json 恢复，多个 Run 标签沿用同一偏好且各自采样独立；使用中英文本与明暗主题的 Viva 无头测试和截图验证，原生平台仍保持 pending。",
+  "notes": "Viva：运行期间每 2 秒在后台采样运行进程树的 CPU 与内存，在运行输出上方画两条曲线（run_performance.go），运行结束停止采样；调试与测试目标尚未接入采样。 Windows 采样经 sysinfo 的 Win32 进程表（Toolhelp 快照与进程计数器）在客户端进程内读取，不再每 2 秒启动 PowerShell，因此不会为 GUI 客户端弹出控制台窗口（#2068）；内存取任务管理器显示的专用工作集，与状态栏内存读数同源。macOS 与 Linux 仍每次运行一次 ps。 Viva #2072：Run CPU/RSS 曲线不增加采样器，当用户折叠时不绘制图表，持续显示最新 CPU/RSS 数值；使用工作台已有 settings.json 持久化 runPerformanceCollapsed，默认仍展开，原生平台验收待完成。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

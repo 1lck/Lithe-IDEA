@@ -146,6 +146,8 @@ func (a *App) trustRemoteProject(p *project, proceed func()) {
 		return
 	}
 	a.performed("workspace.trust.grant", surfaceButton)
+	r.trustRevision++
+	revision := r.trustRevision
 	kernel, globalRoot, session, dir, label := a.kernel, a.globalToolchainRoot(), r.session, r.binding.RemoteRoot(), r.name
 	a.background(p, workspaceTrustTimeout, func(ctx context.Context) func(*App) {
 		trust, err := remoteconn.ReadTrust(ctx, kernel, globalRoot, session, dir)
@@ -158,8 +160,8 @@ func (a *App) trustRemoteProject(p *project, proceed func()) {
 				a.notifyError(i18n.SharedFormat(a.language(), "desktop.trust.saveFailed", map[string]string{"reason": documentLogError(err).Error()}))
 				return
 			}
-			if a.project != p {
-				// log-exempt: 用户取消：信任已记录，但工作区已关闭，下次打开时直接按已信任打开。
+			if a.project != p || r.closed || r.session != session || r.trustRevision != revision {
+				// log-exempt: 用户取消：信任已记录，但工作区或会话已变更，旧结果不能授权新会话。
 				return
 			}
 			a.applyProjectTrust(p, true)
@@ -184,24 +186,30 @@ func (a *App) remoteTrustUnreachable(p *project) bool {
 }
 
 // reloadRemoteTrust reads the trust of the open remote workspace p again, after the settings
-// window changed it, and applies it. While p has no session, its trust stays as it is.
+// window changed it, and applies it. A missing session or failed read leaves code disabled.
 func (a *App) reloadRemoteTrust(p *project) {
 	r := p.remote
+	r.trustRevision++
+	revision := r.trustRevision
 	if r.session == "" {
-		// log-exempt: 预期的缺失：远程工作区未连接，信任记录要经会话读取；当前信任保持不变。
+		a.applyProjectTrust(p, false)
+		// log-exempt: 预期的缺失：远程工作区未连接，无法读取信任，保持安全模式。
 		return
 	}
+	a.applyProjectTrust(p, false)
 	kernel, globalRoot, session, dir := a.kernel, a.globalToolchainRoot(), r.session, r.binding.RemoteRoot()
 	a.background(p, workspaceTrustTimeout, func(ctx context.Context) func(*App) {
 		trust, err := remoteconn.ReadTrust(ctx, kernel, globalRoot, session, dir)
 		return func(a *App) {
+			if a.project != p || r.closed || r.session != session || r.trustRevision != revision {
+				// log-exempt: 用户取消：旧会话的信任读取不再适用。
+				return
+			}
 			if err != nil {
 				a.backgroundFailed("remote_trust_read", documentLogError(err))
 				return
 			}
-			if a.project == p {
-				a.applyProjectTrust(p, remoteTrusted(trust.State))
-			}
+			a.applyProjectTrust(p, remoteTrusted(trust.State))
 		}
 	})
 }
@@ -222,7 +230,7 @@ func (a *App) remoteTrustView(c ui.C, language i18n.Language, t *remoteTrustProm
 						ui.Text(c, i18n.Shared(language, "desktop.remote.trust.title")).FontSize(16).Weight(gfx.WeightSemibold)
 						ui.Text(c, t.browser.host.address()+" : "+t.dir).Mono().FontSize(small).Ellipsis().Shrink(1).MinWidth(0)
 					})
-					ui.Paragraph(c.Part("body"), i18n.Shared(language, "desktop.remote.trust.body"), 6).FontSize(small).Color(a.colors.Subtle)
+					ui.Paragraph(c, i18n.Shared(language, "desktop.remote.trust.body"), 6).FontSize(small).Color(a.colors.Subtle)
 					ui.Column(c.Part("choices")).FillWidth().Gap(4).Pad(12).Radius(8).Stroke(1, a.colors.Line).Children(func() {
 						a.remoteTrustChoice(c.Part("full"), language, i18n.Shared(language, "desktop.remote.trust.trustOpen"), i18n.Shared(language, "desktop.remote.trust.full"))
 						a.remoteTrustChoice(c.Part("safe"), language, i18n.Shared(language, "desktop.remote.trust.safeOpen"), i18n.Shared(language, "desktop.remote.trust.safe"))

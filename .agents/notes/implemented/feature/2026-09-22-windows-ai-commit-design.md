@@ -32,6 +32,12 @@ AI 提交信息使用独立的服务商配置和可配置的生成规则，支�
 
 不要这样做：界面直接读取服务商的认证文件并把完整解析结果写进界面状态或普通设置。这样会让凭据混入界面状态和设置导出。
 
+### 配置发现测试隔离本机账号
+
+服务商发现和配置路径查询把主目录、环境快照作为显式输入。生产入口仍读取真实主目录和 `loginenv`；真实 Core 集成测试传入临时主目录和测试自己构造的完整环境，空快照也不补读本机环境。路径发现、配置解析和凭据定位因此使用同一份输入，断言仍覆盖服务商数量、元数据和文件／环境凭据（#2214）。
+
+只替换配置文件来源不能隔离 Claude 的纯环境配置；逐个清空已知变量又会漏掉以后支持的变量。因此不采用这两种做法，也不通过替换真实解析器、跳过测试或放宽数量断言来避免失败。代价是两个平台输入需要显式传递；测试无需改动进程环境，失败信息只报告匹配结果，不输出环境值或凭据。
+
 ### 以暂存改动生成草稿
 
 生成依据是提交面板中当前变更列表的暂存改动（`desktop/internal/workbench/aicommit.go`）。Core 的 `git.commitMessageContext` 采集证据，并基于完整未截断的内容、仓库状态和索引标志生成令牌；应用生成结果前重新核对这个令牌，状态变化时不应用结果。
@@ -67,6 +73,7 @@ Codex/Claude 的 OAuth 登录不等同于可用的 API 密钥，本次不实现 
 ## 验证
 
 - `scripts/desktop/desktop-go.sh test ./internal/ai/... ./internal/workbench/...`：配置解析、凭据不序列化、协议映射、截断和错误边界。
+- `TestProviderDiscoveryUsesRealCoreParser`：无配置、两个单独来源、Claude 纯环境配置、双源并存和配置目录覆写；即使运行测试的进程带有 Claude 环境变量，结果也只取决于显式快照。
 - Core 仓库的 [AI 提交契约](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/contracts/ai-commit.md) 与 [共享夹具](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/main/rust/fixtures/ai/commit-generation-v1.json)。
 - `node scripts/agent-notes/verify-agent-notes.sh`
 
@@ -76,6 +83,8 @@ Codex/Claude 的 OAuth 登录不等同于可用的 API 密钥，本次不实现 
 
 - `desktop/internal/ai/commit.go`
 - `desktop/internal/ai/http.go`
+- `desktop/internal/ai/provider.go`
+- `desktop/internal/ai/provider_test.go`
 - `desktop/internal/workbench/aicommit.go`
 - `desktop/internal/credentials/backend_darwin.go`
 - `desktop/internal/credentials/backend_other.go`

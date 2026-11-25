@@ -135,7 +135,7 @@ func (a *App) drawLogBranchFilter(c ui.C, p *project) {
 			if len(s.refs) == 0 {
 				continue
 			}
-			ui.Divider(c.Part(s.kind)).PadY(4)
+			ui.Divider(c).PadY(4)
 			for _, r := range s.refs {
 				if a.logMenuItem(c, r.FullName, r.ShortName, l.reference == r.FullName, false) {
 					c.After(func() {

@@ -22,7 +22,7 @@ func (w *window) versionControlPage(c ui.C) {
 			ui.Row(c).Height(4).Shrink(0)
 			ui.Wrap(c, i18n.Shared(language, "desktop.versionControlSettings.intro")).FontSize(buildSmall).Color(b.sub)
 			ui.Row(c).Height(12).Shrink(0)
-			w.directory(c.Part("directory"), []directoryEntry{{
+			w.directory(c, []directoryEntry{{
 				key: "git", tile: gitTile, icon: icons.GitBranch, title: titleOf(&w.text.Settings, pageGit),
 				desc: i18n.Shared(language, "desktop.versionControlSettings.directoryGit"),
 				open: func() { w.selectSettingsPage(pageGit, "") },

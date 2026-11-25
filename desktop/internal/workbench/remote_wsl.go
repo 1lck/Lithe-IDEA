@@ -276,7 +276,7 @@ func (a *App) remoteWSLPage(c ui.C, language i18n.Language) {
 					c.After(func() { a.connectRemote("") })
 				}
 			})
-			ui.Paragraph(c.Part("about"), i18n.Shared(language, "desktop.remote.wsl.about"), 4).FontSize(small).Color(a.colors.Subtle)
+			ui.Paragraph(c, i18n.Shared(language, "desktop.remote.wsl.about"), 4).FontSize(small).Color(a.colors.Subtle)
 			label := i18n.Shared(language, "desktop.remote.wsl.user")
 			a.remoteSection(c.Part("account"), label, i18n.Shared(language, "desktop.remote.wsl.userHelp"), nil, func() {
 				ui.TextField(c.Part("user"), &r.wsl.user, label, i18n.Shared(language, "desktop.remote.wsl.userPlaceholder")).

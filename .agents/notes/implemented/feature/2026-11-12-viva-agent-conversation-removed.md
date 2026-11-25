@@ -4,6 +4,8 @@
 
 ## 先说结论
 
+2026-11-25 用户决定重新做 Agent：只调用用户自己安装、登录好的官方 CLI，能用 CLI 原生协议就用原生，不行才用 ACP，本地会话的调用记录、统计和搜索放在 Core。设计见 [Agent 原生调用官方 CLI，本地会话记录与搜索放在 Core](../../proposed/architecture/2026-11-25-agent-native-cli-and-local-session-records.md)。新方案落地后，本篇转入 `archived/`。
+
 2026-11-12 用户决定 Viva 桌面端不做 Agent 对话。#1799 删除了助手工具窗口、会话与历史、Agent 安装与管理、自定义 Agent，以及 Agents、指令、技能、Hooks、MCP 配置五个设置页；理由写在 `docs/viva-migration.md` 的“放弃：Agent 对话”。
 
 第二轮清理把当时只标为“放弃”的记录也删掉了：功能矩阵里对应的 36 个条目、`shared/i18n/` 里全部 593 条含 `agent` 的词条，以及旧客户端 Agent 对话的 15 篇 Note。原因是旧 SwiftUI 与 Tauri 客户端目录已经在本分支整体删除，那些词条、能力和笔记不再有任何消费者；留在 `implemented/` 和矩阵里会让后来的人以为功能仍存在。

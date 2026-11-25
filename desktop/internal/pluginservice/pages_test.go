@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -82,6 +83,10 @@ func TestPageStateIsKeptPerWindowAndWorkspace(t *testing.T) {
 	}
 	if state, err := service.PageState("a", "a.window", "/work/one", limit); err != nil || string(state) != `{"tab":1}` {
 		t.Fatalf("state = %q %v", state, err)
+	}
+	entries, err := os.ReadDir(filepath.Dir(service.pageStatePath("a", "a.window", "/work/one")))
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("page state dir entries = %v, %v", entries, err)
 	}
 	for _, other := range [][2]string{{"a.window", "/work/two"}, {"a.other", "/work/one"}} {
 		if state, _ := service.PageState("a", other[0], other[1], limit); state != nil {

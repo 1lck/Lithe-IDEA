@@ -651,7 +651,7 @@ func (a *App) beginDebug(p *project, start debugStart) {
 // Core owns the length of the window (the transport policy's initialization
 // deadline); the host only runs the clock.
 func (a *App) watchDebugInitialize(p *project, session *debugSession, window time.Duration) {
-	timer := time.AfterFunc(window, func() {
+	timeout := func() {
 		// The window is the start's deadline: an adapter start that has no result by now
 		// timed out. A start that already ended keeps its result.
 		a.recordDebugStart(session.ctx, session, core.StageTimeout, context.DeadlineExceeded)
@@ -666,7 +666,19 @@ func (a *App) watchDebugInitialize(p *project, session *debugSession, window tim
 				a.finishDebugError(p, session, errors.New(a.text.Debug.TimedOut))
 			}
 		})
-	})
+	}
+	if a.debugInitializeTrigger != nil {
+		trigger := a.debugInitializeTrigger
+		go func() {
+			select {
+			case <-trigger:
+				timeout()
+			case <-session.ctx.Done():
+			}
+		}()
+		return
+	}
+	timer := time.AfterFunc(window, timeout)
 	// The timer must not outlive the session: Stop and shutdown cancel its context.
 	context.AfterFunc(session.ctx, func() { timer.Stop() })
 }

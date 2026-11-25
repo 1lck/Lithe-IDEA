@@ -602,7 +602,7 @@ func (a *App) drawVcsRollbackDialog(c ui.C, p *project, t vcsTarget) {
 					ui.Text(c, i18n.SharedFormat(lang, "native.arg1FilesSelected", map[string]string{"arg1": strconv.Itoa(len(paths))})).Muted()
 					break
 				}
-				ui.Text(c.Key(path), path).Color(a.colors.Text).Ellipsis()
+				ui.Text(c, path).Color(a.colors.Text).Ellipsis()
 			}
 		})
 	}, func() {

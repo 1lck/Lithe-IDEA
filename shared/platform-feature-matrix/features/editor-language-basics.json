@@ -12,7 +12,8 @@
       "desktop/internal/workbench/semantic_tokens.go",
       "desktop/internal/editor/syntax/grammars",
       "desktop/internal/editor/syntax/language_test.go",
-      "desktop/internal/editor/textmate/injection.go"
+      "desktop/internal/editor/textmate/injection.go",
+      "desktop/internal/editorview/undo_test.go"
     ]
   },
   "windows": {
@@ -24,7 +25,8 @@
       "desktop/internal/workbench/semantic_tokens.go",
       "desktop/internal/editor/syntax/grammars",
       "desktop/internal/editor/syntax/language_test.go",
-      "desktop/internal/editor/textmate/injection.go"
+      "desktop/internal/editor/textmate/injection.go",
+      "desktop/internal/editorview/undo_test.go"
     ]
   },
   "owner": "Editor",

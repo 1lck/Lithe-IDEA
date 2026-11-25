@@ -103,5 +103,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：图片、PDF 与二进制文件以查看器标签打开，SVG 以源码加图片的双栏打开。有系统 web 引擎（macOS WKWebView、Windows WebView2）时，图片和 SVG 显示在内嵌的图片页，规则与旧 macOS 查看器一致（工具栏、适配、缩放步长与范围、棋盘格）；PDF 用引擎自带的 PDF 查看器。Linux 没有 web 引擎：图片由 Viva 自行解码绘制（PNG、JPEG、GIF，同一套缩放规则），PDF 提示用外部应用打开，SVG 只显示源码。音频、视频仍提示用外部应用打开，其他二进制文件显示前 64 KiB 的十六进制。HTML 文件以源码加页面的双栏打开，页面在单独的 lithe-site 协议和临时存储里按静态站点加载，每个请求由 Core 的 htmlPreview.resolveRequest 决定；比旧 macOS 内嵌浏览器少地址栏、缩放、查找、开发者工具、JavaScript 对话框、下载和打印，主框架不跳到远程网页。尚未接入媒体播放。legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva：图片、PDF 与二进制文件以查看器标签打开，SVG 与 HTML 在项目模式和单文件模式都以源码加预览的双栏打开。有系统 web 引擎（macOS WKWebView、Windows WebView2）时，图片和 SVG 默认显示在内嵌的图片页，规则与旧 macOS 查看器一致（工具栏、适配、缩放步长与范围、棋盘格）；SVG 工具栏还可切换至“交互模式”，在隔离的临时 lithe-site 站点页直接渲染 image/svg+xml 以支持悬停、点击、链接与脚本。PDF 用引擎自带的 PDF 查看器。Linux 没有 web 引擎：图片由 Viva 自行解码绘制（PNG、JPEG、GIF，同一套缩放规则），PDF 提示用外部应用打开，SVG 只显示源码。音频、视频仍提示用外部应用打开，其他二进制文件显示前 64 KiB 的十六进制。HTML 文件在单独的 lithe-site 协议和临时存储里按静态站点加载（单文件模式按自身所在目录隔离），每个请求由 Core 的 htmlPreview.resolveRequest 决定，工具栏按 CanGoBack/CanGoForward 启用历史按钮并显示页面标题与加载状态，进程退出或主框架加载失败时提供重新加载恢复；比旧 macOS 内嵌浏览器少地址栏、缩放、查找、开发者工具、JavaScript 对话框、下载和打印，主框架不跳到远程网页。尚未接入媒体播放。legacy 是迁移前基线，不代表当前实现。"
 }

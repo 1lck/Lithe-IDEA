@@ -317,3 +317,59 @@ func TestFlattenTestRowsIsBounded(t *testing.T) {
 		t.Fatalf("first row = %+v, want the suite header", rows[0])
 	}
 }
+
+func TestResolveTestCasePath(t *testing.T) {
+	root := t.TempDir()
+	rootFile := filepath.Join(root, "tests", "root_test.go")
+	if err := os.MkdirAll(filepath.Dir(rootFile), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rootFile, []byte("package tests\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	subFile := filepath.Join(root, "submod", "src", "sub_test.go")
+	if err := os.MkdirAll(filepath.Dir(subFile), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(subFile, []byte("package submod\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := resolveTestCasePath(root, "submod", ""); got != "" {
+		t.Fatalf("empty testPath resolved to %q, want empty", got)
+	}
+	if got := resolveTestCasePath(root, "submod", "tests/root_test.go"); got != rootFile {
+		t.Fatalf("workspace-relative resolved to %q, want %q", got, rootFile)
+	}
+	if got := resolveTestCasePath(root, "submod", "src/sub_test.go"); got != subFile {
+		t.Fatalf("module-relative fallback resolved to %q, want %q", got, subFile)
+	}
+	abs := filepath.Join(root, "abs_test.go")
+	if got := resolveTestCasePath(root, "submod", abs); got != abs {
+		t.Fatalf("absolute path resolved to %q, want %q", got, abs)
+	}
+}
+
+func TestTestsPanelClickPassingCaseOpensSearchEverywhere(t *testing.T) {
+	h := testsHarness(t)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "fixture.test"), []byte("fixture\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	installTestRunner(t, root)
+	p := openTestsPanel(t, h, root)
+	defer h.app.post(func(a *App) { a.closeEverywhere(p) })
+
+	clickRun(t, h)
+	awaitTestRun(t, h, p)
+	if p.tests.failed != "" {
+		t.Fatalf("the run failed: %s", p.tests.failed)
+	}
+
+	h.clickNamed("passes")
+	if !h.app.everywhereView.open {
+		t.Fatal("clicking a test case without a file path did not open Search Everywhere")
+	}
+	if got := h.app.everywhereView.query.Text(); got != "passes" {
+		t.Fatalf("Search Everywhere query = %q, want %q", got, "passes")
+	}
+}

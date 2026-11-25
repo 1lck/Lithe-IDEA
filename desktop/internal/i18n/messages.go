@@ -119,6 +119,7 @@ type TitleMessages struct {
 
 // ToolMessages name the tool windows on the stripes.
 type ToolMessages struct {
+	Output        string
 	Project       string
 	Commit        string
 	Structure     string
@@ -745,7 +746,7 @@ type LogMessages struct {
 	RedactedNote   string
 	SourceLine     func(line int) string
 	NoOperation    string
-	// Operation heads the call chain, for example "Op c0ffee · 4 records · 12 ms".
+	// Operation heads the call chain, for example "Op c0ffee · Records: 4 · 12 ms".
 	Operation func(op string, count int, duration string) string
 
 	// The status bar.

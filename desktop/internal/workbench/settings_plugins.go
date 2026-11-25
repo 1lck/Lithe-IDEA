@@ -89,3 +89,11 @@ func (s pluginSettingsSources) View(ctx context.Context, editor pluginservice.Se
 	s.app.viewCallFailed(ctx, "plugin_settings_view", err)
 	return drawn, changed, err
 }
+
+func (s pluginSettingsSources) WatchView(pluginID, instance string, refresh func()) func() {
+	return s.app.plugins.WatchView(pluginID, instance, refresh)
+}
+
+func (s pluginSettingsSources) PluginWorkflow(ctx context.Context, request, result any) error {
+	return s.app.plugins.PluginWorkflow(ctx, request, result)
+}

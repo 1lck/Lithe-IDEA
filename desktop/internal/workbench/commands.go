@@ -183,6 +183,11 @@ func (a *App) commands() []command {
 		if !pluginCommandOffered(command) {
 			continue
 		}
+		if command.ToolWindowID == "" {
+			command := command
+			add(pluginCommandID(command), t.GroupToolWindows, command.Title, "", true, func() { a.runPluginCommand(p, command.PluginID, command.ID) })
+			continue
+		}
 		windowID := pluginItemPrefix + command.ToolWindowID
 		index := slices.IndexFunc(a.chrome.catalog, func(it item) bool { return it.id == windowID })
 		if index < 0 {

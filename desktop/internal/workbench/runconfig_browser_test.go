@@ -19,7 +19,7 @@ func runBrowserInstances() []buildInstance {
 	engine.System.DisplayName = "Engine"
 	engine.System.Runs = append(engine.System.Runs, pluginservice.BuildRunDeclaration{ID: "serve", Name: "Serve", Execution: "service", Tags: []string{"app"}})
 	alpha := runConfigInstance("tools")
-	alpha.BuildInstance = core.BuildInstance{ID: "alpha@tools", PluginID: "dev.example.alpha", BuildSystemID: "alpha", Root: "tools"}
+	alpha.BuildInstance = core.BuildInstance{ID: "alpha@tools", PluginID: "dev.example.alpha", BuildSystemID: "alpha", Root: "tools", ModelSource: "provider"}
 	alpha.PluginID = "dev.example.alpha"
 	alpha.System.DisplayName = "Alpha"
 	return []buildInstance{engine, alpha}

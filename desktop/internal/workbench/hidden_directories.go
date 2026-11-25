@@ -8,7 +8,6 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 )
 
@@ -38,16 +37,16 @@ type hiddenDirectories struct {
 
 // configureVisibility sends Core the manifests of the enabled plugins that can declare hidden
 // folders: those with build systems, whose layouts name them, and those with VCS providers,
-// whose directory markers do. vcs is the VCS plugins of entries as the tool windows read them,
+// whose directory markers do. vcs is read from the same snapshot as the tool windows,
 // whose failures are reported there. A plugin whose manifest could not be read hides nothing,
-// as its build system is not detected either. It reads files and blocks on Core; call it from
+// as its build system is not detected either. This blocks on Core; call it from
 // a background goroutine.
-func (a *App) configureVisibility(ctx context.Context, entries []pluginmanager.Entry, vcs []pluginservice.VcsPlugin) hiddenDirectories {
+func (a *App) configureVisibility(ctx context.Context, snapshot pluginservice.InstalledSnapshot, vcs []pluginservice.VcsPlugin) hiddenDirectories {
 	kernel, ok := a.kernel.(visibilityKernel)
 	if !ok {
 		return hiddenDirectories{}
 	}
-	builds, readErr := a.plugins.BuildPlugins(ctx, entries)
+	builds, readErr := snapshot.BuildPlugins()
 	var manifests []json.RawMessage
 	sent := make(map[string]bool, len(builds)+len(vcs))
 	add := func(pluginID string, manifest json.RawMessage) {

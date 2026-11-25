@@ -220,7 +220,12 @@ func (p *Page) answer(action core.PluginWebAction, call string, result any, fail
 	reply := core.PluginWebReply{Page: p.info.Page, ID: action.ID, Method: action.Method, Call: call}
 	if failure != nil {
 		var coded *Failure
-		if !errors.As(failure, &coded) {
+		var backend interface{ PluginWebError() core.PluginWebError }
+		switch {
+		case errors.As(failure, &coded):
+		case errors.As(failure, &backend):
+			coded = &Failure{backend.PluginWebError()}
+		default:
 			coded = Fail("plugin.web.invalidRequest", failure.Error())
 		}
 		reply.Error = &coded.PluginWebError

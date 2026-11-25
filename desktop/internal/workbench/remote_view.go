@@ -308,7 +308,7 @@ func (a *App) remoteCell(c ui.C, field, label, help string, width float32, contr
 		})
 		control(c)
 		if field != "" && r.fieldErr.field == field {
-			ui.Paragraph(c.Part("error"), remoteRefusalText(a.language(), r.fieldErr), 3).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)
+			ui.Paragraph(c, remoteRefusalText(a.language(), r.fieldErr), 3).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)
 		}
 	})
 }

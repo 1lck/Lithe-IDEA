@@ -80,6 +80,15 @@ func (r *hostResources) dispose(caller pluginhost.Caller, id string) {
 	}
 }
 
+// forget drops a lease whose owner has already performed its cleanup.
+func (r *hostResources) forget(caller pluginhost.Caller, id string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if resource := r.byID[id]; resource != nil && resource.pluginID == caller.PluginID && resource.sessionID == caller.SessionID {
+		delete(r.byID, id)
+	}
+}
+
 func (r *hostResources) releaseWhere(match func(*hostResource) bool) {
 	r.mu.Lock()
 	var released []*hostResource

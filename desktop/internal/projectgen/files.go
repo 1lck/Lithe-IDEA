@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/atomicfile"
 )
 
 // errEscape reports a plan path that is not a plain relative path below the
@@ -76,35 +78,11 @@ func writeFile(root, path, contents string, executable bool) error {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	temporary, err := os.CreateTemp(directory, ".lithe-write-*")
-	if err != nil {
-		return err
-	}
-	name := temporary.Name()
-	cleanup := func() { _ = os.Remove(name) }
-	if _, err := temporary.WriteString(contents); err != nil {
-		_ = temporary.Close()
-		cleanup()
-		return err
-	}
 	mode := os.FileMode(0o644)
 	if executable {
 		mode = 0o755
 	}
-	if err := temporary.Chmod(mode); err != nil {
-		_ = temporary.Close()
-		cleanup()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		cleanup()
-		return err
-	}
-	if err := os.Rename(name, target); err != nil {
-		cleanup()
-		return err
-	}
-	return nil
+	return atomicfile.Write(target, []byte(contents), mode)
 }
 
 // collectDirectory moves the contents of the subdirectory a scaffolding tool
