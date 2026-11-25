@@ -1125,6 +1125,7 @@ func toolchainFailureMessage(language i18n.Language, err error) string {
 }
 
 func (w *window) pickToolchainDirectory(tool string, input *string, title string) {
+	defer w.inv.Invalidate()
 	path, err := app.OpenDirectory(app.OpenDirectoryOptions{Title: title})
 	// log-exempt: 用户取消：关闭目录选择器不修改工具链草稿。
 	if errors.Is(err, app.ErrCanceled) {

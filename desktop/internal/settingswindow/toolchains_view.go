@@ -1176,7 +1176,8 @@ func (w *window) toolchainAddRow(c ui.C, language i18n.Language, scope *toolchai
 		})
 		w.infoButton(c.Part("help"), i18n.Shared(language, "desktop.buildSettings.addHelp"))
 		if w.button(c.Part("browse"), buttonSmall, i18n.Shared(language, "desktop.pluginSettings.browse"), t.busy()) {
-			w.pickToolchainDirectory(tool.ID, input, directory)
+			// The native picker runs a modal message loop on Windows, so it must run after paint.
+			c.After(func() { w.pickToolchainDirectory(tool.ID, input, directory) })
 		}
 		home := strings.TrimSpace(*input)
 		check := w.button(c.Part("check"), buttonSmall, i18n.Shared(language, "desktop.buildSettings.checkAndUse"), home == "" || t.busy())

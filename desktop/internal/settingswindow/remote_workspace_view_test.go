@@ -11,6 +11,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteconn"
+	"github.com/vivaui/viva/app"
 )
 
 // corePreferencesLoader keeps the remote workspace preferences in a test directory through the
@@ -262,5 +263,30 @@ func TestRemoteWorkspaceClosingChoiceIsAppliedAndRestored(t *testing.T) {
 	d.pump()
 	if r.source.Saved.State.Preferences.ClosePrograms != nil || r.source.Saved.State.Closing.Programs != core.RemoteCloseAsk {
 		t.Fatal("Automatic was not restored")
+	}
+}
+
+// On Windows the native file dialog runs a modal message loop that can re-enter paint; running it
+// via c.After keeps frame layout intact and still drafts the chosen SSH executable.
+func TestRemoteProgramPickerRunsAfterPaint(t *testing.T) {
+	loader := newCorePreferencesLoader(t)
+	_, d, r := remoteWorkspaceWindow(t, loader)
+	chosen := filepath.Join(t.TempDir(), "ssh")
+	previous := openRemoteProgramFiles
+	t.Cleanup(func() { openRemoteProgramFiles = previous })
+	var called bool
+	openRemoteProgramFiles = func(app.OpenFileOptions) ([]string, error) {
+		called = true
+		// Simulate a Windows modal dialog re-entering the window procedure mid-call.
+		d.pump()
+		return []string{chosen}, nil
+	}
+	d.click(en("desktop.remoteSettings.chooseProgram"))
+	d.pump()
+	if !called {
+		t.Fatal("clicking Choose did not invoke the file picker")
+	}
+	if shown := r.shownProgram(); shown == nil || *shown != chosen {
+		t.Fatalf("shownProgram = %v, want %q", shown, chosen)
 	}
 }
