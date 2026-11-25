@@ -26,6 +26,7 @@ type pluginPrompt struct {
 	// again"; checked is its state, which onAnswer reads. checkHelp, when set, is shown by an
 	// information button beside it.
 	check     string
+	checkFull string // original label when the caller shortened check
 	checked   bool
 	checkHelp string
 	// open is the flag the modal that shows the prompt keeps.
@@ -146,7 +147,10 @@ func (a *App) pluginPromptView(c ui.C) {
 		})
 		if prompt.check != "" {
 			ui.Row(c.Part("checkRow")).Items(ui.Center).Gap(4).Children(func() {
-				ui.Checkbox(c.Part("check"), &prompt.checked, prompt.check)
+				check := ui.Checkbox(c.Part("check"), &prompt.checked, prompt.check)
+				if prompt.checkFull != "" {
+					check.OverflowTooltip(prompt.checkFull)
+				}
 				if prompt.checkHelp != "" {
 					ui.Button(c.Part("checkHelp"), i18n.Shared(a.language(), "native.moreInformation")).Icon(icons.Info).IconOnly().Ghost().Size(18, 18).Shrink(0).
 						Tooltip(prompt.checkHelp)

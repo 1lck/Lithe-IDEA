@@ -101,7 +101,12 @@ func (a *App) askToOpenUntrusted(trust toolchain.WorkspaceTrust) {
 	}
 	if trust.OfferedLocation != nil {
 		home, _ := os.UserHomeDir()
-		prompt.check = i18n.SharedFormat(language, "desktop.trust.location", map[string]string{"folder": trustFolderLabel(*trust.OfferedLocation, home)})
+		folder := *trust.OfferedLocation
+		short := trustFolderLabel(folder, home)
+		prompt.check = i18n.SharedFormat(language, "desktop.trust.location", map[string]string{"folder": short})
+		if short != welcomeShorten(filepath.FromSlash(folder), home) {
+			prompt.checkFull = i18n.SharedFormat(language, "desktop.trust.location", map[string]string{"folder": filepath.FromSlash(folder)})
+		}
 	}
 	prompt.onAnswer = func(choice *int) {
 		if choice == nil || *choice == 0 {

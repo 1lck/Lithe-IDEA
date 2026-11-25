@@ -4,10 +4,53 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
+
+func TestCanvasEllipsisShowsAllRunsAndKeepsGroupClick(t *testing.T) {
+	d := drawView(t, `[{"type":"canvas","id":"graph","label":"Graph","height":180,"viewBox":[0,0,440,180],"nodes":[
+		{"type":"group","id":"item","x":20,"y":20,"w":200,"h":80,"on":["click"],"label":"Open item","tooltip":"Group details","children":[
+			{"type":"text","x":10,"y":30,"maxWidth":110,"runs":[
+				{"text":"完整文件名称-with-a-long-extension.txt"},{"text":" · additional information"}]}]}]}]`)
+	var text gfx.Rect
+	for _, label := range d.driver.Snapshot().Labels {
+		if strings.HasSuffix(label.Value, "…") {
+			text = label.Bounds
+			break
+		}
+	}
+	if text.Width == 0 {
+		t.Fatal("the canvas label was not ellipsized")
+	}
+	x, y := text.X+5, text.Y+text.Height/2
+	if err := d.driver.Move(x, y); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.driver.Advance(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	var full strings.Builder
+	for _, label := range d.driver.Snapshot().Labels {
+		if label.Value == "Group details" {
+			t.Fatal("the group and full-text tooltips appeared together")
+		}
+		if label.Layer == ui.TooltipLayer {
+			full.WriteString(label.Value)
+		}
+	}
+	if got, want := strings.Join(strings.Fields(full.String()), ""), "完整文件名称-with-a-long-extension.txt·additionalinformation"; got != want {
+		t.Fatalf("canvas tooltip %q, want %q", got, want)
+	}
+	if err := d.driver.Click(x, y); err != nil {
+		t.Fatal(err)
+	}
+	if event := d.sent(); event["event"] != "click" || event["node"] != "item" {
+		t.Fatalf("click through the full-text tooltip sent %v", event)
+	}
+}
 
 // testCanvas is a canvas node of a 400 × 400 view box that pans, zooms from half to four
 // times and tells the plugin where it lies.

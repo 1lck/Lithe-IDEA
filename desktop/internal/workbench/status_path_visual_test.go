@@ -5,7 +5,9 @@ package workbench
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugindiag"
@@ -104,6 +106,80 @@ func TestVisualStatusPath(t *testing.T) {
 			h.clickNamed(problemsRowNamed(t, h, problemsDiagnosticRow(t, h, "Exception has no message")))
 			h.expectStatusPath("shop/src/main/java/shop/Order.java")
 			shot("problems")
+		})
+	}
+}
+
+func TestVisualStatusPathEllipsis(t *testing.T) {
+	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
+	if out == "" {
+		t.Skip("set LITHE_VISUAL_OUTPUT_DIR")
+	}
+	if err := os.MkdirAll(out, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, look := range []struct{ theme, language string }{
+		{"dark", "zh-Hans"}, {"dark", "en"}, {"light", "zh-Hans"}, {"light", "en"},
+	} {
+		t.Run(look.theme+"-"+look.language, func(t *testing.T) {
+			prefs := store.At(t.TempDir())
+			if err := prefs.Save(settingsFile, settings{Theme: themeChoice(look.theme), Language: look.language, DisableAutoSave: true}); err != nil {
+				t.Fatal(err)
+			}
+			root := filepath.Join(t.TempDir(), "workspace")
+			if err := os.MkdirAll(root, 0700); err != nil {
+				t.Fatal(err)
+			}
+			name := strings.Repeat("LongFileName", 12) + ".txt"
+			file := filepath.Join(root, name)
+			if err := os.WriteFile(file, []byte("Full filenames remain available when the navigation bar is narrow.\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			var session *headless.Session
+			h := newHarnessWithDriver(t, Options{Kernel: &testKernel{Client: core.NewClient()}, Store: prefs, Languages: []string{look.language}},
+				func(config app.Config) (*app.Driver, func(), error) {
+					config.Width, config.Height = 1100, 760
+					var err error
+					session, err = headless.Open(config, nil, headless.Options{})
+					if err != nil {
+						return nil, nil, err
+					}
+					return session.Driver(), session.Close, nil
+				})
+			p := h.openTree(t, root)
+			h.openStatusPathFile(p, file)
+			h.settleChain()
+			shot := func(scene string) {
+				t.Helper()
+				if err := session.Screenshot(filepath.Join(out, "ellipsis-status-path-"+scene+"-"+look.theme+"-"+look.language+".png")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			shot("before-hover")
+			found := false
+			for _, label := range h.driver.Snapshot().Labels {
+				if label.Bounds.Y > 700 && strings.HasPrefix(label.Value, "LongFileName") && strings.HasSuffix(label.Value, "…") {
+					if err := h.driver.Move(label.Bounds.X+3, label.Bounds.Y+label.Bounds.Height/2); err != nil {
+						t.Fatal(err)
+					}
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatal("the status bar did not shorten the long filename")
+			}
+			if err := session.Advance(time.Second); err != nil {
+				t.Fatal(err)
+			}
+			var tip strings.Builder
+			for _, label := range h.tooltips() {
+				tip.WriteString(label.Value)
+			}
+			if tip.String() != name {
+				t.Fatalf("status path tooltip %q, want %q", tip.String(), name)
+			}
+			shot("filename-hover")
 		})
 	}
 }

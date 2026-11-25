@@ -128,6 +128,9 @@ type Shape struct {
 
 	// geometry is the parsed path, made on first draw and kept with the decoded view.
 	geometry *pathGeometry
+	// fullText joins colored runs only when first needed by an overflow tooltip.
+	// Shapes belong to an immutable decoded view, so later paints reuse it.
+	fullText string
 }
 
 // Run is one differently colored part of a text node.

@@ -531,24 +531,38 @@ func (w *window) messageCell(c ui.C, row displayRow, record *core.LogRecord, wid
 	if p.cellW > 0 {
 		cells = int(avail / p.cellW)
 	}
-	text, _, _ := tableFit(record.Msg, cells)
+	text, _, cut := tableFit(record.Msg, cells)
 	text = tableFlatten(text)
 	runs := tableHighlight(text, p.needles)
-	if len(runs) == 1 && !runs[0].hit {
-		if text != "" {
-			w.mono(c, text, tableCellFont, w.pal.tx).Ellipsis()
-		}
-	} else {
-		for _, run := range runs {
-			mark := w.mono(c, run.text, tableCellFont, w.pal.tx).Shrink(0)
-			if run.hit {
-				mark.Background(w.pal.yel.WithAlpha(tableHighlightAlpha))
+	message := ui.Row(c).Grow(1).Shrink(1).MinWidth(0).Clip()
+	if cut {
+		message.OverflowTooltip(record.Msg)
+	}
+	message.Children(func() {
+		if len(runs) == 1 && !runs[0].hit {
+			if text != "" {
+				label := w.mono(c, text, tableCellFont, w.pal.tx).Ellipsis()
+				if cut {
+					label.OverflowTooltip(record.Msg)
+				}
+			}
+		} else {
+			for _, run := range runs {
+				mark := w.mono(c, run.text, tableCellFont, w.pal.tx).Shrink(0)
+				if run.hit {
+					mark.Background(w.pal.yel.WithAlpha(tableHighlightAlpha))
+				}
 			}
 		}
-	}
+	})
 	if row.isRun {
 		fold := ui.Row(c).Absolute().Left(tableCellPad).Top(0).Bottom(0).Width(tableFoldWidth).
 			HitWith(ui.ID(c), hint, gfx.HitOptions{Role: gfx.RoleButton, Hint: hint, SkipFocus: true})
+		// The fold target covers the message's first characters. Preserve the
+		// complete message there as well as over the remaining text.
+		if cut {
+			fold.OverflowTooltip(record.Msg)
+		}
 		if fold.Clicked() {
 			w.model.toggleRun(row.id)
 		}
@@ -569,6 +583,7 @@ const (
 // as it is shown (quoted when it is text) and what kind of value it is.
 type fieldItem struct {
 	key, keyText, shown string
+	full                string
 	kind                fieldKind
 }
 
@@ -595,6 +610,7 @@ func (t *tableState) fieldItems(recordKey int, fields map[string]string) []field
 		default:
 			item.shown = `"` + value + `"`
 		}
+		item.full = item.keyText + item.shown
 		items = append(items, item)
 	}
 	t.fields[recordKey] = items
@@ -633,6 +649,9 @@ func (w *window) fieldsCell(c ui.C, record *core.LogRecord, recordKey int, width
 				return
 			}
 			box := w.mono(c, tableFlatten(text), tableCellFont, textColor).Shrink(0)
+			if cut {
+				box.OverflowTooltip(item.full)
+			}
 			if part == 1 && item.kind != fieldRedacted && slot < tableFieldSlots {
 				if box.HitWith(ui.ID(c), item.key, gfx.HitOptions{Role: gfx.RoleLink, SkipFocus: true}).Clicked() {
 					w.model.compose(core.LogFilterTerm{Kind: "field", Key: item.key, Value: record.Fields[item.key]})

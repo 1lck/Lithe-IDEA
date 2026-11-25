@@ -285,3 +285,34 @@ func TestTrustFolderLabelShortensHomeAndLongPaths(t *testing.T) {
 		t.Fatalf("long label = %q, want %d runes keeping its start and its own name", string(got), trustFolderMaxRunes)
 	}
 }
+
+func TestTrustEllipsisShowsTheFullLocationAndKeepsCheckbox(t *testing.T) {
+	h := trustHarness(t)
+	dir := filepath.Join(t.TempDir(), strings.Repeat("long-directory-", 6), "project")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prompt := openAsking(t, h, dir)
+	full := i18n.SharedFormat(h.app.language(), "desktop.trust.location", map[string]string{"folder": filepath.Dir(dir)})
+	if prompt.checkFull != full || !strings.Contains(prompt.check, "…") {
+		t.Fatalf("the shortened trust label %q lost its full location %q", prompt.check, prompt.checkFull)
+	}
+	point := center(h.hitLabeled(prompt.check))
+	if err := h.driver.Move(point.X, point.Y); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.driver.Advance(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	var tip strings.Builder
+	for _, label := range h.tooltips() {
+		tip.WriteString(label.Value)
+	}
+	if got := strings.Join(strings.Fields(tip.String()), ""); got != strings.Join(strings.Fields(full), "") {
+		t.Fatalf("trust tooltip %q, want %q", tip.String(), full)
+	}
+	h.clickLabeled(prompt.check)
+	if !prompt.checked {
+		t.Fatal("the full-text hint intercepted the checkbox click")
+	}
+}

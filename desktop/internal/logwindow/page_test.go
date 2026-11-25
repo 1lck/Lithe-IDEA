@@ -131,6 +131,81 @@ func TestTableOnlyDeclaresTheVisibleRows(t *testing.T) {
 	}
 }
 
+// Resting over shortened content reveals the original record without adding a
+// pointer target between the table row and its text.
+func TestTableEllipsisShowsFullMessageAndKeepsRowSelection(t *testing.T) {
+	fixture, w, driver := bigFixture(t, 1)
+	full := strings.Repeat("完整日志消息/", 12) + "end"
+	fixture.model.records[0].Msg = full
+	w.inv.Invalidate()
+	settleWindow(t, driver)
+	var label app.Label
+	for _, item := range driver.Snapshot().Labels {
+		if strings.HasPrefix(item.Value, "完整日志") && strings.HasSuffix(item.Value, "…") {
+			label = item
+			break
+		}
+	}
+	if label.Value == "" {
+		t.Fatal("the message was not ellipsized")
+	}
+	x, y := label.Bounds.X+5, label.Bounds.Y+label.Bounds.Height/2
+	if err := driver.Move(x, y); err != nil {
+		t.Fatal(err)
+	}
+	if err := driver.Advance(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if got := tableTooltipText(driver); got != full {
+		t.Fatalf("message tooltip %q, want %q", got, full)
+	}
+	if err := driver.Click(x, y); err != nil {
+		t.Fatal(err)
+	}
+	if len(fixture.model.selection) != 1 {
+		t.Fatal("the message tooltip intercepted row selection")
+	}
+	if got := tableTooltipText(driver); got != "" {
+		t.Fatalf("the tooltip stayed open after a click: %q", got)
+	}
+}
+
+func TestTableEllipsisShowsFullFieldAndKeepsFilterAction(t *testing.T) {
+	fixture, w, driver := bigFixture(t, 1)
+	fixture.model.opts.Kernel = &termKernel{exportKernel: fixture.kernel}
+	full := "/workspace/" + strings.Repeat("long-directory/", 12) + "file.go"
+	fixture.model.records[0].Fields = map[string]string{"path": full}
+	w.table.fields = nil
+	w.inv.Invalidate()
+	settleWindow(t, driver)
+	field := hitLabeled(t, driver, "path")
+	x, y := centerOf(field)
+	if err := driver.Move(x, y); err != nil {
+		t.Fatal(err)
+	}
+	if err := driver.Advance(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := tableTooltipText(driver), `path="`+full+`"`; got != want {
+		t.Fatalf("field tooltip %q, want %q", got, want)
+	}
+	clickHit(t, driver, field)
+	settle(t, fixture.model)
+	if expression := fixture.model.prefs.Query.Expression; !strings.Contains(expression, full) {
+		t.Fatalf("the field's filter action did not receive its complete value: %q", expression)
+	}
+}
+
+func tableTooltipText(driver *app.Driver) string {
+	var text strings.Builder
+	for _, label := range driver.Snapshot().Labels {
+		if label.Layer == ui.TooltipLayer {
+			text.WriteString(label.Value)
+		}
+	}
+	return text.String()
+}
+
 func TestTableArrowKeysMoveTheSelectionAndShiftExtendsIt(t *testing.T) {
 	fixture, _, driver := bigFixture(t, 200)
 	m := fixture.model
