@@ -279,6 +279,39 @@ func TestTableHeaderHandleResizesAColumn(t *testing.T) {
 	}
 }
 
+func TestPausedTableKeepsTopRecordWhenEarlierRecordsExpire(t *testing.T) {
+	fixture, w, driver := bigFixture(t, 500)
+	m := fixture.model
+	x, y := centerOf(tableRowHits(driver)[1])
+	if err := driver.Scroll(gfx.ScrollEvent{X: x, Y: y, DeltaY: 100 * tableRowHeight, Precise: true}); err != nil {
+		t.Fatal(err)
+	}
+	settleWindow(t, driver)
+	top := w.table.topIndex
+	if top < 50 || top >= len(w.table.rows) {
+		t.Fatalf("expected an interior top row, got %d", top)
+	}
+	id := w.table.rows[top].id
+	before := tableRowHits(driver)
+	// A partially clipped top record can put its successor first among
+	// the fully visible row hits.
+	if len(before) == 0 || (before[0].ID != w.table.list.RowID(top) && before[0].ID != w.table.list.RowID(top+1)) {
+		t.Fatalf("tracked top row %d is outside the viewport", top)
+	}
+	m.applyCollection(m.activeQuery, logstore.Collection{
+		Result: core.LogQueryResult{Records: m.records[40:]},
+	})
+	w.inv.Invalidate()
+	if err := driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	index := tableRowIndex(w.table.rows, id)
+	after := tableRowHits(driver)
+	if index < 0 || index >= top || len(after) == 0 || after[0].ID != w.table.list.RowID(index) {
+		t.Fatalf("record from row %d moved within the viewport after expiration (new row %d)", top, index)
+	}
+}
+
 func TestFollowingPausesWhenTheTableIsScrolledUp(t *testing.T) {
 	fixture, w, driver := bigFixture(t, 500)
 	m := fixture.model
