@@ -146,6 +146,8 @@ func ideaCommand(command string) string {
 		"EditorCloneCaretAbove": "editor.cloneCaretAbove", "EditorCloneCaretBelow": "editor.cloneCaretBelow",
 		"RecentFiles": "editor.recentFiles", "RecentChangedFiles": "editor.recentEdits",
 		"Run": "run.selected", "Debug": "debug.start", "ToggleLineBreakpoint": "debug.toggleBreakpoint",
-		"CheckinProject": "git.commit", "ToggleFullScreen": "window.fullscreen",
+		"CheckinProject": "git.commit", "Git.Pull": "git.pull", "Vcs.Push": "git.push",
+		"Git.Fetch": "git.fetch", "Vcs.UpdateProject": "git.updateBranch",
+		"ToggleFullScreen": "window.fullscreen",
 	}[command]
 }

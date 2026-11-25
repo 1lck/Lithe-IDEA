@@ -49,3 +49,27 @@ func TestLabelFollowsUserOverride(t *testing.T) {
 		t.Fatalf("overridden label = %q, want %q", got, want)
 	}
 }
+
+// Regression test for #2406: Git sync commands are registered in the shortcut catalog
+// and no two catalog actions share a default chord.
+func TestGitSyncShortcutsRegisteredWithoutDefaultConflicts(t *testing.T) {
+	for _, id := range []string{"git.pull", "git.push", "git.fetch", "git.updateBranch"} {
+		action, ok := Find(id)
+		if !ok {
+			t.Fatalf("%s is not registered in shortcuts.Catalog", id)
+		}
+		if action.Group != GroupGit {
+			t.Fatalf("%s group = %v, want GroupGit", id, action.Group)
+		}
+	}
+
+	seen := map[keymap.Chord]string{}
+	for _, action := range Catalog {
+		for _, c := range action.Defaults {
+			if other, dup := seen[c]; dup {
+				t.Fatalf("default chord %v conflicts between %s and %s", c, other, action.ID)
+			}
+			seen[c] = action.ID
+		}
+	}
+}
