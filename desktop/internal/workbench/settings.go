@@ -474,6 +474,51 @@ func (a *App) openSettingsPage(surface actionSurface, page settingsPage) {
 	a.openSettingsPageWith(surface, page, "")
 }
 
+// publishWorkspaceBuildOptions refreshes settings links after detection or a project change.
+func (a *App) publishWorkspaceBuildOptions(p *project) {
+	if a.settingsWindow == nil {
+		return
+	}
+	a.settingsWindow.SetWorkspaceBuildOptions(a.workspaceBuildOptions(p))
+}
+
+func (a *App) workspaceBuildOptions(p *project) map[string][]settingswindow.WorkspaceBuildOptions {
+	if p == nil {
+		return nil
+	}
+	options := make(map[string][]settingswindow.WorkspaceBuildOptions)
+	for i := range p.build.instances {
+		instance := &p.build.instances[i]
+		if !instance.hasDeclaredOptions() {
+			continue
+		}
+		id, system, plugin := instance.ID, instance.BuildSystemID, instance.PluginID
+		options[system] = append(options[system], settingswindow.WorkspaceBuildOptions{
+			InstanceID: id, PluginID: plugin, Name: buildSystemName(instance), Root: buildRootDetail(instance),
+			Open: func() {
+				a.post(func(a *App) {
+					if a.project != p {
+						return
+					}
+					current := p.buildInstanceByID(id)
+					if current == nil || current.BuildSystemID != system || current.PluginID != plugin || !current.hasDeclaredOptions() {
+						return
+					}
+					// An open editor can contain unsaved changes. Bring it forward intact.
+					if !p.build.options.open {
+						a.performed("build.options.open", surfaceButton)
+						a.openBuildOptions(p, current)
+					}
+					if a.window != nil {
+						a.window.Show()
+					}
+				})
+			},
+		})
+	}
+	return options
+}
+
 // openSettingsPageWith is openSettingsPage with the marketplace search text the plugin page starts with.
 func (a *App) openSettingsPageWith(surface actionSurface, page settingsPage, query string) {
 	a.performed("settings.open", surface)

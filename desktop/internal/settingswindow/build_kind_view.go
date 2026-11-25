@@ -186,6 +186,20 @@ func (w *window) kindDetail(c ui.C, language i18n.Language, page *core.SettingsP
 		ui.Select(c, &w.contributorID, w.dynamic.contributorIDs[page.Key], w.contributorLabel).FillWidth().
 			Label(i18n.Shared(language, "desktop.pluginSettings.contributor"))
 	}
+	if page.Kind == "buildSystem" {
+		for _, target := range w.ctrl.buildOptionsFor(page.ID) {
+			if target.PluginID != w.contributorID {
+				continue
+			}
+			label := i18n.SharedFormat(language, "desktop.buildSettings.workspaceOptions", map[string]string{"name": target.Name})
+			if target.Root != "" {
+				label = i18n.SharedFormat(language, "desktop.buildSettings.workspaceOptionsAt", map[string]string{"name": target.Name, "root": target.Root})
+			}
+			if w.button(c.Part(target.InstanceID), buttonLink, label, false) {
+				c.After(target.Open)
+			}
+		}
+	}
 	w.pluginSettingsPanel(c, w.contributorID, true)
 }
 
