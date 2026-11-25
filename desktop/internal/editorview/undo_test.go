@@ -70,13 +70,9 @@ func walkHistory(t *testing.T, v *View, texts []string, check func(at string)) {
 // that is wrong.
 const colorTimeout = 5 * time.Second
 
-// undoWarmup has what undoSource and its edits make the Go grammar match, so that the grammar's
-// patterns compile before the view under test is made: compiling them inside the view's own
-// highlighter could take longer than the time it gives a line.
-const undoWarmup = "package warm\n\nimport (\n\t\"fmt\"\n)\n\n/* block\ncomment */\n" +
-	"var table = map[string]int{\n\t\"one\": 1, // pair\n}\n\n" +
-	"// Warm adds and says so.\nfunc Warm(x int) string {\n\ty := x + 3 // the sum\n\ts := `raw 世界`\n" +
-	"\tfor i := 0; i < 3; i++ {\n\t\ty += i\n\t}\n\treturn fmt.Sprint(y) + s + \"sum 1\"\n}\n"
+// colorLineLimit lets both highlighters finish each fixture line even if the runner is
+// descheduled mid-match. This test compares complete tokens to check edit history.
+const colorLineLimit = -1
 
 // undoSource is Go source of about ninety lines: a header and twelve small functions, each with
 // a comment, a number and a string. It is short enough that the highlighter never has to guess
@@ -112,14 +108,18 @@ func newColorWatch(t *testing.T, text string) *colorWatch {
 		t.Fatal("there is no Go syntax to color with")
 	}
 	w := &colorWatch{t: t, syn: syn, woken: make(chan struct{}, 1), fresh: make(map[string][][]syntax.Token)}
-	w.expected(undoWarmup)
 	notify := func() {
 		select {
 		case w.woken <- struct{}{}:
 		default:
 		}
 	}
-	w.v = New(Config{HitID: gfx.Item(1), Label: "test", Content: Prepare([]byte(text)), Syntax: syn, Notify: notify})
+	w.v = New(Config{HitID: gfx.Item(1), Label: "test", Content: Prepare([]byte(text)), Notify: notify})
+	w.v.hl.Close()
+	w.v.hl = syntax.NewHighlighter(syn, w.v.text, syntax.HighlighterOptions{
+		LineLimit: colorLineLimit,
+		OnChange:  func(_, _ int) { notify() },
+	})
 	t.Cleanup(w.v.Close)
 	return w
 }
@@ -155,7 +155,7 @@ func (w *colorWatch) expected(text string) [][]syntax.Token {
 		return colors
 	}
 	doc := rope.FromString(text)
-	h := syntax.NewHighlighter(w.syn, doc, syntax.HighlighterOptions{LineLimit: -1})
+	h := syntax.NewHighlighter(w.syn, doc, syntax.HighlighterOptions{LineLimit: colorLineLimit})
 	defer h.Close()
 	colors := readColors(h, doc.LineCount())
 	w.fresh[text] = colors

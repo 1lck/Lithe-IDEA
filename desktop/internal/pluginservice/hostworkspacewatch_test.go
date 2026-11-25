@@ -27,8 +27,26 @@ func TestWorkspaceWatchUsesNativeEventsAndReleasesOwnedSubscriptions(t *testing.
 				t.Fatal(err)
 			}
 			root := t.TempDir()
-			if err := os.Mkdir(filepath.Join(root, "src"), 0o700); err != nil {
-				t.Fatal(err)
+			const (
+				created  = "create/note.txt"
+				replaced = "replace/note.txt"
+				staging  = "replace/next.txt"
+				removed  = "remove/note.txt"
+				burst    = "burst/note.txt"
+				next     = "burst/next.txt"
+			)
+			// Each operation owns its own directory. A native batch can
+			// report just the parent, and later batches can repeat its name.
+			// Prepare existing entries before the subscription starts.
+			for _, path := range []string{created, replaced, removed, burst} {
+				if err := os.Mkdir(filepath.Join(root, filepath.Dir(path)), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, path := range []string{replaced, staging, removed, burst, next} {
+				if err := os.WriteFile(filepath.Join(root, path), []byte(path), 0o600); err != nil {
+					t.Fatal(err)
+				}
 			}
 			workspace := service.Contexts.Open(root)
 			t.Cleanup(func() { service.Contexts.Close(root) })
@@ -57,6 +75,8 @@ func TestWorkspaceWatchUsesNativeEventsAndReleasesOwnedSubscriptions(t *testing.
 			var sequence uint64
 			await := func(operation, path string) {
 				t.Helper()
+				parent := filepath.ToSlash(filepath.Dir(path))
+				var observed [][]string
 				for {
 					select {
 					case notification := <-kernel.events:
@@ -73,14 +93,17 @@ func TestWorkspaceWatchUsesNativeEventsAndReleasesOwnedSubscriptions(t *testing.
 							t.Fatalf("%s notification = %+v, %v", operation, notification, err)
 						}
 						sequence = value.Sequence
-						if path == "" && value.Event.RequiresRescan {
+						if value.Event.RequiresRescan {
 							return
 						}
-						if path != "" && (value.Event.RequiresRescan || slices.Contains(value.Event.ChangedPaths, path) || slices.Contains(value.Event.ChangedPaths, "src")) {
+						if path != "" && (slices.Contains(value.Event.ChangedPaths, path) || slices.Contains(value.Event.ChangedPaths, parent)) {
 							return
+						}
+						if len(observed) < cap(kernel.events) {
+							observed = append(observed, value.Event.ChangedPaths)
 						}
 					case <-ctx.Done():
-						t.Fatalf("%s did not reach the native watch: %v", operation, ctx.Err())
+						t.Fatalf("%s did not reach the native watch for %q at sequence %d: %v (other batches: %v)", operation, path, sequence, ctx.Err(), observed)
 					}
 				}
 			}
@@ -90,23 +113,26 @@ func TestWorkspaceWatchUsesNativeEventsAndReleasesOwnedSubscriptions(t *testing.
 			}
 			// Disposal is scoped to the plugin and exact backend session.
 			service.resources.dispose(pluginhost.Caller{PluginID: plugin, SessionID: "replacement-session"}, id)
-			file := filepath.Join(root, "src", "a.txt")
-			if err := os.WriteFile(file, []byte("first"), 0o600); err != nil {
+			if err := os.WriteFile(filepath.Join(root, created), []byte("first"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			await("nested creation", "src/a.txt")
-			staging := filepath.Join(root, "src", "next")
-			if err := os.WriteFile(staging, []byte("saved"), 0o600); err != nil {
+			await("nested creation", created)
+			if err := os.Rename(filepath.Join(root, staging), filepath.Join(root, replaced)); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.Rename(staging, file); err != nil {
+			await("atomic replacement", replaced)
+			if err := os.Remove(filepath.Join(root, removed)); err != nil {
 				t.Fatal(err)
 			}
-			await("atomic replacement", "src/a.txt")
-			if err := os.Remove(file); err != nil {
+			await("deletion", removed)
+			// A replace-and-remove burst can coalesce to a single change.
+			if err := os.Rename(filepath.Join(root, next), filepath.Join(root, burst)); err != nil {
 				t.Fatal(err)
 			}
-			await("deletion", "src/a.txt")
+			if err := os.Remove(filepath.Join(root, burst)); err != nil {
+				t.Fatal(err)
+			}
+			await("replacement and deletion burst", burst)
 			switch ending {
 			case "dispose":
 				params, _ := json.Marshal(map[string]string{"subscriptionID": id})
