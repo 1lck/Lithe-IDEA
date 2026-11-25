@@ -170,6 +170,37 @@ func TestTableEllipsisShowsFullMessageAndKeepsRowSelection(t *testing.T) {
 	}
 }
 
+// A shortened message the filter marks is several labels; resting on a marked one
+// still shows the whole record.
+func TestTableEllipsisShowsFullMessageOverMarkedRuns(t *testing.T) {
+	fixture, w, driver := bigFixture(t, 1)
+	full := strings.Repeat("完整日志消息/", 12) + "end"
+	fixture.model.records[0].Msg = full
+	fixture.model.terms = []core.LogParsedTerm{{LogFilterTerm: core.LogFilterTerm{Kind: "text", Value: "消息"}}}
+	w.inv.Invalidate()
+	settleWindow(t, driver)
+	var mark app.Label
+	shortened := false
+	for _, item := range driver.Snapshot().Labels {
+		if item.Value == "消息" && mark.Value == "" {
+			mark = item
+		}
+		shortened = shortened || strings.HasSuffix(item.Value, "…")
+	}
+	if mark.Value == "" || !shortened {
+		t.Fatal("the message was not shortened into marked runs")
+	}
+	if err := driver.Move(mark.Bounds.X+mark.Bounds.Width/2, mark.Bounds.Y+mark.Bounds.Height/2); err != nil {
+		t.Fatal(err)
+	}
+	if err := driver.Advance(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if got := tableTooltipText(driver); got != full {
+		t.Fatalf("message tooltip %q, want %q", got, full)
+	}
+}
+
 func TestTableEllipsisShowsFullFieldAndKeepsFilterAction(t *testing.T) {
 	fixture, w, driver := bigFixture(t, 1)
 	fixture.model.opts.Kernel = &termKernel{exportKernel: fixture.kernel}

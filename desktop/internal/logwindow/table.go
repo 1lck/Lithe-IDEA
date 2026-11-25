@@ -534,27 +534,23 @@ func (w *window) messageCell(c ui.C, row displayRow, record *core.LogRecord, wid
 	text, _, cut := tableFit(record.Msg, cells)
 	text = tableFlatten(text)
 	runs := tableHighlight(text, p.needles)
-	message := ui.Row(c).Grow(1).Shrink(1).MinWidth(0).Clip()
-	if cut {
-		message.OverflowTooltip(record.Msg)
-	}
-	message.Children(func() {
-		if len(runs) == 1 && !runs[0].hit {
-			if text != "" {
-				label := w.mono(c, text, tableCellFont, w.pal.tx).Ellipsis()
-				if cut {
-					label.OverflowTooltip(record.Msg)
-				}
-			}
-		} else {
-			for _, run := range runs {
-				mark := w.mono(c, run.text, tableCellFont, w.pal.tx).Shrink(0)
-				if run.hit {
-					mark.Background(w.pal.yel.WithAlpha(tableHighlightAlpha))
-				}
+	switch {
+	case len(runs) == 1 && !runs[0].hit:
+		if text != "" {
+			label := w.mono(c, text, tableCellFont, w.pal.tx).Ellipsis()
+			if cut {
+				label.OverflowTooltip(record.Msg)
 			}
 		}
-	})
+	case cut:
+		// The marked runs of a shortened message share one hint over the space
+		// they fill. Only these rows pay for the extra container.
+		ui.Row(c).Grow(1).Shrink(1).MinWidth(0).Clip().OverflowTooltip(record.Msg).Children(func() {
+			w.messageRuns(c, runs)
+		})
+	default:
+		w.messageRuns(c, runs)
+	}
 	if row.isRun {
 		fold := ui.Row(c).Absolute().Left(tableCellPad).Top(0).Bottom(0).Width(tableFoldWidth).
 			HitWith(ui.ID(c), hint, gfx.HitOptions{Role: gfx.RoleButton, Hint: hint, SkipFocus: true})
@@ -565,6 +561,16 @@ func (w *window) messageCell(c ui.C, row displayRow, record *core.LogRecord, wid
 		}
 		if fold.Clicked() {
 			w.model.toggleRun(row.id)
+		}
+	}
+}
+
+// messageRuns declares the runs of a message, the ones that match the filter marked.
+func (w *window) messageRuns(c ui.C, runs []tableRun) {
+	for _, run := range runs {
+		mark := w.mono(c, run.text, tableCellFont, w.pal.tx).Shrink(0)
+		if run.hit {
+			mark.Background(w.pal.yel.WithAlpha(tableHighlightAlpha))
 		}
 	}
 }
@@ -580,7 +586,8 @@ const (
 )
 
 // fieldItem is one field of a record, ready to paint: its key and "key=" text, its value
-// as it is shown (quoted when it is text) and what kind of value it is.
+// as it is shown (quoted when it is text) and what kind of value it is. full is "key=" and
+// the shown value together, made the first time the field is shortened.
 type fieldItem struct {
 	key, keyText, shown string
 	full                string
@@ -610,7 +617,6 @@ func (t *tableState) fieldItems(recordKey int, fields map[string]string) []field
 		default:
 			item.shown = `"` + value + `"`
 		}
-		item.full = item.keyText + item.shown
 		items = append(items, item)
 	}
 	t.fields[recordKey] = items
@@ -626,7 +632,9 @@ func (w *window) fieldsCell(c ui.C, record *core.LogRecord, recordKey int, width
 		cells = int(width / p.cellW)
 	}
 	used := 0
-	for slot, item := range w.table.fieldItems(recordKey, record.Fields) {
+	items := w.table.fieldItems(recordKey, record.Fields)
+	for slot := range items {
+		item := &items[slot]
 		if used >= cells {
 			return
 		}
@@ -650,6 +658,10 @@ func (w *window) fieldsCell(c ui.C, record *core.LogRecord, recordKey int, width
 			}
 			box := w.mono(c, tableFlatten(text), tableCellFont, textColor).Shrink(0)
 			if cut {
+				// Stored in the cached item, so a field is joined once, and only if it is shortened.
+				if item.full == "" {
+					item.full = item.keyText + item.shown
+				}
 				box.OverflowTooltip(item.full)
 			}
 			if part == 1 && item.kind != fieldRedacted && slot < tableFieldSlots {

@@ -7,7 +7,7 @@
 | 位置 | 场景 | 截图 | 测试 |
 | --- | --- | --- | --- |
 | 日志窗口 | 消息列被截断，悬停显示整条消息 | [截图](log-message-hover.png) | `TestVisualLogEllipsis` |
-| 日志窗口 | 字段列被截断，悬停显示全部字段 | [截图](log-field-hover.png) | `TestVisualLogEllipsis` |
+| 日志窗口 | 字段列里被截断的字段，悬停显示它完整的键和值 | [截图](log-field-hover.png) | `TestVisualLogEllipsis` |
 | 设置 → 工具链 | 安装目录中间被省略，悬停显示完整路径 | [截图](toolchain-path-hover.png) | `TestVisualToolchainEllipsis` |
 | 插件画布 | 自绘节点文字被截断，悬停显示全部文字 | [截图](canvas-text-hover.png) | `TestVisualCanvasEllipsis` |
 | 状态栏导航路径 | 文件名被截断，悬停显示完整文件名 | [截图](status-path-filename-hover.png) | `TestVisualStatusPathEllipsis` |
