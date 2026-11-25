@@ -63,6 +63,17 @@ func PluginSemanticLocations(event BackendEvent) ([]PluginSemanticLocation, erro
 	return payload.Locations, nil
 }
 
+// PluginSemanticHighlightRanges decodes Core's normalized in-document ranges.
+func PluginSemanticHighlightRanges(event BackendEvent) ([]PluginDocumentRange, error) {
+	var payload struct {
+		Ranges []PluginDocumentRange `json:"ranges"`
+	}
+	if err := decodePluginSemanticResult(event, &payload); err != nil {
+		return nil, err
+	}
+	return payload.Ranges, nil
+}
+
 // PluginSemanticHoverFromEvent decodes a completed hover event. A nil hover is
 // the server's empty answer, not an error.
 func PluginSemanticHoverFromEvent(event BackendEvent) (*PluginSemanticHover, error) {

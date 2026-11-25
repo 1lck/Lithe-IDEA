@@ -9,30 +9,85 @@ import (
 // EditorStoredPreferences preserves missing values from earlier settings versions.
 // Core alone supplies defaults and validates ranges and style identifiers.
 type EditorStoredPreferences struct {
-	LineNumbers               *bool   `json:"lineNumbers,omitempty"`
-	Whitespace                *bool   `json:"whitespace,omitempty"`
-	InlayHints                *bool   `json:"inlayHints,omitempty"`
-	CursorStyle               string  `json:"cursorStyle,omitempty"`
-	CursorBlink               *bool   `json:"cursorBlink,omitempty"`
-	AutoSaveDelayMilliseconds *uint64 `json:"autoSaveDelayMilliseconds,omitempty"`
+	LineNumbers               *bool    `json:"lineNumbers,omitempty"`
+	Whitespace                *bool    `json:"whitespace,omitempty"`
+	InlayHints                *bool    `json:"inlayHints,omitempty"`
+	RainbowBrackets           *bool    `json:"rainbowBrackets,omitempty"`
+	RainbowVariables          *bool    `json:"rainbowVariables,omitempty"`
+	RainbowBracketLightColors []string `json:"rainbowBracketLightColors,omitempty"`
+	RainbowBracketDarkColors  []string `json:"rainbowBracketDarkColors,omitempty"`
+	CursorStyle               string   `json:"cursorStyle,omitempty"`
+	CursorBlink               *bool    `json:"cursorBlink,omitempty"`
+	AutoSaveDelayMilliseconds *uint64  `json:"autoSaveDelayMilliseconds,omitempty"`
 }
 
 // EditorPreferences is the actual presentation configuration resolved by Core.
 type EditorPreferences struct {
-	LineNumbers                      bool   `json:"lineNumbers"`
-	Whitespace                       bool   `json:"whitespace"`
-	InlayHints                       bool   `json:"inlayHints"`
-	CursorStyle                      string `json:"cursorStyle"`
-	CursorBlink                      bool   `json:"cursorBlink"`
-	AutoSaveDelayMilliseconds        uint64 `json:"autoSaveDelayMilliseconds"`
-	MinimumAutoSaveDelayMilliseconds uint64 `json:"minimumAutoSaveDelayMilliseconds"`
-	MaximumAutoSaveDelayMilliseconds uint64 `json:"maximumAutoSaveDelayMilliseconds"`
+	LineNumbers                      bool     `json:"lineNumbers"`
+	Whitespace                       bool     `json:"whitespace"`
+	InlayHints                       bool     `json:"inlayHints"`
+	RainbowBrackets                  bool     `json:"rainbowBrackets"`
+	RainbowVariables                 bool     `json:"rainbowVariables"`
+	RainbowBracketLightColors        []string `json:"rainbowBracketLightColors"`
+	RainbowBracketDarkColors         []string `json:"rainbowBracketDarkColors"`
+	CursorStyle                      string   `json:"cursorStyle"`
+	CursorBlink                      bool     `json:"cursorBlink"`
+	AutoSaveDelayMilliseconds        uint64   `json:"autoSaveDelayMilliseconds"`
+	MinimumAutoSaveDelayMilliseconds uint64   `json:"minimumAutoSaveDelayMilliseconds"`
+	MaximumAutoSaveDelayMilliseconds uint64   `json:"maximumAutoSaveDelayMilliseconds"`
 }
 
 func (c *Client) ResolveEditorPreferences(ctx context.Context, stored EditorStoredPreferences) (EditorPreferences, error) {
 	var result EditorPreferences
 	err := c.Execute(ctx, "editor.preferences.resolve", stored, &result)
 	return result, err
+}
+
+// EditorRainbowBracket is a grammar-classified delimiter at an absolute UTF-8 byte offset.
+type EditorRainbowBracket struct {
+	Offset  uint32 `json:"offset"`
+	Bracket string `json:"bracket"`
+}
+
+// EditorRainbowColor gives a bracket's zero-based depth and its optional partner byte offset.
+type EditorRainbowColor struct {
+	Offset      uint32  `json:"offset"`
+	Depth       uint32  `json:"depth"`
+	MatchOffset *uint32 `json:"matchOffset"`
+}
+
+func (c *Client) ResolveEditorRainbowBrackets(ctx context.Context, brackets []EditorRainbowBracket) ([]EditorRainbowColor, error) {
+	var result struct {
+		Colors []EditorRainbowColor `json:"colors"`
+	}
+	err := c.Execute(ctx, "editor.rainbowBrackets", struct {
+		Brackets []EditorRainbowBracket `json:"brackets"`
+	}{Brackets: brackets}, &result)
+	return result.Colors, err
+}
+
+// EditorRainbowVariable is one grammar-classified identifier in the current document.
+type EditorRainbowVariable struct {
+	Start uint32 `json:"start"`
+	End   uint32 `json:"end"`
+	Name  string `json:"name"`
+}
+
+// EditorRainbowVariableColor is the stable color selector for an identifier's exact spelling.
+type EditorRainbowVariableColor struct {
+	Start uint32 `json:"start"`
+	End   uint32 `json:"end"`
+	Color uint32 `json:"color"`
+}
+
+func (c *Client) ResolveEditorRainbowVariables(ctx context.Context, variables []EditorRainbowVariable) ([]EditorRainbowVariableColor, error) {
+	var result struct {
+		Colors []EditorRainbowVariableColor `json:"colors"`
+	}
+	err := c.Execute(ctx, "editor.rainbowVariables", struct {
+		Variables []EditorRainbowVariable `json:"variables"`
+	}{Variables: variables}, &result)
+	return result.Colors, err
 }
 
 // EditorByteRange is a half-open byte span of the exact immutable snapshot searched.

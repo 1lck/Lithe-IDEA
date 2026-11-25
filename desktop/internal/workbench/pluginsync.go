@@ -95,7 +95,11 @@ func (a *App) documentEdited(p *project, d *document, edit editorview.Edit) {
 		return
 	}
 	a.scheduleAutoSave(p, d)
-	if a.plugins == nil || a.project != p || p.docs.byPath(d.path) != d {
+	if a.project != p || p.docs.byPath(d.path) != d {
+		return
+	}
+	a.scheduleColorDecorations(p, d, colorDecorationsDelay)
+	if a.plugins == nil {
 		return
 	}
 	// A definition or completion answer describes the text the trigger saw.

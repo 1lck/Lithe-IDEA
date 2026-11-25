@@ -90,6 +90,14 @@ Core 校验颜色表、单行 UTF-16 范围（列以 Unicode 的 UTF-16 编码�
 
 绘制时，每个可见行用二分查找取出本行范围，再按语法片段和颜色边界分段解析样式，不逐字符查找，不逐帧解析颜色，也不复制文档。
 
+内置彩虹括号复用同一层绘制和编辑平移。开启后，后台用当前语法的 TextMate 分词识别代码括号，复用它对注释、字符串和正则的划分。Core 只接收有序括号的位置与类型，返回配对的嵌套深度。大文件、超长行或超出候选上限时保留基础着色。这样编辑器不必维护另一套语言词法，也不会把完整文档送给括号配对接口。
+
+内置开关和明暗色板由 Core 解读，保存到 Lithe 的编辑器偏好。若同一个括号已有扩展提供的前景色，保留扩展的颜色。两种来源都使用紧凑的偏移和颜色表，编辑时只平移受影响的范围。
+
+彩虹变量和彩虹括号分别启用，共用明暗色板。两者同时启用时只分词一次。变量候选基于 TextMate 的变量作用域，Core 按区分大小写的原始拼写选择稳定的颜色，同名声明和用法可以在文件内、跨文件保持同色。这是一种词法配色，语言语义和作用域仍由语言服务负责。
+
+光标附近的配对括号和当前符号引用使用背景高亮，叠加在语法前景色上。括号配对沿用同一次 TextMate 扫描和 Core 配对结果，关闭彩虹前景色仍能查看配对。变量、方法等符号由语言服务器的文档高亮请求识别，结果仅用于当前文件。缺少相应能力时，选中完整标识符可高亮同文件的整词匹配。文档版本或光标改变会使之前的结果失效，绘制只查当前视口。
+
 工作区打开早于后端初始化时，首次上下文通知可能没有接收者。因此宿主在按需启动的后端准备好后补发当前上下文修订，并与后续通知按会话和修订去重、串行发送。初始化期间出现的工作区变化会体现在这次最新修订中；不增加后台轮询。
 
 ## 考虑过的备选方案
@@ -99,6 +107,7 @@ Core 校验颜色表、单行 UTF-16 范围（列以 Unicode 的 UTF-16 编码�
 - 函数名约定或插件名分支：宿主猜私有协议且无法安全撤回，拒绝。
 - 让工具插件把 Provider 注册成一个语言服务器：强加服务器生命周期和文档同步，而且无法表达“只补充”，拒绝。
 - 让插件的语言功能答案覆盖语言服务器：会破坏上游语言能力，拒绝；前景颜色覆盖则是明确授权的独立呈现层，不替换语义身份或样式。
+- 用彩虹变量的颜色判定同一个符号会混淆同名变量和重载方法。文档高亮请求由语言服务器识别引用，比跨文件查找引用更符合光标移动时的范围。
 - 把插件返回的 URL 或命令直接交给编辑器：`command:` 链接会被执行，拒绝；页面只持有不透明键。
 - 为测试标记新增测试专用契约：测试发现和运行已经是既有契约的职责，编辑器只需要多种图标，拒绝。
 - 允许插件提供自己的图标 SVG 或 CSS：等于向编辑器注入界面，拒绝；改为宿主声明图标表。
@@ -114,6 +123,7 @@ Provider 通道额外增加一个权限（`editor.providers`）、每次触发�
 
 - `scripts/desktop/desktop-go.sh test -tags vivahead ./internal/pluginservice ./internal/workbench ./internal/editorview -run 'TestColor|TestWorkspaceBackendReceives'`：合成提供者注册、Core 合并、撤回、后端重启、首次上下文通知、过期结果、主题与零分配绘制。
 - `scripts/desktop/desktop-go.sh test -tags vivahead,lithevisual ./internal/workbench -run '^TestVisualColorDecorations$'`：设置 `LITHE_VISUAL_OUTPUT_DIR` 后生成明暗主题、中英文的实际工作台前后 PNG；这个合成来源场景不替代插件仓库的真实安装和日志验收。
+- `scripts/desktop/desktop-go.sh test -tags vivahead,lithevisual ./internal/workbench -run '^TestVisualEditorContextHighlights$'` 验证有选区时的符号背景和跨行括号配对强调在明暗主题下的位置。
 - `scripts/desktop/perf/editor-bench.sh`：相同机器与规模的改动前后对比，不通过放宽预算掩盖回归。
 
 - `scripts/desktop/desktop-go.sh test ./internal/core -run '^TestPluginTextMateGrammarUsesPinnedCore$'`：共享语法样例经锁定 Core 解码；不证明插件安装和编辑器注册。

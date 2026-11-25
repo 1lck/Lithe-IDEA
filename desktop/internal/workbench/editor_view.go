@@ -253,6 +253,10 @@ func (a *App) documentInput(p *project, d *document) {
 		}
 		if dc.State.Focused {
 			p.docs.group = d.group
+			if previous := a.semantics.symbolHighlights.key.document; previous != nil && previous != d {
+				a.clearSymbolHighlights()
+				a.invalidator.Invalidate()
+			}
 		}
 	}
 }
@@ -270,6 +274,10 @@ func (a *App) documentViewKey(p *project, d *document, view *editorview.View, ev
 	// A semantic request belongs to the caret it was placed at. Every key path ends here, so
 	// one sync covers arrows, edits and commands.
 	defer a.pluginSemanticsCaretSync()
+	if view == d.view {
+		defer a.syncSymbolHighlights(p, d)
+		defer a.syncBracketHighlights(d)
+	}
 	if result := a.pluginSemanticsKey(event); result.Handled {
 		return result
 	}
@@ -317,7 +325,11 @@ func (a *App) documentPointer(p *project, d *document, event gfx.PointerEvent) g
 	if result, handled := a.pluginSemanticsPointer(event, p, d, d.view); handled {
 		return result
 	}
-	result, _ := d.view.Pointer(event)
+	result, handled := d.view.Pointer(event)
+	if handled {
+		a.syncBracketHighlights(d)
+		a.syncSymbolHighlights(p, d)
+	}
 	return result
 }
 

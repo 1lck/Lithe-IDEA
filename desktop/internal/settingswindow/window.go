@@ -84,6 +84,8 @@ type window struct {
 	editorDelay      ui.Field
 	editorDelayReady bool
 	editorPrefsError string
+	rainbowLight     rainbowPaletteEditor
+	rainbowDark      rainbowPaletteEditor
 	scheme           schemeDraft
 	ctrl             *Controller
 	sess             *session

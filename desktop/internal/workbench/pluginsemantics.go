@@ -133,6 +133,8 @@ func (k semanticKind) method() string {
 		return pluginMethodSemanticTokens
 	case pluginSemanticDocumentLinks:
 		return pluginMethodDocumentLinks
+	case pluginSemanticDocumentHighlight:
+		return pluginMethodDocumentHighlight
 	case pluginSemanticWorkspaceSymbols:
 		return pluginMethodWorkspaceSymbols
 	default:
@@ -284,7 +286,9 @@ type pluginSemantics struct {
 	autoDelay  time.Duration
 	autoCancel context.CancelFunc
 	// autoGeneration guards automatic work even after the debounce has fired.
-	autoGeneration uint64
+	autoGeneration       uint64
+	symbolHighlights     symbolHighlightState
+	symbolHighlightDelay time.Duration
 }
 
 // pluginSemanticHit is the open document whose text, or editable preview, is id.
@@ -979,6 +983,7 @@ func (a *App) applyServerFeatures(server *pluginServer, event core.BackendEvent)
 	}
 	// The features arrive after the documents opened: ask for the colors now.
 	a.semanticTokensResume()
+	a.resumeSymbolHighlights()
 	if server.features[featureWorkspaceSymbols] {
 		a.resumeEverywhereSymbols(server.project)
 	}
@@ -1140,7 +1145,7 @@ func (a *App) semanticRequestStarted(pending *semanticPending, operation string,
 			}
 		} else {
 			a.backgroundFailed("plugin_semantics", err)
-			if pending.kind == pluginSemanticInlayHints || pending.kind == pluginSemanticResolveInlayHint {
+			if pending.kind == pluginSemanticInlayHints || pending.kind == pluginSemanticResolveInlayHint || pending.kind == pluginSemanticDocumentHighlight {
 				a.applyEditorEvent(pending, core.BackendEvent{}, true)
 			}
 		}
@@ -1796,6 +1801,7 @@ func (a *App) resumeDeferredSemantics() {
 	// The outline waits for the synchronization too, and asks again on the next frame.
 	a.invalidator.Invalidate()
 	a.semanticTokensResume()
+	a.resumeSymbolHighlights()
 	if waiting := a.semantics.startingCompletion; waiting != nil {
 		p, d := a.currentSemanticDocument(waiting.documentID)
 		if p == waiting.project && a.semanticDocumentReady(d) {
@@ -1929,9 +1935,11 @@ func (a *App) pluginSemanticsScrolled(d *document) {
 // pluginSemanticsEdited closes popups and requests when one document's text
 // changes. The request's original positions no longer describe the document.
 func (a *App) pluginSemanticsEdited(d *document) {
+	if d != nil && a.semantics.symbolHighlights.key.document == d {
+		a.clearSymbolHighlights()
+	}
 	if p := a.project; p != nil && d != nil {
 		a.semanticTokensEdited(p, d)
-		a.scheduleColorDecorations(p, d, colorDecorationsDelay)
 		a.clearDocumentInlayHints(d)
 	}
 	if d == nil || a.semantics.documentID != d.id {
@@ -1943,6 +1951,9 @@ func (a *App) pluginSemanticsEdited(d *document) {
 
 // pluginSemanticsDocumentClosed drops state that belonged to a closed tab.
 func (a *App) pluginSemanticsDocumentClosed(d *document) {
+	if d != nil && a.semantics.symbolHighlights.key.document == d {
+		a.clearSymbolHighlights()
+	}
 	if a.contentOpen != nil && a.contentOpen.source == d {
 		a.cancelContentOpen()
 	}
@@ -1955,6 +1966,7 @@ func (a *App) pluginSemanticsDocumentClosed(d *document) {
 // pluginSemanticsReset drops every popup, deferred request and pending
 // operation, for a project switch or a stopped server.
 func (a *App) pluginSemanticsReset() {
+	a.clearSymbolHighlights()
 	a.closePluginSemantics()
 	a.cancelSemanticKind(pluginSemanticRename)
 	a.semantics.rename = renameState{}

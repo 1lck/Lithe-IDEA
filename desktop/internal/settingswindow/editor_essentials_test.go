@@ -1,10 +1,14 @@
 package settingswindow
 
 import (
+	"reflect"
+	"slices"
+	"testing"
+
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
-	"testing"
+	"github.com/vivaui/viva/gfx"
 )
 
 func TestEditorAutoCompletionSettingTogglesAndRestoresDefault(t *testing.T) {
@@ -53,10 +57,145 @@ func TestEditorEssentialsDisplaySettingsApplyActualValues(t *testing.T) {
 	next.sess.page = pageEditor
 	nd := openWindow(t, next)
 	nd.pump()
-	if next.sess.values.EditorPreferences != resolved {
+	if !reflect.DeepEqual(next.sess.values.EditorPreferences, resolved) {
 		t.Fatalf("reload %+v, want %+v", next.sess.values.EditorPreferences, resolved)
 	}
 }
+
+func TestEditorRainbowBracketsSavesAndRestoresRealPreferences(t *testing.T) {
+	var stored core.EditorStoredPreferences
+	var resolved core.EditorPreferences
+	var writes int
+	w := newWindow(NewController(Options{SetEditorPreferences: func(s core.EditorStoredPreferences, r core.EditorPreferences) {
+		stored, resolved = s, r
+		writes++
+	}}), Values{Language: "en", WindowWidth: windowMinWidth, WindowHeight: windowMinHeight, EditorStoredPreferences: core.EditorStoredPreferences{
+		RainbowBracketLightColors: []string{"#AA3300", "#2266FF"},
+	}})
+	w.sess.page = pageEditor
+	d := openWindow(t, w)
+	d.pump()
+	toggle := i18n.Shared(i18n.English, "desktop.editorPrefs.rainbowBrackets")
+	lightLabel := i18n.Shared(i18n.English, "desktop.editorPrefs.rainbowLightColors")
+	swatch := i18n.SharedFormat(i18n.English, "desktop.editorPrefs.rainbowPaletteColor", map[string]string{"palette": lightLabel, "number": "1"})
+	clickPickerButton := func(label string) {
+		t.Helper()
+		// The settings window and the picker both have a Cancel button.
+		// The picker buttons belong to its own focus scope.
+		for _, hit := range d.driver.Snapshot().Hits {
+			if hit.Label == label && hit.Role == gfx.RoleButton && !hit.Scope.IsZero() {
+				d.clickHit(hit)
+				return
+			}
+		}
+		t.Fatalf("no color picker button labeled %q", label)
+	}
+	if writes != 0 || d.hit(toggle).Checked || d.has(swatch) {
+		t.Fatal("opening editor settings should show the opt-in with palettes collapsed")
+	}
+	d.click(toggle)
+	d.pump()
+	if writes != 1 || stored.RainbowBrackets == nil || !*stored.RainbowBrackets || !resolved.RainbowBrackets ||
+		len(stored.RainbowBracketLightColors) != 2 || stored.RainbowBracketDarkColors != nil {
+		t.Fatalf("switch should preserve the custom two-color light palette and inherit dark colors: %+v", stored)
+	}
+
+	d.click(swatch)
+	d.pump()
+	w.rainbowLight.swatches[0].picker.SetHexText("#9700AA")
+	d.pump()
+	clickPickerButton(w.text.Settings.Cancel)
+	d.pump()
+	if writes != 1 || stored.RainbowBracketLightColors[0] != "#AA3300" || w.sess.finished.Load() {
+		t.Fatal("cancel should close the picker and keep the settings window and color")
+	}
+	d.click(swatch)
+	d.pump()
+	w.rainbowLight.swatches[0].picker.SetHexText("#9700aa")
+	d.pump()
+	if writes != 1 {
+		t.Fatal("changing the color picker draft saved before confirmation")
+	}
+	clickPickerButton(i18n.Shared(i18n.English, "ui.save"))
+	d.pump()
+	wantLight := []string{"#9700AA", "#2266FF"}
+	if writes != 2 || !slices.Equal(stored.RainbowBracketLightColors, wantLight) ||
+		!slices.Equal(resolved.RainbowBracketLightColors, wantLight) || stored.RainbowBracketDarkColors != nil ||
+		w.editorPrefsError != "" {
+		t.Fatalf("color picker save should preserve the other colors and normalize the applied value: %+v", stored)
+	}
+
+	add := i18n.SharedFormat(i18n.English, "desktop.editorPrefs.rainbowAddColor", map[string]string{"palette": lightLabel})
+	d.click(add)
+	d.pump()
+	w.rainbowLight.add.picker.SetHexText("#00695C")
+	d.pump()
+	clickPickerButton(i18n.Shared(i18n.English, "ui.save"))
+	d.pump()
+	if writes != 3 || !slices.Equal(stored.RainbowBracketLightColors, []string{"#9700AA", "#2266FF", "#00695C"}) {
+		t.Fatalf("add color should append one slot without changing the existing colors: %+v", stored)
+	}
+	added := i18n.SharedFormat(i18n.English, "desktop.editorPrefs.rainbowPaletteColor", map[string]string{"palette": lightLabel, "number": "3"})
+	d.click(added)
+	d.pump()
+	clickPickerButton(i18n.Shared(i18n.English, "ui.remove"))
+	d.pump()
+	if writes != 4 || !slices.Equal(stored.RainbowBracketLightColors, wantLight) {
+		t.Fatalf("remove color should delete only the selected slot: %+v", stored)
+	}
+
+	reopened := newWindow(NewController(Options{}), Values{Language: "en", EditorStoredPreferences: stored})
+	reopened.sess.page = pageEditor
+	second := openWindow(t, reopened)
+	second.pump()
+	if !second.hit(toggle).Checked || !slices.Equal(reopened.sess.values.EditorPreferences.RainbowBracketLightColors, wantLight) || second.has(added) {
+		t.Fatal("reopened settings did not display the values saved to the editor configuration")
+	}
+
+	d.click(w.text.Settings.RestoreDefaults)
+	d.pump()
+	if writes != 5 || stored.RainbowBrackets != nil || stored.RainbowBracketLightColors != nil || resolved.RainbowBrackets || d.has(swatch) {
+		t.Fatalf("reset did not clear the rainbow bracket preferences: writes=%d, stored=%+v, resolved=%t, swatches=%t", writes, stored, resolved.RainbowBrackets, d.has(swatch))
+	}
+}
+
+func TestEditorRainbowVariablesHasIndependentSwitchAndSharedPalette(t *testing.T) {
+	var stored core.EditorStoredPreferences
+	var resolved core.EditorPreferences
+	w := newWindow(NewController(Options{SetEditorPreferences: func(s core.EditorStoredPreferences, r core.EditorPreferences) {
+		stored, resolved = s, r
+	}}), Values{Language: "en"})
+	w.sess.page = pageEditor
+	d := openWindow(t, w)
+	d.pump()
+	brackets := i18n.Shared(i18n.English, "desktop.editorPrefs.rainbowBrackets")
+	variables := i18n.Shared(i18n.English, "desktop.editorPrefs.rainbowVariables")
+	light := i18n.Shared(i18n.English, "desktop.editorPrefs.rainbowLightColors")
+	swatch := i18n.SharedFormat(i18n.English, "desktop.editorPrefs.rainbowPaletteColor", map[string]string{"palette": light, "number": "1"})
+	if d.hit(variables).Checked || d.hit(brackets).Checked || d.has(swatch) {
+		t.Fatal("both rainbow features should start off with their shared palette collapsed")
+	}
+	d.click(variables)
+	d.pump()
+	if !d.hit(variables).Checked || d.hit(brackets).Checked || !d.has(swatch) ||
+		stored.RainbowVariables == nil || !*stored.RainbowVariables || !resolved.RainbowVariables || resolved.RainbowBrackets {
+		t.Fatal("enabling rainbow variables alone should show the shared palette")
+	}
+	d.click(brackets)
+	d.pump()
+	d.click(variables)
+	d.pump()
+	if d.hit(variables).Checked || !d.hit(brackets).Checked || !d.has(swatch) ||
+		stored.RainbowVariables == nil || *stored.RainbowVariables || resolved.RainbowVariables || !resolved.RainbowBrackets {
+		t.Fatal("turning off variables should preserve bracket coloring and the shared palette")
+	}
+	d.click(brackets)
+	d.pump()
+	if d.has(swatch) || resolved.RainbowBrackets || resolved.RainbowVariables {
+		t.Fatal("turning off both rainbow features should collapse their shared palette")
+	}
+}
+
 func TestEditorEssentialsKeymapSchemesStayIndependent(t *testing.T) {
 	var published core.KeymapSchemeResult
 	w := newWindow(NewController(Options{SetKeymapSchemes: func(value core.KeymapSchemeResult) { published = value }}), Values{Language: "en"})

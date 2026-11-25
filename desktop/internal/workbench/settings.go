@@ -5,6 +5,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 	"maps"
 	"runtime"
+	"slices"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildinfo"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/cli"
@@ -337,9 +338,17 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 			a.post(func(a *App) {
 				a.settings.EditorPreferences = stored
 				inlayChanged := a.editorPreferences.InlayHints != resolved.InlayHints
+				rainbowChanged := a.editorPreferences.RainbowBrackets != resolved.RainbowBrackets ||
+					a.editorPreferences.RainbowVariables != resolved.RainbowVariables ||
+					((resolved.RainbowBrackets || resolved.RainbowVariables) &&
+						(!slices.Equal(a.editorPreferences.RainbowBracketLightColors, resolved.RainbowBracketLightColors) ||
+							!slices.Equal(a.editorPreferences.RainbowBracketDarkColors, resolved.RainbowBracketDarkColors)))
 				a.editorPreferences = resolved
 				if inlayChanged {
 					a.applyInlayHintsPreference(resolved.InlayHints)
+				}
+				if rainbowChanged {
+					a.refreshBuiltinRainbowColors()
 				}
 				a.saveSettings()
 				a.invalidator.Invalidate()

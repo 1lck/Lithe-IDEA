@@ -230,6 +230,11 @@ type View struct {
 	whitespaceColor gfx.Color
 	searchRanges    []Range
 	searchRevision  int
+	symbolRanges    []Range
+	symbolRevision  int
+	symbolSelection span
+	bracketPair     [2]int
+	bracketRevision int
 
 	// font is the font the view draws with, normalized; see SetFont. The cell size and line height
 	// below are measured from it at each paint.

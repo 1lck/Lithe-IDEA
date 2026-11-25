@@ -3,11 +3,12 @@ package settingswindow
 import (
 	"context"
 	"errors"
+	"strconv"
+	"time"
+
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/ui"
-	"strconv"
-	"time"
 )
 
 func (w *window) editorPresentationCard(c ui.C) {
@@ -25,6 +26,7 @@ func (w *window) editorPresentationCard(c ui.C) {
 			values.EditorPreferences = resolved
 		}
 		w.editorDelay.SetText(strconv.FormatUint(values.EditorPreferences.AutoSaveDelayMilliseconds, 10))
+		w.loadRainbowPalettes(values.EditorPreferences)
 		w.editorDelayReady = true
 	}
 	current := values.EditorPreferences
@@ -32,6 +34,7 @@ func (w *window) editorPresentationCard(c ui.C) {
 		if ui.Switch(c.Part("line-numbers"), &current.LineNumbers, i18n.Shared(lang, "desktop.editorPrefs.lineNumbers")).Changed() {
 			w.setEditorPresentation(current)
 		}
+		w.rainbowControls(c, current)
 		if ui.Switch(c.Part("whitespace"), &current.Whitespace, i18n.Shared(lang, "desktop.editorPrefs.whitespace")).Changed() {
 			w.setEditorPresentation(current)
 		}
@@ -95,23 +98,37 @@ func (w *window) setDisableAutoCompletion(value bool) {
 }
 
 func (w *window) setEditorPresentation(value core.EditorPreferences) {
-	stored := core.EditorStoredPreferences{
-		LineNumbers:               &value.LineNumbers,
-		Whitespace:                &value.Whitespace,
-		InlayHints:                &value.InlayHints,
-		CursorStyle:               value.CursorStyle,
-		CursorBlink:               &value.CursorBlink,
-		AutoSaveDelayMilliseconds: &value.AutoSaveDelayMilliseconds,
+	stored := w.sess.values.EditorStoredPreferences
+	stored.LineNumbers = &value.LineNumbers
+	stored.Whitespace = &value.Whitespace
+	stored.InlayHints = &value.InlayHints
+	stored.CursorStyle = value.CursorStyle
+	stored.CursorBlink = &value.CursorBlink
+	stored.AutoSaveDelayMilliseconds = &value.AutoSaveDelayMilliseconds
+	if value.RainbowBrackets != w.sess.values.EditorPreferences.RainbowBrackets {
+		stored.RainbowBrackets = &value.RainbowBrackets
 	}
+	if value.RainbowVariables != w.sess.values.EditorPreferences.RainbowVariables {
+		stored.RainbowVariables = &value.RainbowVariables
+	}
+	if resolved, ok := w.resolveEditorPresentation(stored); ok {
+		stored.AutoSaveDelayMilliseconds = &resolved.AutoSaveDelayMilliseconds
+		w.publishEditorPresentation(stored, resolved)
+	}
+}
+
+func (w *window) resolveEditorPresentation(stored core.EditorStoredPreferences) (core.EditorPreferences, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	resolved, err := core.NewClient().ResolveEditorPreferences(ctx, stored)
 	if err != nil {
 		w.editorPrefsError = i18n.Shared(w.marketLanguage(), "desktop.editorPrefs.failed")
 		w.reportEssentialsFailure("editor_preferences", err)
-		return
 	}
-	stored.AutoSaveDelayMilliseconds = &resolved.AutoSaveDelayMilliseconds
+	return resolved, err == nil
+}
+
+func (w *window) publishEditorPresentation(stored core.EditorStoredPreferences, resolved core.EditorPreferences) {
 	w.sess.values.EditorStoredPreferences, w.sess.values.EditorPreferences = stored, resolved
 	w.editorDelay.SetText(strconv.FormatUint(resolved.AutoSaveDelayMilliseconds, 10))
 	w.editorPrefsError = ""
@@ -121,13 +138,9 @@ func (w *window) setEditorPresentation(value core.EditorPreferences) {
 }
 
 func (w *window) resetEditorPresentation() {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	value, err := core.NewClient().ResolveEditorPreferences(ctx, core.EditorStoredPreferences{})
-	if err != nil {
-		w.reportEssentialsFailure("editor_preferences", err)
-		w.editorPrefsError = i18n.Shared(w.marketLanguage(), "desktop.editorPrefs.failed")
-		return
+	stored := core.EditorStoredPreferences{}
+	if value, ok := w.resolveEditorPresentation(stored); ok {
+		w.publishEditorPresentation(stored, value)
+		w.loadRainbowPalettes(value)
 	}
-	w.setEditorPresentation(value)
 }

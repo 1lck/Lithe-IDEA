@@ -157,6 +157,14 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 				from, to = v.visibleCells()
 			}
 			v.paintInline(canvas, line, from, to, shift, y)
+			end := l.size
+			if k+1 < len(wraps) {
+				end = wraps[k+1].at
+			}
+			p := v.part(l, row, end, from, to)
+			if !v.preedit.Composing && (len(v.symbolRanges) > 0 || v.bracketPair[0] < v.bracketPair[1]) {
+				v.paintContextHighlights(canvas, l, p, end, from, to, shift, y, look)
+			}
 			lo, hi := selFrom, selTo
 			if v.wrapping() {
 				lo, hi = max(lo, row.cells), min(hi, to)
@@ -177,11 +185,6 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 					}
 				}
 			}
-			end := l.size
-			if k+1 < len(wraps) {
-				end = wraps[k+1].at
-			}
-			p := v.part(l, row, end, from, to)
 			v.paintSearchMatches(canvas, l, p, from, to, shift, y, look.Selection)
 			if len(lineHints) > 0 {
 				if line == caretLine && k == composeRow && composeCells > 0 {

@@ -131,6 +131,7 @@ func (a *App) attachDocumentTab(p *project, d *document) bool {
 		a.startPluginServer(d.languageID)
 	}
 	a.scheduleEditorActions(p, d)
+	a.scheduleColorDecorations(p, d, 0)
 	a.enforceTabLimit(p, d)
 	return true
 }

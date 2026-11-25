@@ -4,11 +4,14 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/vivaui/viva/gfx"
 )
 
@@ -28,6 +31,212 @@ func viewHasForeground(view *editorview.View, color uint32) bool {
 	canvas := new(gfx.Canvas)
 	view.Paint(canvas, gfx.Rect{Width: 600, Height: 200}, editorview.Look{})
 	return canvasHasForeground(canvas, gfx.RGB24(color))
+}
+
+func viewTextInForeground(view *editorview.View, color uint32) string {
+	canvas := new(gfx.Canvas)
+	view.Paint(canvas, gfx.Rect{Width: 600, Height: 200}, editorview.Look{})
+	var text strings.Builder
+	for _, label := range canvas.Texts() {
+		start := 0
+		for _, run := range canvas.TextRuns(label) {
+			end := start + int(run.Bytes)
+			if run.Color == gfx.RGB24(color) {
+				text.WriteString(label.Value[start:end])
+			}
+			start = end
+		}
+	}
+	return text.String()
+}
+
+func TestBracketPairHighlightsEitherEndWithRainbowOff(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pairs.go")
+	source := "package sample\nfunc use() {\n    if true {\n        println(\"}\")\n    }\n}\n"
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	options := DesktopOptions(core.NewClient(), store.At(t.TempDir()), "test")
+	options.OpenFile = path
+	h := newHarnessWithOptions(t, options)
+	h.app.openStandaloneFile(path)
+	h.await("standalone editor opened", func() bool {
+		return h.app.project != nil && h.app.project.docs.byPath(path) != nil
+	})
+	p := h.app.project
+	d := p.docs.byPath(path)
+	if h.app.editorPreferences.RainbowBrackets {
+		t.Fatal("rainbow foreground preference should start disabled")
+	}
+
+	canvas := new(gfx.Canvas)
+	area := gfx.Rect{Width: 600, Height: 260}
+	foreground := gfx.RGB24(0x112233)
+	underline := foreground
+	underline.Alpha *= 0.55
+	paint := func() []gfx.Rect {
+		canvas.Reset()
+		d.view.Paint(canvas, area, editorview.Look{Foreground: foreground})
+		var rects []gfx.Rect
+		for _, rect := range canvas.Rectangles() {
+			if rect.Color == underline {
+				rects = append(rects, rect.Bounds)
+			}
+		}
+		return rects
+	}
+	click := func(offset int) {
+		t.Helper()
+		d.view.SetSelection(offset, offset)
+		paint()
+		caret, ok := d.view.CaretRect()
+		if !ok {
+			t.Fatalf("could not locate offset %d", offset)
+		}
+		result := h.app.documentPointer(p, d, gfx.PointerEvent{
+			Target: d.hit, Kind: gfx.PointerDown, Button: gfx.PointerButtonPrimary,
+			X: caret.X + 1, Y: caret.Y + caret.Height/2,
+		})
+		h.app.documentPointer(p, d, gfx.PointerEvent{
+			Target: d.hit, Kind: gfx.PointerUp, Button: gfx.PointerButtonPrimary,
+			X: caret.X + 1, Y: caret.Y + caret.Height/2,
+		})
+		if !result.Handled {
+			t.Fatalf("click on offset %d was not handled", offset)
+		}
+	}
+	opener := strings.Index(source, "true {") + len("true ")
+	closer := strings.Index(source, "\n    }") + len("\n    ")
+	click(opener)
+	h.await("the matching cross-line pair painted", func() bool { return len(paint()) == 2 })
+	expected := paint()
+	if expected[0].Y >= expected[1].Y {
+		t.Fatalf("pair should paint on different lines: %v", expected)
+	}
+	click(closer)
+	if got := paint(); !slices.Equal(got, expected) {
+		t.Fatalf("clicking the closer painted %v, want the same pair %v", got, expected)
+	}
+	click(strings.Index(source, "\"}\"") + 1)
+	if got := paint(); len(got) != 0 {
+		t.Fatalf("brace inside string highlighted %v", got)
+	}
+	click(opener)
+	if err := d.view.ApplyEdits([]editorview.TextEdit{{
+		Range: editorview.Range{Start: closer, End: closer + 1},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := paint(); len(got) != 0 {
+		t.Fatalf("removed delimiter left a stale highlight %v", got)
+	}
+}
+
+func TestBuiltInRainbowVariablesShareColorByNameWithoutPluginServices(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rainbow.go")
+	source := "package sample\nfunc use(value int) int {\n    local := value + 1\n    return local + value\n}\n"
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	enabled := true
+	prefs := store.At(t.TempDir())
+	if err := prefs.Save(settingsFile, settings{EditorPreferences: core.EditorStoredPreferences{
+		RainbowVariables:          &enabled,
+		RainbowBracketLightColors: []string{"#ABCDEF", "#654321", "#4729AD", "#DD7831"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	options := DesktopOptions(core.NewClient(), prefs, "test")
+	options.OpenFile = path
+	h := newHarnessWithOptions(t, options)
+	h.app.openStandaloneFile(path)
+	h.await("standalone editor opened", func() bool {
+		return h.app.project != nil && h.app.project.docs.byPath(path) != nil
+	})
+	d := h.app.project.docs.byPath(path)
+	if h.app.plugins != nil {
+		t.Fatal("standalone editor assembled a plugin service")
+	}
+	h.await("rainbow variables applied", func() bool {
+		return viewTextInForeground(d.view, 0x4729AD) != ""
+	})
+	if got := viewTextInForeground(d.view, 0x4729AD); got != "valuevaluevalue" {
+		t.Errorf("colored text for value = %q", got)
+	}
+	if got := viewTextInForeground(d.view, 0xABCDEF); got != "locallocal" {
+		t.Errorf("colored text for local = %q", got)
+	}
+
+	h.app.editorPreferences.RainbowBrackets = true
+	h.app.refreshBuiltinRainbowColors()
+	h.await("variables and brackets applied together", func() bool {
+		return strings.Contains(viewTextInForeground(d.view, 0xABCDEF), "}")
+	})
+	if got := viewTextInForeground(d.view, 0x4729AD); got != "valuevaluevalue" {
+		t.Errorf("brackets changed the variable colors: %q", got)
+	}
+	h.app.editorPreferences.RainbowVariables = false
+	h.app.refreshBuiltinRainbowColors()
+	h.await("brackets reapplied without variables", func() bool {
+		return strings.Contains(viewTextInForeground(d.view, 0xABCDEF), "}")
+	})
+	if got := viewTextInForeground(d.view, 0x4729AD); got != "" {
+		t.Errorf("variables still colored after disabling: %q", got)
+	}
+}
+
+func TestBuiltInRainbowBracketsWithoutPluginServices(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rainbow.go")
+	source := "package sample\nvar value = len([]int{1})\n"
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	enabled := true
+	prefs := store.At(t.TempDir())
+	if err := prefs.Save(settingsFile, settings{EditorPreferences: core.EditorStoredPreferences{
+		RainbowBrackets:           &enabled,
+		RainbowBracketLightColors: []string{"#ABCDEF", "#123456"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	options := DesktopOptions(core.NewClient(), prefs, "test")
+	options.OpenFile = path
+	h := newHarnessWithOptions(t, options)
+	h.app.openStandaloneFile(path)
+	h.await("standalone editor opened", func() bool {
+		return h.app.project != nil && h.app.project.docs.byPath(path) != nil
+	})
+	d := h.app.project.docs.byPath(path)
+	if h.app.plugins != nil {
+		t.Fatal("standalone editor assembled a plugin service")
+	}
+	h.await("configured bracket colors", func() bool {
+		return viewHasForeground(d.view, 0xABCDEF) && viewHasForeground(d.view, 0x123456)
+	})
+
+	// A changed configured palette takes effect on the already-open document.
+	h.app.editorPreferences.RainbowBracketLightColors = []string{"#DD7831"}
+	h.app.refreshBuiltinRainbowColors()
+	h.await("updated bracket palette", func() bool { return viewHasForeground(d.view, 0xDD7831) })
+
+	// Remove both bracket groups, then add nesting. Standalone typing must request fresh colors.
+	if err := d.view.ApplyEdits([]editorview.TextEdit{{
+		Range: editorview.Range{Start: 0, End: d.view.TextSnapshot().Len()}, Text: "package sample\n",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.view.ApplyEdits([]editorview.TextEdit{{
+		Range: editorview.Range{}, Text: source,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	h.await("bracket colors refreshed after typing", func() bool { return viewHasForeground(d.view, 0xDD7831) })
+
+	h.app.editorPreferences.RainbowBrackets = false
+	h.app.refreshBuiltinRainbowColors()
+	if viewHasForeground(d.view, 0xDD7831) {
+		t.Fatal("disabling rainbow brackets left its old overlay visible")
+	}
 }
 
 // Typing must not make a rainbow flicker: the colors the view moved with the edit stay while the
