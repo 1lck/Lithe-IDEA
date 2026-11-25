@@ -16,7 +16,7 @@ import (
 
 func runConfigInstance(root string) buildInstance {
 	return buildInstance{
-		BuildInstance: core.BuildInstance{ID: "engine@" + root, PluginID: "dev.example.engine", BuildSystemID: "engine", Root: root},
+		BuildInstance: core.BuildInstance{ID: "engine@" + root, PluginID: "dev.example.engine", BuildSystemID: "engine", Root: root, ModelSource: "provider"},
 		PluginID:      "dev.example.engine",
 		System:        pluginservice.BuildSystemDeclaration{Runs: []pluginservice.BuildRunDeclaration{{ID: "application", Name: "Run", Tags: []string{"app"}}}},
 		Model: core.BuildModel{
@@ -44,6 +44,16 @@ func TestProviderRunsListTheLoadedModelsRuns(t *testing.T) {
 	if run.Reference.PluginID != "dev.example.engine" || run.ProjectPath != "app/server" || run.Name != "Run Main" || run.Reference.TargetID != "main" || run.Reference.Run != "application" ||
 		run.Reference.Root != "app" || run.Reference.UserArguments == nil {
 		t.Fatalf("run = %+v", run)
+	}
+}
+
+func TestDeclaredBuildTasksDoNotReplaceRunsBeforeTheModelLoads(t *testing.T) {
+	taskOnly := buildInstance{modelLoaded: true}
+	provider := runConfigInstance("app")
+	provider.modelLoaded = false
+	runs, loaded := providerRuns([]buildInstance{taskOnly, provider})
+	if loaded || len(runs) != 0 {
+		t.Fatalf("declared tasks made an unfinished run snapshot ready: %v, %+v", loaded, runs)
 	}
 }
 
@@ -112,7 +122,7 @@ func TestGeneratedRunTypeSharesDialogGroupWithUserConfiguration(t *testing.T) {
 		Values:        map[string]json.RawMessage{"targets": json.RawMessage(`["build"]`)},
 	}
 	instance := buildInstance{
-		BuildInstance: core.BuildInstance{ID: "tasker@sub", PluginID: "dev.example.tasker", BuildSystemID: "tasker", Root: "sub"},
+		BuildInstance: core.BuildInstance{ID: "tasker@sub", PluginID: "dev.example.tasker", BuildSystemID: "tasker", Root: "sub", ModelSource: "provider"},
 		PluginID:      "dev.example.tasker",
 		Model: core.BuildModel{
 			Projects: []core.BuildProject{{ID: "sub", Path: "sub", Name: "sub"}},

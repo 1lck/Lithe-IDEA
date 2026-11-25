@@ -185,7 +185,7 @@ func expectBuildTree(t *testing.T, h *harness, p *project, what string, want []s
 // application that starts, and shop-core lists a plugin goal its model reports.
 func nestedEngine(root string) buildInstance {
 	instance := buildInstance{
-		BuildInstance: core.BuildInstance{ID: "engine@" + root, PluginID: "dev.example.engine", BuildSystemID: "engine", Root: root},
+		BuildInstance: core.BuildInstance{ID: "engine@" + root, PluginID: "dev.example.engine", BuildSystemID: "engine", Root: root, ModelSource: "provider"},
 		PluginID:      "dev.example.engine",
 		System: pluginservice.BuildSystemDeclaration{
 			DisplayName: "Engine",
