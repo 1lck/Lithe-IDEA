@@ -229,6 +229,36 @@ func (h *harness) shows(value string) bool {
 	return false
 }
 
+// showsFitted is shows for a value a control may shorten to its width: a label holds value
+// whole, or holds the start of value followed by "…" and, once the pointer rests on it,
+// shows value in full in its tooltip. The pointer stays where it rested.
+func (h *harness) showsFitted(value string) bool {
+	h.t.Helper()
+	if h.shows(value) {
+		return true
+	}
+	for _, label := range h.driver.Snapshot().Labels {
+		head, cut := strings.CutSuffix(label.Value, "…")
+		if !cut || head == "" || !strings.HasPrefix(value, head) {
+			continue
+		}
+		at := center(label.Bounds)
+		if err := h.driver.Move(at.X, at.Y); err != nil {
+			h.t.Fatal(err)
+		}
+		if err := h.driver.Advance(time.Second); err != nil {
+			h.t.Fatal(err)
+		}
+		var tip strings.Builder
+		for _, line := range h.tooltips() {
+			tip.WriteString(line.Value)
+		}
+		squeeze := func(s string) string { return strings.Join(strings.Fields(s), "") }
+		return squeeze(tip.String()) == squeeze(value)
+	}
+	return false
+}
+
 // button is where catalog item id was laid out in the last frame.
 func (h *harness) button(id string) gfx.Rect {
 	h.t.Helper()
