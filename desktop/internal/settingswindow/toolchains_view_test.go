@@ -7,11 +7,13 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginruntime"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
+	"github.com/vivaui/viva/ui"
 )
 
 type fakeToolchainLoader struct {
@@ -21,6 +23,47 @@ type fakeToolchainLoader struct {
 	inspectErr error
 	// loads counts the reads; the window reads on an effect goroutine.
 	loads atomic.Int32
+}
+
+// Manual middle truncation must retain the actual home and the radio row's action.
+func TestToolchainEllipsisKeepsFullHomeAndSelection(t *testing.T) {
+	snapshot := fixtureSnapshot()
+	home := "/toolchains/" + strings.Repeat("long-directory/", 6) + "compiler"
+	tool := &snapshot.Tools[0]
+	tool.AutomaticHome = home
+	tool.Automatic.Home = &home
+	tool.Installations[0].Home = home
+	w, d := toolchainWindow(t, &fakeToolchainLoader{snapshot: snapshot})
+	found := false
+	for _, label := range d.driver.Snapshot().Labels {
+		if strings.HasPrefix(label.Value, "/toolchains/") && strings.HasSuffix(label.Value, "…") {
+			if err := d.driver.Move(label.Bounds.X+2, label.Bounds.Y+label.Bounds.Height/2); err != nil {
+				t.Fatal(err)
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("the installation did not show its shortened path")
+	}
+	if err := d.driver.Advance(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	var full strings.Builder
+	for _, label := range d.driver.Snapshot().Labels {
+		if label.Layer == ui.TooltipLayer {
+			full.WriteString(label.Value)
+		}
+	}
+	if full.String() != home {
+		t.Fatalf("home tooltip %q, want %q", full.String(), home)
+	}
+	d.chooseToolchain(home)
+	toolID := w.toolchains.current().snapshot.Tools[0].ID
+	if draft, ok := w.toolchains.current().draft[toolID]; !ok || draft != home {
+		t.Fatalf("the installation's click did not preserve its full home: %+v", draft)
+	}
 }
 
 func (f *fakeToolchainLoader) Inspect(_ context.Context, _ toolchain.Snapshot, _ string, home string) (core.ToolchainSelection, error) {

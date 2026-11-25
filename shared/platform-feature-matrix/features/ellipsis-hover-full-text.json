@@ -1,0 +1,47 @@
+{
+  "id": "ellipsis-hover-full-text",
+  "area": "工作台",
+  "group": "通用交互",
+  "capability": "鼠标悬停在以省略号截断的文字上时显示完整内容",
+  "macos": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/logwindow/table.go",
+      "desktop/internal/logwindow/page_test.go",
+      "desktop/internal/settingswindow/toolchains_view.go",
+      "desktop/internal/settingswindow/toolchains_view_test.go",
+      "desktop/internal/pluginview/canvas.go",
+      "desktop/internal/pluginview/canvas_test.go",
+      "desktop/internal/workbench/gitgraph.go",
+      "desktop/internal/workbench/gitlog_page_test.go",
+      "desktop/internal/workbench/pluginprompt.go",
+      "desktop/internal/workbench/workspace_trust.go",
+      "desktop/internal/workbench/workspace_trust_test.go",
+      "desktop/internal/workbench/status_path_visual_test.go",
+      "desktop/internal/workbench/ellipsis_visual_test.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/logwindow/table.go",
+      "desktop/internal/logwindow/page_test.go",
+      "desktop/internal/settingswindow/toolchains_view.go",
+      "desktop/internal/settingswindow/toolchains_view_test.go",
+      "desktop/internal/pluginview/canvas.go",
+      "desktop/internal/pluginview/canvas_test.go",
+      "desktop/internal/workbench/gitgraph.go",
+      "desktop/internal/workbench/gitlog_page_test.go",
+      "desktop/internal/workbench/pluginprompt.go",
+      "desktop/internal/workbench/workspace_trust.go",
+      "desktop/internal/workbench/workspace_trust_test.go",
+      "desktop/internal/workbench/status_path_visual_test.go",
+      "desktop/internal/workbench/ellipsis_visual_test.go"
+    ]
+  },
+  "owner": "Desktop / Viva",
+  "verification": "接入包含全文提示的正式 Viva 修订后，分别在 macOS、Windows 检查普通标签、下拉选项、日志消息及字段、工具链路径、Git 日志、自绘画布、状态栏文件名和信任对话框。只有实际截断时显示全文；完整内容即使以省略号结尾也不误触发。悬停离开、点击、打开遮挡弹层后正确隐藏；行选择、字段筛选、下拉选择、复选框和删除按钮仍可操作。检查滚动与缓存回放后的提示位置及裁剪。明暗主题和中英文分别检查。相关无头回归：TestTableEllipsisShowsFullMessageAndKeepsRowSelection、TestTableEllipsisShowsFullMessageOverMarkedRuns、TestTableEllipsisShowsFullFieldAndKeepsFilterAction、TestToolchainEllipsisKeepsFullHomeAndSelection、TestCanvasEllipsisShowsAllRunsAndKeepsGroupClick、TestLogEllipsisShowsFullSubjectAndKeepsSelection、TestTrustEllipsisShowsTheFullLocationAndKeepsCheckbox；截图：TestVisualLogEllipsis、TestVisualToolchainEllipsis、TestVisualCanvasEllipsis、TestVisualStatusPathEllipsis、TestVisualGitLogEllipsis、TestVisualTrustEllipsis。",
+  "notes": "宿主接线已完成，Viva 通用实现的 PR 在评审中。Viva 用实际排版结果登记非交互全文提示，提前截短的宿主文本保留原文；提示不创建新的点击或焦点目标。当前正式 desktop/go.mod pin 尚未包含该能力，必须先将 Viva 改动（fork Lithe-IDEA/Lithe-viva#61，上游 vivaui/viva#454）合入组织 fork main 再升级 pin，因此两端实现状态均为 partial。无头验证使用本地 modfile，不代表正式依赖已接入，也不代表 macOS、Windows 原生窗口已验收。"
+}
