@@ -330,6 +330,7 @@ func (a *App) releasePluginDocuments(pluginID string) {
 	if a.project == nil {
 		return
 	}
+	a.releaseSymbolHighlights(pluginID)
 	a.pluginSemanticsReset()
 	a.semanticTokensReleased(pluginID)
 	for _, d := range a.project.docs.list {
@@ -346,6 +347,7 @@ func (a *App) releaseAllPluginDocuments() {
 	if a.project == nil {
 		return
 	}
+	a.clearSymbolHighlights()
 	a.pluginSemanticsReset()
 	a.semanticTokensReleased("")
 	for _, d := range a.project.docs.list {

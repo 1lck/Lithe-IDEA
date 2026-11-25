@@ -23,6 +23,18 @@ func TestRainbowCandidatesVariablesFromTextMate(t *testing.T) {
 	}
 }
 
+func TestRainbowCandidatesRustRawIdentifiersPreserveSourceSpelling(t *testing.T) {
+	assertRainbowVariableRanges(t, NewRegistry().Syntax("rust"), `fn main() {
+    let «r#type» = 1;
+    let «r#match» = «r#type»;
+    let «value» = «r#match»;
+    let «r#value» = «value»;
+    consume(«r#type», «r#value», «value»);
+    let «text» = r#"r#type and r#value"#;
+    // r#type and r#value stay in the comment's style.
+}`)
+}
+
 func TestRainbowCandidatesJavaVariablesInBranches(t *testing.T) {
 	java := NewRegistry().Syntax("java")
 	t.Run("ternary", func(t *testing.T) {

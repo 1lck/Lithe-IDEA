@@ -3,10 +3,11 @@ package workbench
 import (
 	"context"
 	"errors"
-	"regexp"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/rope"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/syntax"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 )
 
@@ -18,13 +19,12 @@ const (
 	symbolSearchMaxBytes            = 2 << 20
 )
 
-var symbolSelection = regexp.MustCompile(`^[_$\pL][_$\pL\pN\pM]*$`)
-
 type symbolHighlightKey struct {
 	document *document
 	server   *pluginServer
 	revision int
-	anchor   int
+	start    int
+	end      int
 	caret    int
 	ready    bool
 }
@@ -53,6 +53,19 @@ func (a *App) clearSymbolHighlights() {
 	*s = symbolHighlightState{generation: s.generation + 1}
 }
 
+// A stopped server invalidates its answers, but the open editor still owns its
+// selection. Retain only that target so synchronization can resume the query.
+func (a *App) releaseSymbolHighlights(pluginID string) {
+	s := &a.semantics.symbolHighlights
+	server := s.key.server
+	if server == nil || server.session == nil || server.session.PluginID != pluginID {
+		return
+	}
+	d := s.key.document
+	a.clearSymbolHighlights()
+	s.key = symbolHighlightKey{document: d, revision: -1}
+}
+
 func (a *App) resumeSymbolHighlights() {
 	if d := a.semantics.symbolHighlights.key.document; d != nil {
 		a.syncSymbolHighlights(a.project, d)
@@ -62,7 +75,7 @@ func (a *App) resumeSymbolHighlights() {
 // syncSymbolHighlights watches the editor's own gesture, not pointer hover or
 // frame painting. It snapshots text on the UI thread and reads it on a worker.
 func (a *App) syncSymbolHighlights(p *project, d *document) {
-	if p == nil || a.project != p || d == nil || d.view == nil {
+	if p == nil || a.project != p || d == nil || d.view == nil || p.docs.find(d.id) != d {
 		return
 	}
 	s := &a.semantics.symbolHighlights
@@ -70,8 +83,9 @@ func (a *App) syncSymbolHighlights(p *project, d *document) {
 		a.clearSymbolHighlights()
 		return
 	}
-	anchor, caret := d.view.SelectionOffsets()
-	key := symbolHighlightKey{document: d, revision: d.view.Revision(), anchor: anchor, caret: caret}
+	start, end := d.view.Selection()
+	_, caret := d.view.SelectionOffsets()
+	key := symbolHighlightKey{document: d, revision: d.view.Revision(), start: start, end: end, caret: caret}
 	if server, offered := a.editorServer(d, pluginSemanticDocumentHighlight); offered {
 		key.server, key.ready = server, a.semanticDocumentReady(d)
 	}
@@ -80,7 +94,6 @@ func (a *App) syncSymbolHighlights(p *project, d *document) {
 	}
 	a.clearSymbolHighlights()
 	s.key = key
-	start, end := min(anchor, caret), max(anchor, caret)
 	text := d.view.TextSnapshot()
 	var word string
 	if start != end {
@@ -88,7 +101,7 @@ func (a *App) syncSymbolHighlights(p *project, d *document) {
 			return
 		}
 		word, _ = text.Substring(start, end)
-		if !symbolSelection.MatchString(word) {
+		if !syntax.IdentifierSelection(word) {
 			return
 		}
 	} else if key.server == nil {
@@ -115,13 +128,13 @@ func (a *App) syncSymbolHighlights(p *project, d *document) {
 		}
 		s.cancel = a.background(p, kernelCallTimeout, func(ctx context.Context) func(*App) {
 			found, err := kernel.FindEditorText(ctx, text.Bytes(), core.EditorFindRequest{
-				Query: word, CaseSensitive: true, WholeWord: true, Caret: start,
+				Query: word, CaseSensitive: true, WholeIdentifier: true, Caret: start,
 			})
 			// log-exempt: 用户取消：选区、文本或工作区已经更换。
 			if errors.Is(err, context.Canceled) {
 				return nil
 			}
-			ranges := selectedWordHighlights(found.Matches, start, end)
+			ranges := selectedIdentifierHighlights(found.Matches, start, end)
 			return func(a *App) {
 				if a.symbolHighlightCurrent(p, key, gen) {
 					s.cancel = nil
@@ -151,13 +164,14 @@ func (a *App) symbolHighlightCurrent(p *project, key symbolHighlightKey, generat
 	if a.project != p || s.generation != generation || s.key != key || d.view.Revision() != key.revision || d.view.IsComposing() {
 		return false
 	}
-	anchor, caret := d.view.SelectionOffsets()
-	return anchor == key.anchor && caret == key.caret
+	start, end := d.view.Selection()
+	_, caret := d.view.SelectionOffsets()
+	return start == key.start && end == key.end && caret == key.caret
 }
 
-// selectedWordHighlights only accepts a full-word selection. A partial
+// selectedIdentifierHighlights only accepts a full-identifier selection. A partial
 // selection must not light up a different identifier that happens to match.
-func selectedWordHighlights(matches []core.EditorByteRange, start, end int) []editorview.Range {
+func selectedIdentifierHighlights(matches []core.EditorByteRange, start, end int) []editorview.Range {
 	for _, selected := range matches {
 		if selected.Start == start && selected.End == end {
 			ranges := make([]editorview.Range, 0, len(matches)-1)
@@ -186,23 +200,9 @@ func (a *App) applySymbolHighlights(pending *semanticPending, event core.Backend
 	text := d.view.TextSnapshot()
 	s.cancel = a.background(p, kernelCallTimeout, func(ctx context.Context) func(*App) {
 		reported, err := core.PluginSemanticHighlightRanges(event)
-		ranges := make([]editorview.Range, 0, len(reported))
-		for _, r := range reported {
-			if ctx.Err() != nil {
-				break
-			}
-			start, startErr := editorview.OffsetOfSnapshot(text, r.Start.Line, r.Start.UTF16Column)
-			end, endErr := editorview.OffsetOfSnapshot(text, r.End.Line, r.End.UTF16Column)
-			if startErr != nil || endErr != nil {
-				err = editorview.ErrPosition
-				break
-			}
-			if start < end {
-				ranges = append(ranges, editorview.Range{Start: start, End: end})
-			}
-		}
+		var ranges []editorview.Range
 		if err == nil {
-			err = ctx.Err()
+			ranges, err = projectSymbolHighlightRanges(ctx, text, reported)
 		}
 		// log-exempt: 用户取消：选区、文本或工作区已经更换。
 		if errors.Is(err, context.Canceled) {
@@ -213,10 +213,32 @@ func (a *App) applySymbolHighlights(pending *semanticPending, event core.Backend
 				s.cancel = nil
 				if err != nil {
 					a.backgroundFailed("plugin_semantics", err)
-					return
+					if !errors.Is(err, editorview.ErrPosition) {
+						return
+					}
 				}
 				d.view.SetSymbolHighlights(ranges)
 			}
 		}
 	})
+}
+
+// projectSymbolHighlightRanges preserves the valid siblings of a range that
+// does not resolve against this revision. The caller logs the batch once.
+func projectSymbolHighlightRanges(ctx context.Context, text rope.Rope, reported []core.PluginDocumentRange) ([]editorview.Range, error) {
+	ranges := make([]editorview.Range, 0, len(reported))
+	var invalid error
+	for _, r := range reported {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		start, startErr := editorview.OffsetOfSnapshot(text, r.Start.Line, r.Start.UTF16Column)
+		end, endErr := editorview.OffsetOfSnapshot(text, r.End.Line, r.End.UTF16Column)
+		if startErr != nil || endErr != nil || start >= end {
+			invalid = editorview.ErrPosition
+			continue
+		}
+		ranges = append(ranges, editorview.Range{Start: start, End: end})
+	}
+	return ranges, invalid
 }

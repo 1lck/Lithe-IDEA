@@ -37,14 +37,8 @@ type documentColorDecorations struct {
 	// by a newer edit, request or withdrawal changes nothing.
 	generation uint64
 	// Bracket offsets are valid only for the view and revision the worker analyzed.
-	bracketMatches  []bracketMatch
 	bracketView     *editorview.View
 	bracketRevision int
-}
-
-type bracketMatch struct {
-	offset uint32
-	mate   uint32
 }
 
 const (
@@ -86,14 +80,15 @@ func (a *App) scheduleColorDecorations(p *project, d *document, delay time.Durat
 	state.revoke()
 	if !builtinBracketMatchingServes(d) || state.path != d.path || state.language != d.languageID ||
 		state.bracketView != d.view || state.bracketRevision != d.view.Revision() {
-		state.bracketMatches = nil
 		state.bracketView = nil
-		d.view.SetBracketHighlights(-1, -1)
+		d.view.SetBracketMatches(nil)
 		d.view.SetIndentGuideScopes(editorview.PreparedIndentGuideScopes{})
+		a.clearSourcePreviewScopes(d)
 	}
 	providerServes := a.colorDecorationsServed(p, d, state)
 	if !providerServes && !builtinBracketMatchingServes(d) {
 		d.view.ClearColorDecorations()
+		a.clearSourcePreviewDecorations(d)
 		return
 	}
 	if delay <= 0 {
@@ -120,6 +115,7 @@ func (a *App) colorDecorationsServed(p *project, d *document, state *documentCol
 	}
 	if !state.known || state.path != d.path || state.language != d.languageID {
 		d.view.ClearColorDecorations()
+		a.clearSourcePreviewColors(d)
 		state.path, state.language, state.known = d.path, d.languageID, true
 		state.provided = a.plugins != nil && a.plugins.HasColorDecorationsProvider(p.root, d.path, d.languageID)
 	}
@@ -133,6 +129,7 @@ func (a *App) requestColorDecorations(p *project, d *document, state *documentCo
 	state.cancel = cancel
 	generation := state.generation
 	view, text, revision := d.view, d.view.TextSnapshot(), d.view.Revision()
+	preview := a.colorDecorationsPreview(d)
 	plugins, root, path, language, id := a.plugins, p.root, d.path, d.languageID, documentPublicID(d)
 	provided := state.provided && text.Len() <= pluginservice.DocumentSnapshotMaxBytes
 	prefs := a.editorPreferences
@@ -144,6 +141,8 @@ func (a *App) requestColorDecorations(p *project, d *document, state *documentCo
 		defer cancel()
 		var rainbow builtinRainbow
 		var indentScopes editorview.PreparedIndentGuideScopes
+		var previewScopes editorview.PreparedIndentGuideScopes
+		pairedPreview := preview.view != nil && !preview.text.Same(text) && preview.text.Equal(text)
 		if grammar != nil {
 			var rainbowErr error
 			rainbow, rainbowErr = resolveBuiltinRainbow(ctx, text, grammar, prefs.RainbowBrackets, prefs.RainbowVariables)
@@ -152,11 +151,18 @@ func (a *App) requestColorDecorations(p *project, d *document, state *documentCo
 			}
 			indentScopes = editorview.PrepareIndentGuideScopes(text, rainbow.indentScopes)
 		}
+		if pairedPreview {
+			previewScopes = indentScopes.ForSnapshot(preview.text)
+		}
 		matches := rainbow.matches
 		if provided && grammar != nil && ctx.Err() == nil {
 			// The local bracket index can be applied while a plugin computes its colors.
 			a.post(func(a *App) {
 				a.finishBracketMatches(p, d, state, generation, view, revision, matches, indentScopes)
+				if pairedPreview && a.currentColorDecorationsPreview(p, d, state, generation, view, revision, preview) {
+					preview.view.SetBracketMatches(matches)
+					preview.view.SetIndentGuideScopes(previewScopes)
+				}
 			})
 		}
 		var spans []editorview.ColorDecoration
@@ -180,11 +186,20 @@ func (a *App) requestColorDecorations(p *project, d *document, state *documentCo
 		prepared := editorview.PrepareColorDecorations(text, spans).WithRainbowColors(
 			rainbow.colors, prefs.RainbowBracketLightColors, prefs.RainbowBracketDarkColors,
 		)
+		var previewColors editorview.PreparedColorDecorations
+		if pairedPreview {
+			previewColors = prepared.CloneFor(preview.text)
+		}
 		return func(a *App) {
 			if !provided {
 				a.finishBracketMatches(p, d, state, generation, view, revision, matches, indentScopes)
 			}
 			a.finishColorDecorations(p, d, state, generation, view, revision, prepared, err)
+			if pairedPreview && a.currentColorDecorationsPreview(p, d, state, generation, view, revision, preview) {
+				preview.view.SetBracketMatches(matches)
+				preview.view.SetIndentGuideScopes(previewScopes)
+				preview.view.SetPreparedColorDecorations(previewColors)
+			}
 		}
 	})
 }
@@ -196,7 +211,7 @@ func builtinBracketMatchingServes(d *document) bool {
 
 type builtinRainbow struct {
 	colors       []editorview.RainbowColor
-	matches      []bracketMatch
+	matches      []editorview.BracketMatch
 	indentScopes []editorview.IndentGuideScope
 }
 
@@ -232,7 +247,7 @@ func resolveBuiltinRainbow(ctx context.Context, text rope.Rope, grammar *syntax.
 			}
 			if bracket.MatchOffset != nil {
 				mate := *bracket.MatchOffset
-				rainbow.matches = append(rainbow.matches, bracketMatch{offset: bracket.Offset, mate: mate})
+				rainbow.matches = append(rainbow.matches, editorview.BracketMatch{Offset: bracket.Offset, Mate: mate})
 				if bracket.Offset < mate && text.ByteAt(int(bracket.Offset)) == '{' {
 					rainbow.indentScopes = append(rainbow.indentScopes, editorview.IndentGuideScope{Open: int(bracket.Offset), Close: int(mate)})
 				}
@@ -258,41 +273,35 @@ func resolveBuiltinRainbow(ctx context.Context, text rope.Rope, grammar *syntax.
 	return rainbow, errors.Join(bracketErr, variableErr)
 }
 
-func (a *App) finishBracketMatches(p *project, d *document, state *documentColorDecorations, generation uint64, view *editorview.View, revision int, matches []bracketMatch, indentScopes editorview.PreparedIndentGuideScopes) {
+func (a *App) finishBracketMatches(p *project, d *document, state *documentColorDecorations, generation uint64, view *editorview.View, revision int, matches []editorview.BracketMatch, indentScopes editorview.PreparedIndentGuideScopes) {
 	if !a.currentColorDecorationsRequest(p, d, state, generation, view) || view.Revision() != revision {
 		return
 	}
-	state.bracketMatches, state.bracketView, state.bracketRevision = matches, view, revision
+	state.bracketView, state.bracketRevision = view, revision
+	view.SetBracketMatches(matches)
 	view.SetIndentGuideScopes(indentScopes)
-	a.syncBracketHighlights(d)
+	a.syncSourcePreviewDecorations(d)
 }
 
-// syncBracketHighlights projects the current caret onto the already prepared bracket index.
-// Each delimiter occupies one ASCII byte, so the caret can be on either edge of its glyph.
-func (a *App) syncBracketHighlights(d *document) {
-	if d == nil || d.view == nil {
-		return
+// documentColorPreview captures the independently edited preview at request time. The worker
+// reads only its immutable text; the window rejects an answer after the preview changes or moves.
+type documentColorPreview struct {
+	view     *editorview.View
+	text     rope.Rope
+	revision int
+}
+
+func (a *App) colorDecorationsPreview(d *document) documentColorPreview {
+	if preview := a.documentPreviewView(d); preview != nil {
+		return documentColorPreview{view: preview, text: preview.TextSnapshot(), revision: preview.Revision()}
 	}
-	view := d.view
-	state := a.editor.colorDecorations.docs[d.id]
-	if state != nil && state.bracketView == view && state.bracketRevision == view.Revision() && len(state.bracketMatches) != 0 {
-		start, end := view.Selection()
-		if start == end && !view.IsComposing() {
-			matches := state.bracketMatches
-			at, found := slices.BinarySearchFunc(matches, uint32(start), func(match bracketMatch, offset uint32) int {
-				return cmp.Compare(match.offset, offset)
-			})
-			if !found && at > 0 && int(matches[at-1].offset)+1 == start {
-				at, found = at-1, true
-			}
-			if found {
-				offset, mate := int(matches[at].offset), int(matches[at].mate)
-				view.SetBracketHighlights(min(offset, mate), max(offset, mate))
-				return
-			}
-		}
-	}
-	view.SetBracketHighlights(-1, -1)
+	return documentColorPreview{}
+}
+
+func (a *App) currentColorDecorationsPreview(p *project, d *document, state *documentColorDecorations, generation uint64, view *editorview.View, revision int, preview documentColorPreview) bool {
+	return preview.view != nil && !preview.text.Same(view.TextSnapshot()) &&
+		a.currentColorDecorationsRequest(p, d, state, generation, view) && view.Revision() == revision &&
+		a.documentPreviewView(d) == preview.view && preview.view.Revision() == preview.revision
 }
 
 func (a *App) refreshBuiltinRainbowColors() {
@@ -302,6 +311,7 @@ func (a *App) refreshBuiltinRainbowColors() {
 				continue
 			}
 			d.view.ClearColorDecorations()
+			a.clearSourcePreviewColors(d)
 			a.scheduleColorDecorations(p, d, 0)
 		}
 	}
@@ -321,6 +331,7 @@ func (a *App) finishColorDecorations(p *project, d *document, state *documentCol
 		a.backgroundFailed("plugin_color_decorations", err)
 	}
 	view.SetPreparedColorDecorations(prepared)
+	a.syncSourcePreviewDecorations(d)
 }
 
 func (a *App) currentColorDecorationsRequest(p *project, d *document, state *documentColorDecorations, generation uint64, view *editorview.View) bool {
@@ -351,7 +362,8 @@ func (a *App) dropColorDecorations(d *document) {
 	}
 	if d.view != nil {
 		d.view.ClearColorDecorations()
-		d.view.SetBracketHighlights(-1, -1)
+		d.view.SetBracketMatches(nil)
 		d.view.SetIndentGuideScopes(editorview.PreparedIndentGuideScopes{})
+		a.clearSourcePreviewDecorations(d)
 	}
 }

@@ -76,7 +76,10 @@ func TestVisualEditorContextHighlights(t *testing.T) {
 			open, close := strings.LastIndex(text, "{"), strings.Index(text, "    }")+4
 			v.SetSelection(open, open)
 			v.SetSymbolHighlights(nil)
-			v.SetBracketHighlights(open, close)
+			v.SetBracketMatches([]editorview.BracketMatch{
+				{Offset: uint32(open), Mate: uint32(close)},
+				{Offset: uint32(close), Mate: uint32(open)},
+			})
 			capture("context-brackets")
 		})
 	}

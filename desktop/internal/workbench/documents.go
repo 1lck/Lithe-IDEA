@@ -641,6 +641,7 @@ func (a *App) selectDocument(p *project, id int) {
 	a.focusDocument(id)
 	p.touchDocument(id)
 	if d := p.docs.find(id); d != nil {
+		a.syncSymbolHighlights(p, d)
 		a.noteRecentFile(p, d, "opened")
 		if d.actionsTimedOut {
 			a.scheduleEditorActions(p, d)

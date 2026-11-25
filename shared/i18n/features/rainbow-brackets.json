@@ -86,6 +86,13 @@
       ]
     },
     {
+      "id": "desktop.editorPrefs.rainbowInvalidHex",
+      "description": "Validation message for an invalid rainbow hex color",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.editorPrefs.rainbowResetPalette",
       "description": "Reset the current rainbow palette to defaults",
       "platforms": [
@@ -128,6 +135,7 @@
       "desktop.editorPrefs.rainbowSaturation": "Saturation and brightness",
       "desktop.editorPrefs.rainbowHue": "Hue",
       "desktop.editorPrefs.rainbowHex": "Hex color",
+      "desktop.editorPrefs.rainbowInvalidHex": "Invalid hex color",
       "desktop.editorPrefs.rainbowResetPalette": "Reset palette",
       "desktop.editorPrefs.rainbowPaletteColor": "{palette}, color {number}",
       "desktop.editorPrefs.rainbowAddColor": "Add color to {palette}"
@@ -145,6 +153,7 @@
       "desktop.editorPrefs.rainbowSaturation": "饱和度和亮度",
       "desktop.editorPrefs.rainbowHue": "色相",
       "desktop.editorPrefs.rainbowHex": "十六进制颜色",
+      "desktop.editorPrefs.rainbowInvalidHex": "无效的十六进制颜色",
       "desktop.editorPrefs.rainbowResetPalette": "恢复默认配色",
       "desktop.editorPrefs.rainbowPaletteColor": "{palette}，第 {number} 个颜色",
       "desktop.editorPrefs.rainbowAddColor": "向{palette}添加颜色"

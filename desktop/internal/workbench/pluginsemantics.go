@@ -1963,14 +1963,19 @@ func (a *App) pluginSemanticsDocumentClosed(d *document) {
 	a.closePluginSemantics()
 }
 
-// pluginSemanticsReset drops every popup, deferred request and pending
-// operation, for a project switch or a stopped server.
+// pluginSemanticsReset drops transient popups and their deferred work. Callers
+// separately release server-owned editor requests or the entire project's work.
 func (a *App) pluginSemanticsReset() {
-	a.clearSymbolHighlights()
 	a.closePluginSemantics()
 	a.cancelSemanticKind(pluginSemanticRename)
 	a.semantics.rename = renameState{}
+	// A single server's release can leave other editor requests alive. Keep
+	// their replies when Core answered before the operation ID was bound.
+	early := a.semantics.early
 	a.semantics.early = nil
+	for _, result := range early {
+		a.queueEarlySemanticResult(result.server, result.event)
+	}
 	a.semantics.deferred = nil
 	a.semantics.project = nil
 	a.semantics.documentID = 0

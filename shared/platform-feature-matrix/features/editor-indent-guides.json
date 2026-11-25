@@ -10,7 +10,10 @@
       "desktop/internal/editorview/indent_guides.go",
       "desktop/internal/editorview/indent_guides_test.go",
       "desktop/internal/settingswindow/editor_preferences_view.go",
-      "desktop/internal/workbench/editor_view.go"
+      "desktop/internal/workbench/editor_view.go",
+      "desktop/internal/workbench/editor_presentation.go",
+      "desktop/internal/workbench/source_preview_rainbow_test.go",
+      "desktop/internal/workbench/source_preview_rainbow_visual_test.go"
     ]
   },
   "windows": {
@@ -20,10 +23,13 @@
       "desktop/internal/editorview/indent_guides.go",
       "desktop/internal/editorview/indent_guides_test.go",
       "desktop/internal/settingswindow/editor_preferences_view.go",
-      "desktop/internal/workbench/editor_view.go"
+      "desktop/internal/workbench/editor_view.go",
+      "desktop/internal/workbench/editor_presentation.go",
+      "desktop/internal/workbench/source_preview_rainbow_test.go",
+      "desktop/internal/workbench/source_preview_rainbow_visual_test.go"
     ]
   },
   "owner": "Editor",
   "notes": "普通参考线默认显示，彩虹参考线默认关闭。子开关随父开关禁用，已保存的选择会在重新打开父开关后生效。彩虹色与括号和变量共用明暗色板。",
-  "verification": "在明暗主题和独立文件窗口中打开有多层缩进的源码。检查参考线限于代码块内部，光标移到同级代码块时只有当前作用域参考线加深对比度。检查空白行、Tab 和空格缩进、滚动和换行。依次切换两级开关，确认颜色按深度变化、主开关关闭时线条消失，重新打开后恢复原来的子开关值。"
+  "verification": "在明暗主题和独立文件窗口中打开有多层缩进的源码。检查参考线限于代码块内部，光标移到同级代码块时只有当前作用域参考线加深对比度。检查空白行、Tab 和空格缩进、滚动和换行。依次切换两级开关，确认颜色按深度变化、主开关关闭时线条消失，重新打开后恢复原来的子开关值。 在 Problems 完整源码预览中检查相同的参考线开关和明暗主题色板，编辑主文档与预览后保持一致。"
 }

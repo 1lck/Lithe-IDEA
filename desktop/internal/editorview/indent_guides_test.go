@@ -1,6 +1,7 @@
 package editorview
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -86,5 +87,126 @@ func TestIndentGuidesBoundAndEmphasizeTheCaretScope(t *testing.T) {
 		if highlighted != tc.rows {
 			t.Fatalf("caret at %s highlighted %d rows, want %d", tc.caret, highlighted, tc.rows)
 		}
+	}
+}
+
+func TestIndentGuidesKeepIndentationBlocksAlongsideBraceScopes(t *testing.T) {
+	source := "def collect():\n    mapping = {\n        'first': 1,\n    }\n    if enabled:\n        gather()\n        refine()\n    if other:\n        discard()\n"
+	v := newTestView(t, source)
+	v.hl.Close()
+	text := v.TextSnapshot()
+	v.SetIndentGuideScopes(PrepareIndentGuideScopes(text, []IndentGuideScope{{
+		Open: strings.IndexByte(source, '{'), Close: strings.IndexByte(source, '}'),
+	}}))
+	v.SetPresentation(Presentation{IndentGuides: true})
+	caret := strings.Index(source, "gather")
+	v.SetSelection(caret, caret)
+	canvas := new(gfx.Canvas)
+	foreground := gfx.RGB24(0xCDD2D8)
+	v.Paint(canvas, gfx.Rect{Width: 600, Height: 420}, Look{Foreground: foreground})
+
+	var guides, active [9]int
+	for _, rect := range canvas.Rectangles() {
+		if rect.Bounds.Width != 1 || rect.Color.Red != foreground.Red {
+			continue
+		}
+		line := int(rect.Bounds.Y / v.lineH)
+		if line < 0 || line >= len(guides) {
+			t.Fatalf("guide outside code at y=%v", rect.Bounds.Y)
+		}
+		guides[line]++
+		if rect.Color.Alpha > 0.4 {
+			active[line]++
+		}
+	}
+	if want := [9]int{0, 1, 1, 1, 1, 2, 2, 1, 2}; guides != want {
+		t.Fatalf("guides by line = %v, want %v", guides, want)
+	}
+	if want := [9]int{5: 1, 6: 1}; active != want {
+		t.Fatalf("active guides by line = %v, want %v", active, want)
+	}
+}
+
+func TestIndentGuidesConnectOuterIndentationThroughNestedDictionary(t *testing.T) {
+	source := "def collect():\n    if enabled:\n        mapping = {\n            'first': 1,\n        }\n        gather()\n"
+	v := newTestView(t, source)
+	v.hl.Close()
+	text := v.TextSnapshot()
+	v.SetIndentGuideScopes(PrepareIndentGuideScopes(text, []IndentGuideScope{{
+		Open: strings.IndexByte(source, '{'), Close: strings.IndexByte(source, '}'),
+	}}))
+	v.SetPresentation(Presentation{IndentGuides: true, IndentGuideColors: []string{"#E17C5F", "#63BBA8"}})
+	canvas := new(gfx.Canvas)
+	for _, tc := range []struct {
+		caret        string
+		activeColumn int
+	}{{"if enabled", 4}, {"gather", 8}} {
+		caret := strings.Index(source, tc.caret)
+		v.SetSelection(caret, caret)
+		canvas.Reset()
+		v.Paint(canvas, gfx.Rect{Width: 600, Height: 420}, Look{Foreground: gfx.RGB24(0xCDD2D8)})
+
+		// Both guides are visible on the dictionary body, and only the caret's
+		// surrounding indentation is emphasized through the structural segment.
+		for i, column := range [...]int{4, 8} {
+			ink := gfx.RGB24([...]uint32{0xE17C5F, 0x63BBA8}[i])
+			if column == tc.activeColumn {
+				ink.Alpha = 0.9
+			} else {
+				ink.Alpha = 0.45
+			}
+			found := false
+			wantX := float32(math.Floor(float64(v.textLeft+float32(column)*v.cellW))) - 1
+			for _, rect := range canvas.Rectangles() {
+				if rect.Bounds.Width == 1 && rect.Bounds.Y == 3*v.lineH && rect.Bounds.X == wantX && rect.Color == ink {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("caret at %q: column %d guide missing or incorrectly styled in dictionary body", tc.caret, column)
+			}
+		}
+	}
+}
+
+func TestIndentGuideAlignsToOpeningLineWhenCloserFollowsCode(t *testing.T) {
+	for _, tc := range []struct {
+		name, closeLine string
+		column          int
+	}{
+		{"inline", "        finish(); }", 4},
+		{"leading", "  }", 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := "class Sample {\n    void run() {\n        start();\n" + tc.closeLine + "\n}\n"
+			v := newTestView(t, source)
+			v.hl.Close()
+			text := v.TextSnapshot()
+			v.SetIndentGuideScopes(PrepareIndentGuideScopes(text, []IndentGuideScope{
+				{Open: text.LineEnd(0) - 1, Close: text.LineEnd(4) - 1},
+				{Open: text.LineEnd(1) - 1, Close: text.LineEnd(3) - 1},
+			}))
+			caret := strings.Index(source, "start")
+			v.SetSelection(caret, caret)
+			v.SetPresentation(Presentation{IndentGuides: true})
+			canvas := new(gfx.Canvas)
+			foreground := gfx.RGB24(0xCDD2D8)
+			v.Paint(canvas, gfx.Rect{Width: 600, Height: 420}, Look{Foreground: foreground})
+			wantX := float32(math.Floor(float64(v.textLeft+float32(tc.column)*v.cellW))) - 1
+			count := 0
+			for _, rect := range canvas.Rectangles() {
+				if rect.Bounds.Width != 1 || rect.Color.Red != foreground.Red || rect.Color.Alpha < 0.4 {
+					continue
+				}
+				if rect.Bounds.X != wantX || rect.Bounds.Y != 2*v.lineH {
+					t.Fatalf("active guide at (%v,%v), want (%v,%v)", rect.Bounds.X, rect.Bounds.Y, wantX, 2*v.lineH)
+				}
+				count++
+			}
+			if count != 1 {
+				t.Fatalf("painted %d active guide segments, want one on the block body", count)
+			}
+		})
 	}
 }

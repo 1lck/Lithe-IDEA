@@ -68,6 +68,8 @@ macOS 的本地手动打包可用 `package-desktop.sh --ad-hoc-sign` 生成有�
 
 ### 独立工作树的本地编译
 
+编辑器显示偏好仍存放在 `<os.UserConfigDir()>/Lithe Desktop/settings.json`。同目录的 `.settings.lock` 由原生设置存储持有，只协调各客户端进程的读取与原子保存；关闭事务句柄或进程退出即释放 OS 锁，空文件留在用户配置目录避免锁身份变化。每个进程对该目录最多保留一个非递归原生观察器，最后一个工作台关闭时释放。它们属于用户运行时状态，不跨工作树复制，不写应用安装目录，不影响代码签名或增量更新基线。
+
 远程身份核验当前在平台临时目录创建随机的 `lithe-evidence-<random>/ssh.log`，目录仅当前用户可访问；它由这次连接尝试持有并在释放时清理，不是编译缓存，不跨工作树复制，也不写入 app bundle 或 Windows 安装目录。读取最多 64 KiB，但 OpenSSH 的持续写入尚未有界，连接仍持有已删除文件的情况也是待修复的发行阻塞。远端的 `<installRoot>/target-identity-v1` 是账户服务状态，由远端账户持有、随该状态目录删除；不得复制到另一目标作为缓存，否则可能复制目标身份。这些路径不属于本地签名或更新基线；新增 Core 临时证据路径的安装包内运行验证尚未完成。
 
 文件关联的打包声明由 `scripts/desktop/generate-file-associations.sh` 读取编辑器内置高亮元数据并调用 Core 生成，作为 `desktop/viva.toml` 的一部分由 Git 管理；打包前以 `--check` 拒绝目录漂移。生成器始终使用构建主机架构执行，即使包的目标架构不同；最终应用和辅助程序仍使用所选目标架构。它是构建输入，不是可跨工作树复制的缓存。运行期只读取系统默认应用，明确应用后写入 LaunchServices 或当前用户的 Windows 注册表，不生成偏好副本，也不改写 bundle、安装目录或插件资源，因此不影响签名和增量更新基线。`TestVisualFileAssociations` 的真实系统读取截图通过 `LITHE_VISUAL_OUTPUT_DIR` 写到当前检出的 `.artifacts/visual/file-associations/`，绑定本次源码、Core/Viva 修订、平台、语言和主题，不跨工作树复制、不进入发行包，由开发者或 CI 清理。

@@ -102,15 +102,16 @@ type EditorByteRange struct {
 }
 
 type EditorFindRequest struct {
-	Query         string           `json:"query"`
-	CaseSensitive bool             `json:"caseSensitive"`
-	WholeWord     bool             `json:"wholeWord"`
-	Regex         bool             `json:"regex"`
-	Range         *EditorByteRange `json:"range,omitempty"`
-	Replacement   *string          `json:"replacement,omitempty"`
-	ReplaceStart  *int             `json:"replaceStart,omitempty"`
-	Caret         int              `json:"caret"`
-	Backwards     bool             `json:"backwards"`
+	Query           string           `json:"query"`
+	CaseSensitive   bool             `json:"caseSensitive"`
+	WholeWord       bool             `json:"wholeWord"`
+	WholeIdentifier bool             `json:"wholeIdentifier,omitempty"`
+	Regex           bool             `json:"regex"`
+	Range           *EditorByteRange `json:"range,omitempty"`
+	Replacement     *string          `json:"replacement,omitempty"`
+	ReplaceStart    *int             `json:"replaceStart,omitempty"`
+	Caret           int              `json:"caret"`
+	Backwards       bool             `json:"backwards"`
 }
 
 type EditorReplacement struct {

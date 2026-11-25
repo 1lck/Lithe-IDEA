@@ -116,12 +116,13 @@ func (w *window) rainbowControls(c ui.C, current core.EditorPreferences) {
 func (w *window) rainbowPaletteRow(c ui.C, draft *rainbowPaletteEditor, title string, dark bool, current core.EditorPreferences) {
 	lang := w.marketLanguage()
 	labels := base.ColorPickerLabels{
-		Saturation: i18n.Shared(lang, "desktop.editorPrefs.rainbowSaturation"),
-		Hue:        i18n.Shared(lang, "desktop.editorPrefs.rainbowHue"),
-		Hex:        i18n.Shared(lang, "desktop.editorPrefs.rainbowHex"),
-		Clear:      i18n.Shared(lang, "ui.remove"),
-		Cancel:     w.text.Settings.Cancel,
-		Apply:      i18n.Shared(lang, "ui.save"),
+		Saturation:   i18n.Shared(lang, "desktop.editorPrefs.rainbowSaturation"),
+		Hue:          i18n.Shared(lang, "desktop.editorPrefs.rainbowHue"),
+		Hex:          i18n.Shared(lang, "desktop.editorPrefs.rainbowHex"),
+		InvalidColor: i18n.Shared(lang, "desktop.editorPrefs.rainbowInvalidHex"),
+		Clear:        i18n.Shared(lang, "ui.remove"),
+		Cancel:       w.text.Settings.Cancel,
+		Apply:        i18n.Shared(lang, "ui.save"),
 	}
 	if len(draft.swatches) == 1 {
 		labels.Clear = i18n.Shared(lang, "desktop.editorPrefs.rainbowResetPalette")

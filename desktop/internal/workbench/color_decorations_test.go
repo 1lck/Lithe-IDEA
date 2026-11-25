@@ -83,7 +83,7 @@ func use() {
 
 func TestBracketPairHighlightsEitherEndWithRainbowOff(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "pairs.go")
-	source := "package sample\nfunc use() {\n    if true {\n        println(\"}\")\n    }\n}\n"
+	source := "package sample\nfunc use() {\n    if true {\n        println(\"}\")\n        call(foo())\n    }\n}\n"
 	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestBracketPairHighlightsEitherEndWithRainbowOff(t *testing.T) {
 		}
 		return rects
 	}
-	click := func(offset int) {
+	gestureAt := func(offset int, press, release float32) {
 		t.Helper()
 		d.view.SetSelection(offset, offset)
 		paint()
@@ -126,16 +126,23 @@ func TestBracketPairHighlightsEitherEndWithRainbowOff(t *testing.T) {
 		}
 		result := h.app.documentPointer(p, d, gfx.PointerEvent{
 			Target: d.hit, Kind: gfx.PointerDown, Button: gfx.PointerButtonPrimary,
-			X: caret.X + 1, Y: caret.Y + caret.Height/2,
+			X: caret.X + d.view.CellWidth()*press, Y: caret.Y + caret.Height/2,
 		})
+		if press != release {
+			h.app.documentPointer(p, d, gfx.PointerEvent{
+				Target: d.hit, Kind: gfx.PointerMove,
+				X: caret.X + d.view.CellWidth()*release, Y: caret.Y + caret.Height/2,
+			})
+		}
 		h.app.documentPointer(p, d, gfx.PointerEvent{
 			Target: d.hit, Kind: gfx.PointerUp, Button: gfx.PointerButtonPrimary,
-			X: caret.X + 1, Y: caret.Y + caret.Height/2,
+			X: caret.X + d.view.CellWidth()*release, Y: caret.Y + caret.Height/2,
 		})
 		if !result.Handled {
 			t.Fatalf("click on offset %d was not handled", offset)
 		}
 	}
+	click := func(offset int) { gestureAt(offset, 0.125, 0.125) }
 	opener := strings.Index(source, "true {") + len("true ")
 	closer := strings.Index(source, "\n    }") + len("\n    ")
 	click(opener)
@@ -148,11 +155,45 @@ func TestBracketPairHighlightsEitherEndWithRainbowOff(t *testing.T) {
 	if got := paint(); !slices.Equal(got, expected) {
 		t.Fatalf("clicking the closer painted %v, want the same pair %v", got, expected)
 	}
+	innerClose := strings.Index(source, "())") + 1
+	click(innerClose)
+	inner := paint()
+	if len(inner) != 2 {
+		t.Fatalf("clicking the inner closer painted %v, want one complete pair", inner)
+	}
+	gestureAt(innerClose, 0.75, 0.75)
+	if got := paint(); !slices.Equal(got, inner) {
+		t.Fatalf("right half of the inner closer painted %v, want the clicked pair %v", got, inner)
+	}
+	gestureAt(innerClose, 0.75, 0.875)
+	if start, end := d.view.Selection(); start != innerClose+1 || end != start {
+		t.Fatalf("small mouse movement changed selection to %d..%d, want caret at %d", start, end, innerClose+1)
+	}
+	if got := paint(); !slices.Equal(got, inner) {
+		t.Fatalf("small mouse movement painted %v, want the clicked pair %v", got, inner)
+	}
+	gestureAt(innerClose, 0.75, -0.125)
+	if start, end := d.view.Selection(); start != innerClose || end != innerClose+1 {
+		t.Fatalf("drag selected %d..%d, want the inner closer at %d..%d", start, end, innerClose, innerClose+1)
+	}
+	if got := paint(); len(got) != 0 {
+		t.Fatalf("drag selection left the bracket pair highlighted: %v", got)
+	}
 	click(strings.Index(source, "\"}\"") + 1)
 	if got := paint(); len(got) != 0 {
 		t.Fatalf("brace inside string highlighted %v", got)
 	}
 	click(opener)
+	target := strings.Index(source, "sample")
+	d.find.matches = []core.EditorByteRange{{Start: target, End: target + len("sample")}}
+	h.app.stepEditorFind(d, 0)
+	if got := paint(); len(got) != 0 {
+		t.Fatalf("editor find left a stale bracket highlight %v", got)
+	}
+	d.view.SetSelection(closer, closer)
+	if got := paint(); !slices.Equal(got, expected) {
+		t.Fatalf("programmatic movement to the closer painted %v, want %v", got, expected)
+	}
 	if err := d.view.ApplyEdits([]editorview.TextEdit{{
 		Range: editorview.Range{Start: closer, End: closer + 1},
 	}}); err != nil {

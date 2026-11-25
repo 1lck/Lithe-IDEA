@@ -159,6 +159,39 @@ func TestEditorRainbowBracketsSavesAndRestoresRealPreferences(t *testing.T) {
 	}
 }
 
+func TestEditorRainbowPaletteShowsLocalizedInvalidHex(t *testing.T) {
+	language := i18n.Chinese
+	writes := 0
+	w := newWindow(NewController(Options{
+		Text:     func() *i18n.Messages { return i18n.For(language) },
+		Language: func() i18n.Language { return language },
+		SetEditorPreferences: func(core.EditorStoredPreferences, core.EditorPreferences) {
+			writes++
+		},
+	}), Values{Language: language.Code(), WindowWidth: windowMinWidth, WindowHeight: windowMinHeight})
+	w.sess.page = pageEditor
+	d := openWindow(t, w)
+	d.pump()
+	d.click(i18n.Shared(language, "desktop.editorPrefs.rainbowBrackets"))
+	d.pump()
+	light := i18n.Shared(language, "desktop.editorPrefs.rainbowLightColors")
+	swatch := i18n.SharedFormat(language, "desktop.editorPrefs.rainbowPaletteColor", map[string]string{"palette": light, "number": "1"})
+	d.click(swatch)
+	d.pump()
+	d.click(i18n.Shared(language, "desktop.editorPrefs.rainbowHex"))
+	d.typeText("G")
+	d.pump()
+	message := i18n.Shared(language, "desktop.editorPrefs.rainbowInvalidHex")
+	if !d.text(message) {
+		t.Fatalf("color picker did not show the localized error %q", message)
+	}
+	d.key(gfx.KeyEnter)
+	d.pump()
+	if writes != 1 || !d.text(message) {
+		t.Fatal("saving invalid hex should keep the error visible without changing preferences")
+	}
+}
+
 func TestEditorRainbowVariablesHasIndependentSwitchAndSharedPalette(t *testing.T) {
 	var stored core.EditorStoredPreferences
 	var resolved core.EditorPreferences

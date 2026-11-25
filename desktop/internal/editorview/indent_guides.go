@@ -15,6 +15,7 @@ type indentScopeGuide struct {
 	IndentGuideScope
 	first, end, column int
 	parent, depth      int
+	outerColumn        int
 }
 
 // PreparedIndentGuideScopes contains geometry for one immutable document snapshot.
@@ -35,18 +36,23 @@ func PrepareIndentGuideScopes(text rope.Rope, scopes []IndentGuideScope) Prepare
 			continue
 		}
 		start := text.LineStart(closeLine)
-		column, _ := ropeGuideIndent(text, start, scope.Close)
+		column, leading := ropeGuideIndent(text, start, scope.Close)
+		if !leading {
+			// A closer after code inherits the block opener's indentation.
+			column, _ = ropeGuideIndent(text, text.LineStart(openLine), scope.Open)
+		}
 		parent := len(prepared.guides) - 1
 		for parent >= 0 && prepared.guides[parent].Close < scope.Close {
 			parent = prepared.guides[parent].parent
 		}
-		depth := 0
+		depth, outerColumn := 0, column
 		if parent >= 0 {
 			depth = prepared.guides[parent].depth + 1
+			outerColumn = min(outerColumn, prepared.guides[parent].outerColumn)
 		}
 		prepared.guides = append(prepared.guides, indentScopeGuide{
 			IndentGuideScope: scope, first: openLine + 1, end: closeLine,
-			column: column, parent: parent, depth: depth,
+			column: column, parent: parent, depth: depth, outerColumn: outerColumn,
 		})
 	}
 	return prepared
@@ -190,12 +196,14 @@ func (v *View) paintIndentGuides(canvas *gfx.Canvas, cells, unit, active, from, 
 	}
 }
 
-func (v *View) paintScopeGuides(canvas *gfx.Canvas, scopes []indentScopeGuide, at, active, from, to, shift int, y float32, neutral gfx.Color) {
+func (v *View) paintScopeGuides(canvas *gfx.Canvas, scopes []indentScopeGuide, at, active, unit, fallbackDepth, from, to, shift int, y float32, neutral gfx.Color) {
 	previousColumn := to
+	depthOffset := max(0, (scopes[at].outerColumn-1)/unit)
 	for at >= 0 {
 		guide := scopes[at]
 		if guide.column >= from && guide.column < previousColumn {
-			v.paintIndentGuide(canvas, guide.column, guide.depth, shift, y, neutral, at == active)
+			highlight := at == active || (fallbackDepth > 0 && guide.column == fallbackDepth*unit)
+			v.paintIndentGuide(canvas, guide.column, depthOffset+guide.depth, shift, y, neutral, highlight)
 			previousColumn = guide.column
 		}
 		at = guide.parent

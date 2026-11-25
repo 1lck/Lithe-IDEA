@@ -70,6 +70,7 @@ installed_package_workflows=(
     desktop/internal/marketplace/delta_test.go:TestMarketplaceDeltaLeavesInstalledPackageUnchanged
     desktop/internal/plugininstall/pending_test.go:TestStageUpdateLeavesInstalledPackageUnchanged
     desktop/internal/pluginservice/package_lifecycle_test.go:TestUninstallWaitsForPackagePublicationInAnotherProcess
+    desktop/internal/workbench/editor_preferences_publication_test.go:TestEditorPreferencesLeavesInstalledPackageUnchanged
 )
 for workflow in $installed_package_workflows; do
     workflow_file=${workflow%%:*}

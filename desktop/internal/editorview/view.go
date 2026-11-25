@@ -236,9 +236,10 @@ type View struct {
 	indentGuideActive   fallbackIndentGuide
 	symbolRanges        []Range
 	symbolRevision      int
-	symbolSelection     span
-	bracketPair         [2]int
+	symbolSelection     Range
+	bracketMatches      []BracketMatch
 	bracketRevision     int
+	clickedBracket      bracketClick
 
 	// font is the font the view draws with, normalized; see SetFont. The cell size and line height
 	// below are measured from it at each paint.
@@ -583,6 +584,7 @@ func (v *View) GoToLine(line int) bool {
 	line = min(max(line, 1), v.text.LineCount())
 	v.anchor = v.text.LineStart(line - 1)
 	v.caret = v.anchor
+	v.clickedBracket = bracketClick{}
 	v.goal, v.lastKind, v.reveal = -1, editOther, true
 	return true
 }
@@ -619,6 +621,7 @@ func (v *View) GoToNavigation(line, column int, wholeLine bool) bool {
 		})
 		v.anchor = v.caret
 	}
+	v.clickedBracket = bracketClick{}
 	v.goal, v.lastKind, v.reveal = -1, editOther, true
 	return true
 }
@@ -1091,6 +1094,7 @@ func (v *View) moveTo(offset int, extend bool) {
 // moved notes that the caret moved: it shows solid, the next paint scrolls to it, and up and
 // down aim at its new column. A vertical move puts the column it aims at back afterwards.
 func (v *View) moved() {
+	v.clickedBracket = bracketClick{}
 	v.reveal = true
 	v.blinkFrom = v.clock
 	v.goal = -1
@@ -1192,28 +1196,48 @@ func (v *View) wordRight(offset int) int {
 	return at
 }
 
-// wordAt is the word, the run of spaces or the punctuation around offset, for a double click.
+// wordAt is the word, run of spaces, or punctuation around offset.
 func (v *View) wordAt(offset int) (int, int) {
+	return v.wordRangeAt(offset, charClass)
+}
+
+// clickedWordAt selects a source-language identifier in one gesture. Text
+// grammars keep the normal word selection used by plain text.
+func (v *View) clickedWordAt(offset int) (int, int) {
+	language := v.hl.Syntax()
+	if language == nil || !strings.HasPrefix(language.Language().Scope, "source.") {
+		return v.wordAt(offset)
+	}
+	return v.wordRangeAt(offset, func(r rune) int {
+		class := charClass(r)
+		if class == 3 && syntax.IdentifierContinuation(r) {
+			return 2
+		}
+		return class
+	})
+}
+
+func (v *View) wordRangeAt(offset int, classify func(rune) int) (int, int) {
 	n := v.text.Len()
 	if n == 0 {
 		return 0, 0
 	}
 	at := offset
-	if at >= n || charClass(v.runeAt(at)) == 0 {
+	if at >= n || classify(v.runeAt(at)) == 0 {
 		if at == 0 {
 			return 0, 0
 		}
 		at = v.prevRune(at)
 	}
-	class := charClass(v.runeAt(at))
+	class := classify(v.runeAt(at))
 	if class == 0 {
 		return offset, offset
 	}
 	start, end := at, v.nextRune(at)
-	for start > 0 && charClass(v.runeAt(v.prevRune(start))) == class {
+	for start > 0 && classify(v.runeAt(v.prevRune(start))) == class {
 		start = v.prevRune(start)
 	}
-	for end < n && charClass(v.runeAt(end)) == class {
+	for end < n && classify(v.runeAt(end)) == class {
 		end = v.nextRune(end)
 	}
 	return start, end

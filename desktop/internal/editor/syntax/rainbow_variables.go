@@ -54,7 +54,13 @@ func (v *variableCandidates) appendLine(line []byte, tokens []textmate.Token, li
 		// References can be plain runs inside calls, try bodies and other scopes nested
 		// in the method. Only recognize bare identifiers already seen as a variable.
 		plainJava := v.language == "java" && javaPlainMethodToken(token.Scopes)
-		if !(marked || plainJava) || !rainbowVariableName(word) {
+		identifier := word
+		if v.language == "rust" {
+			// The grammar includes the raw identifier prefix in the variable token.
+			// Validate its name, but retain the exact spelling and source range.
+			identifier = bytes.TrimPrefix(identifier, []byte("r#"))
+		}
+		if !(marked || plainJava) || !rainbowVariableName(identifier) {
 			continue
 		}
 		_, declared := v.javaNames[string(word)]
@@ -119,5 +125,5 @@ func rainbowVariableName(word []byte) bool {
 			return false
 		}
 	}
-	return true
+	return len(word) > 0
 }

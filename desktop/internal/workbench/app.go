@@ -1559,7 +1559,11 @@ func (a *App) saveSettings() {
 	// The background is the window's, which another tab may have changed since this one loaded.
 	a.settings.WorkbenchBackground = a.savedBackgroundState()
 	a.updates.store(&a.settings)
-	backup, err := a.store.SaveWithBackup(settingsFile, a.settings)
+	backup, err := a.saveSettingsSnapshot()
+	a.reportSettingsSave(backup, err)
+}
+
+func (a *App) reportSettingsSave(backup string, err error) {
 	if backup != "" {
 		a.noticeSettingsBackup(backup)
 	}

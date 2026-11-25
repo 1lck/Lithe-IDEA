@@ -199,6 +199,14 @@ func (a *App) documentView(c ui.C, group string, d *document) {
 
 // documentInput makes the handlers and the painter of document d, once, when it is opened.
 func (a *App) documentInput(p *project, d *document) {
+	var wasFocused bool
+	var textInput app.TextInput
+	var applyTextEvent func(app.TextEvent) (app.TextState, error)
+	onTextEvent := func(event app.TextEvent) (app.TextState, error) {
+		state, err := applyTextEvent(event)
+		a.syncSymbolHighlights(p, d)
+		return state, err
+	}
 	d.input = ui.Handlers{
 		Role:    gfx.RoleTerminal,
 		Key:     func(event gfx.KeyEvent) gfx.EventResult { return a.documentKey(p, d, event) },
@@ -211,24 +219,20 @@ func (a *App) documentInput(p *project, d *document) {
 		// Typing in the document's own editor points the language features back at it.
 		Text: func(ctx app.TextInputContext) *app.TextInput {
 			d.lens = nil
-			return d.view.TextInput(ctx)
+			input := d.view.TextInput(ctx)
+			if input == nil {
+				return nil
+			}
+			textInput = *input
+			applyTextEvent = input.OnEvent
+			textInput.OnEvent = onTextEvent
+			return &textInput
 		},
 	}
 	d.draw = func(dc *ui.DrawContext) {
 		v := d.view
 		prefs := a.editorPreferences
-		presentation := editorview.Presentation{
-			HideLineNumbers: !prefs.LineNumbers, ShowWhitespace: prefs.Whitespace,
-			CursorStyle: prefs.CursorStyle, DisableCursorBlink: !prefs.CursorBlink,
-			IndentGuides: prefs.IndentGuides,
-		}
-		if prefs.RainbowIndentGuidesEffective {
-			presentation.IndentGuideColors = prefs.RainbowBracketLightColors
-			if a.colors.Dark {
-				presentation.IndentGuideColors = prefs.RainbowBracketDarkColors
-			}
-		}
-		v.SetPresentation(presentation)
+		v.SetPresentation(a.editorPresentation())
 		v.Bind(d.hit, d.input.Parts())
 		// The minimap's button was declared by the last paint; its click turns the minimap of
 		// every view off or on, so the views painted after it in this paint follow too.
@@ -264,11 +268,17 @@ func (a *App) documentInput(p *project, d *document) {
 		}
 		if dc.State.Focused {
 			p.docs.group = d.group
-			if previous := a.semantics.symbolHighlights.key.document; previous != nil && previous != d {
-				a.clearSymbolHighlights()
-				a.invalidator.Invalidate()
+			if !wasFocused {
+				// Focus can move between visible split editors without selecting a tab.
+				// Restore once after paint, keeping snapshots and requests off the draw path.
+				a.post(func(a *App) {
+					if a.project == p && a.editorFocus == d.id {
+						a.syncSymbolHighlights(p, d)
+					}
+				})
 			}
 		}
+		wasFocused = dc.State.Focused
 	}
 }
 
@@ -287,7 +297,6 @@ func (a *App) documentViewKey(p *project, d *document, view *editorview.View, ev
 	defer a.pluginSemanticsCaretSync()
 	if view == d.view {
 		defer a.syncSymbolHighlights(p, d)
-		defer a.syncBracketHighlights(d)
 	}
 	if result := a.pluginSemanticsKey(event); result.Handled {
 		return result
@@ -338,7 +347,6 @@ func (a *App) documentPointer(p *project, d *document, event gfx.PointerEvent) g
 	}
 	result, handled := d.view.Pointer(event)
 	if handled {
-		a.syncBracketHighlights(d)
 		a.syncSymbolHighlights(p, d)
 	}
 	return result
