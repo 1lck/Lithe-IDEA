@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -104,6 +105,11 @@ func buildTestDeclares(instance *buildInstance, scope string) bool {
 		}
 	}
 	return false
+}
+
+// buildTestDeclaresFilter reports whether the instance declares support for the test filter.
+func buildTestDeclaresFilter(instance *buildInstance, filter string) bool {
+	return instance != nil && instance.System.Test != nil && slices.Contains(instance.System.Test.Filters, filter)
 }
 
 // buildTargetTestable reports whether a target-scope run of target is offered. Core refuses a
@@ -466,6 +472,12 @@ func (a *App) buildTestRow(row ui.ListRow, p *project, instance *buildInstance, 
 			c.After(func() {
 				a.performed("build.tests.runCase", surfaceContextMenu)
 				a.runDiscoveredTest(p, instance, test)
+			})
+		}
+		if (test.Case != "" || test.Suite != "") && menu.Item(i18n.Shared(a.language(), "git.jumpToSource")).Clicked() {
+			c.After(func() {
+				a.performed("build.tests.openSource", surfaceContextMenu)
+				a.openTestSource(p, test.Suite, test.Case)
 			})
 		}
 		a.buildTestsMenuItems(c, menu, p, instance)

@@ -5,17 +5,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 )
 
 // EventWorkspaceOpen is the activation event that starts a backend when a
 // workspace opens.
 const EventWorkspaceOpen = "onWorkspaceOpen"
+
+type workspaceNotificationRevision struct {
+	sessionID string
+	revision  uint64
+}
 
 // relayDeclaration is the part of a manifest the cross-plugin relay needs.
 type relayDeclaration struct {
@@ -34,18 +37,21 @@ func (s *Service) SyncFunctionRelay(ctx context.Context, entries []pluginmanager
 	if s == nil || s.Contexts == nil {
 		return nil
 	}
-	selected, selectionErr := s.selectInstalled(ctx, entries, false)
+	if s.kernel == nil {
+		return fmt.Errorf("%w: no kernel", ErrAssembly)
+	}
+	snapshot, readErr := s.ReadInstalled(ctx, entries)
+	if ctx.Err() != nil {
+		return readErr
+	}
+	return errors.Join(readErr, s.syncFunctionRelay(ctx, snapshot))
+}
+
+func (s *Service) syncFunctionRelay(ctx context.Context, snapshot InstalledSnapshot) error {
 	var plugins []core.RelayPlugin
 	var failures []error
-	if selectionErr != nil {
-		failures = append(failures, selectionErr)
-	}
-	for _, entry := range selected {
-		manifest, err := readBounded(filepath.Join(entry.Installed.Path, pluginpkg.ManifestFile), MaxManifestBytes)
-		if err != nil {
-			failures = append(failures, fmt.Errorf("%s: %w", entry.Installed.ID, err))
-			continue
-		}
+	for _, installed := range snapshot.manifests {
+		entry, manifest := installed.entry, installed.manifest
 		var declaration relayDeclaration
 		if json.Unmarshal(manifest, &declaration) != nil || declaration.PluginFunctions == nil {
 			continue
@@ -78,28 +84,45 @@ func (s *Service) ActivateWorkspace(ctx context.Context, entries []pluginmanager
 	if _, err := s.checkedWorkspaceContext(ctx, workspace); err != nil {
 		return err
 	}
-	selected, selectionErr := s.selectInstalled(ctx, entries, false)
-	failures := []error{selectionErr}
+	snapshot, readErr := s.ReadInstalled(ctx, entries)
+	return errors.Join(readErr, s.activateWorkspace(ctx, snapshot, workspace))
+}
+
+func (s *Service) activateWorkspace(ctx context.Context, snapshot InstalledSnapshot, workspace ContextRef) error {
+	var failures []error
 	if _, err := s.checkedWorkspaceContext(ctx, workspace); err != nil {
 		return errors.Join(append(failures, err)...)
 	}
-	for _, entry := range selected {
-		manifest, err := readBounded(filepath.Join(entry.Installed.Path, pluginpkg.ManifestFile), MaxManifestBytes)
-		if err != nil {
-			failures = append(failures, fmt.Errorf("%s: %w", entry.Installed.ID, err))
-			continue
-		}
+	for _, installed := range snapshot.manifests {
+		entry, manifest := installed.entry, installed.manifest
 		if !declaresBackend(manifest) || !declaredActivation(manifest, EventWorkspaceOpen) {
 			continue
 		}
 		if _, err := s.checkedWorkspaceContext(ctx, workspace); err != nil {
 			return errors.Join(append(failures, err)...)
 		}
-		if _, err := s.Host.EnsureBackend(ctx, entry.Installed.ID); err != nil {
+		if err := s.activateWorkspaceBackend(ctx, entry.Installed.ID, workspace); err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", entry.Installed.ID, err))
 		}
 	}
 	return errors.Join(failures...)
+}
+
+// activateWorkspaceBackend replays the current context revision after initialization. An open
+// notification sent before this backend existed cannot bootstrap its workspace providers.
+func (s *Service) activateWorkspaceBackend(ctx context.Context, pluginID string, workspace ContextRef) error {
+	if _, err := s.Host.EnsureBackend(ctx, pluginID); err != nil {
+		return err
+	}
+	if _, err := s.Host.Functions(ctx, pluginID); err != nil {
+		return err
+	}
+	if _, err := s.checkedWorkspaceContext(ctx, workspace); err != nil {
+		return err
+	}
+	s.contextsNotifyMu.Lock()
+	defer s.contextsNotifyMu.Unlock()
+	return s.notifyWorkspaceContextsLocked(ctx, pluginID, s.Contexts.Revision())
 }
 
 // checkedWorkspaceContext never creates an owner on behalf of delayed work.
@@ -126,6 +149,13 @@ func (s *Service) DetachWorkspaces() func() {
 	}
 	stopObserving := s.toolchainProviders.Invalidate()
 	s.Contexts.CloseAll()
+	if s.workflow != nil {
+		s.workflow.httpMu.Lock()
+		if s.workflow.transport != nil {
+			s.workflow.transport.CloseIdleConnections()
+		}
+		s.workflow.httpMu.Unlock()
+	}
 	stopBackend := s.Host.DetachAll()
 	return func() {
 		stopObserving()
@@ -154,10 +184,58 @@ func (s *Service) contextsChanged() {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
+		s.contextsNotifyMu.Lock()
+		defer s.contextsNotifyMu.Unlock()
 		if entries, err := s.Manager.Installed(); err == nil {
 			_ = s.SyncFunctionRelay(ctx, entries)
 		}
-		params, _ := json.Marshal(map[string]uint64{"revision": s.Contexts.Revision()})
-		s.Host.NotifyAll(ctx, grantWorkspace, notifyDidChangeCtxs, params)
+		if err := s.notifyWorkspaceContextsLocked(ctx, "", s.Contexts.Revision()); err != nil && s.ContextIssue != nil {
+			s.ContextIssue(ctx, err)
+		}
 	}()
+}
+
+// notifyWorkspaceContextsLocked sends the newest revision once to each ready backend session.
+// Callers hold contextsNotifyMu so activation and simultaneous open/close notifications cannot
+// be delivered out of order. A new backend session always starts with no delivered revision.
+func (s *Service) notifyWorkspaceContextsLocked(ctx context.Context, onlyPlugin string, revision uint64) error {
+	if s.contextsNotified == nil {
+		s.contextsNotified = make(map[string]workspaceNotificationRevision)
+	}
+	params, err := json.Marshal(map[string]uint64{"revision": revision})
+	if err != nil {
+		return err
+	}
+	ids := s.Host.RunningPlugins()
+	for pluginID := range s.contextsNotified {
+		if s.Host.Running(pluginID) == nil {
+			delete(s.contextsNotified, pluginID)
+		}
+	}
+	var failures []error
+	for _, pluginID := range ids {
+		if onlyPlugin != "" && pluginID != onlyPlugin {
+			continue
+		}
+		session := s.Host.Running(pluginID)
+		if session == nil || !session.granted(grantWorkspace) || !session.isReady() {
+			continue
+		}
+		last := s.contextsNotified[pluginID]
+		if last.sessionID == session.Session.ID && last.revision >= revision {
+			continue
+		}
+		delivered, err := s.Host.NotifyResult(ctx, pluginID, grantWorkspace, notifyDidChangeCtxs, params)
+		if err != nil {
+			failures = append(failures, fmt.Errorf("%s: %w", pluginID, err))
+			continue
+		}
+		if !delivered {
+			err := fmt.Errorf("%s: workspace change notification was not delivered", pluginID)
+			failures = append(failures, err)
+			continue
+		}
+		s.contextsNotified[pluginID] = workspaceNotificationRevision{sessionID: session.Session.ID, revision: revision}
+	}
+	return errors.Join(failures...)
 }

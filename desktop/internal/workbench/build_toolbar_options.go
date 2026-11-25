@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -23,9 +24,50 @@ type buildToolbarOption struct {
 	icon      pluginicons.Declaration
 }
 
-// buildToolbarOptions are the toolbar toggles the build system buildSystemID of manifest
-// declares, in declaration order. Only a boolean option with an icon can be one.
-func buildToolbarOptions(manifest json.RawMessage, buildSystemID string) []buildToolbarOption {
+// sameRawJSON reports whether two json.RawMessage slices refer to identical underlying bytes.
+func sameRawJSON(a, b json.RawMessage) bool {
+	return len(a) == len(b) && (len(a) == 0 || &a[0] == &b[0])
+}
+
+// ensureManifestCache parses the instance's manifest once per Manifest/BuildSystemID to cache
+// whether options exist and which boolean options appear on the Build toolbar.
+func (instance *buildInstance) ensureManifestCache() {
+	if instance == nil {
+		return
+	}
+	if instance.manifestCached && instance.manifestCachedFor == instance.BuildSystemID && sameRawJSON(instance.manifestCachedBytes, instance.Manifest) {
+		return
+	}
+	hasOptions, toolbar := parseBuildManifestOptions(instance.Manifest, instance.BuildSystemID)
+	instance.manifestCached = true
+	instance.manifestCachedFor = instance.BuildSystemID
+	instance.manifestCachedBytes = instance.Manifest
+	instance.manifestHasOptions = hasOptions
+	instance.manifestToolbarOptions = toolbar
+}
+
+// hasDeclaredOptions reports whether the instance's build system declares any options in its manifest.
+func (instance *buildInstance) hasDeclaredOptions() bool {
+	if instance == nil {
+		return false
+	}
+	instance.ensureManifestCache()
+	return instance.manifestHasOptions
+}
+
+// toolbarOptions returns the cached toolbar toggles declared for the instance's build system.
+func (instance *buildInstance) toolbarOptions() []buildToolbarOption {
+	if instance == nil {
+		return nil
+	}
+	instance.ensureManifestCache()
+	return instance.manifestToolbarOptions
+}
+
+// parseBuildManifestOptions parses whether buildSystemID declares any options in manifest and
+// collects its boolean toolbar toggles in declaration order. Only a boolean option with an icon
+// can be a toolbar toggle.
+func parseBuildManifestOptions(manifest json.RawMessage, buildSystemID string) (bool, []buildToolbarOption) {
 	var declared struct {
 		BuildSystems []struct {
 			ID      string `json:"id"`
@@ -43,12 +85,16 @@ func buildToolbarOptions(manifest json.RawMessage, buildSystemID string) []build
 		} `json:"buildSystems"`
 	}
 	if json.Unmarshal(manifest, &declared) != nil {
-		return nil
+		return false, nil
 	}
+	hasOptions := false
 	var options []buildToolbarOption
 	for _, system := range declared.BuildSystems {
 		if system.ID != buildSystemID {
 			continue
+		}
+		if len(system.Options) > 0 {
+			hasOptions = true
 		}
 		for _, option := range system.Options {
 			if option.Presentation != "toolbar" || option.Kind != "boolean" || option.Icon == nil || option.Icon.Path == "" {
@@ -63,13 +109,12 @@ func buildToolbarOptions(manifest json.RawMessage, buildSystemID string) []build
 			}})
 		}
 	}
-	return options
+	return hasOptions, options
 }
 
 // optionOn reports whether the boolean option id of instance is on in its stored options.
 func (instance *buildInstance) optionOn(id string) bool {
-	var on bool
-	return json.Unmarshal(instance.Options[id], &on) == nil && on
+	return bytes.Equal(bytes.TrimSpace(instance.Options[id]), []byte("true"))
 }
 
 // buildToolbarToggles declares the toolbar toggles of the selected instance. An icon not read yet
@@ -82,7 +127,7 @@ func (a *App) buildToolbarToggles(c ui.C, p *project) {
 	}
 	b := &p.build
 	busy := b.optionSaving || b.loading || b.operation != nil
-	for index, option := range buildToolbarOptions(instance.Manifest, instance.BuildSystemID) {
+	for _, option := range instance.toolbarOptions() {
 		icon := icons.Settings
 		if found, ok := a.pluginIcons.Lookup(instance.PluginID, option.icon); ok {
 			icon = found.For(a.colors.Dark)
@@ -95,7 +140,7 @@ func (a *App) buildToolbarToggles(c ui.C, p *project) {
 			state = i18n.Shared(a.language(), "desktop.build.toggleOn")
 		}
 		label := i18n.SharedFormat(a.language(), "desktop.build.toggleOption", map[string]string{"option": option.title, "state": state})
-		if _, hit := a.toolIconButton(c.KeyInt(index), label, icon, on, busy); hit {
+		if _, hit := a.toolIconButton(c.Key("toggle:"+option.id), label, icon, on, busy); hit {
 			instanceID, optionID := instance.ID, option.id
 			c.After(func() {
 				a.performed("build.toolbarOption.toggle", surfaceButton)

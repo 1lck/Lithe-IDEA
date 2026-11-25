@@ -10,6 +10,8 @@
       "desktop/internal/core/managed_runtimes.go",
       "desktop/internal/core/managed_runtimes_test.go",
       "desktop/internal/pluginruntime/",
+      "desktop/internal/atomicfile/atomicfile.go",
+      "desktop/internal/atomicfile/atomicfile_test.go",
       "desktop/internal/pluginservice/runtimes.go",
       "desktop/internal/pluginservice/runtimes_test.go",
       "desktop/internal/pluginservice/runtime_lifecycle.go",
@@ -35,7 +37,9 @@
     "evidence": [
       "desktop/internal/core/managed_runtimes.go",
       "desktop/internal/pluginruntime/",
-      "desktop/internal/pluginruntime/lock_windows.go",
+      "desktop/internal/atomicfile/atomicfile.go",
+      "desktop/internal/atomicfile/atomicfile_test.go",
+      "desktop/internal/filelock/lock_windows.go",
       "desktop/internal/pluginservice/runtimes.go",
       "desktop/internal/pluginservice/runtime_lifecycle.go",
       "desktop/internal/pluginbackend/pluginbackend_test.go",
@@ -54,7 +58,7 @@
     ]
   },
   "owner": "Plugins",
-  "verification": "合成插件测试通过真实 Core 清单与回复校验，使用本地传输夹具验证外部安装零下载、仅下载缺失项、插件版本变化不重复下载、缓存破损从已校验归档恢复、哈希与解压路径拒绝、并发和取消、失败不改旧目录以及准备后端不参与函数转发；验证无后端探测即可汇总受管工具与未绑定依赖到工具链设置视图，并可在缺失时按需触发准备、就绪后触发校验修复。使用合成可执行文件验证当前与其他已打开项目的 PATH、全局符号链接和检查函数返回路径不会绕过工具信任；绑定工具保持 Core 验证的规范文件与目录身份，工作区关闭后释放根引用。运行 desktop-go.sh test ./internal/toolchain/ ./internal/pluginservice/ ./internal/settingswindow/ ./internal/workbench/ 覆盖绑定/未绑定受管依赖投影与准备按钮。macOS 与 Windows 真机仍保留 pending 状态以完成完整安装与原生流程验收。",
-  "notes": "通用能力 managedRuntimes 0/1 和权限 runtimes.install；清单、归档选择、缓存键及结果完整性由独立 Core 仓库定义，插件检查版本与目录是否合用。状态在 <plugin-root>/.state/<plugin-id>/runtimes/，与插件版本分开；旧插件不进入新流程。安装与更新不再阻塞下载受管依赖，改为在工具链“插件自用运行时”页按需准备/修复或在语言服务器首次启动前自动准备。平台实现共用 Go/Viva 服务，Windows 使用本机文件锁和可执行文件验证，实机验证状态独立保留为 pending。",
+  "verification": "合成插件测试通过真实 Core 清单与回复校验，使用本地传输夹具验证外部安装零下载、仅下载缺失项、插件版本变化不重复下载、缓存破损从已校验归档恢复、哈希与解压路径拒绝、并发和取消、失败不改旧目录以及准备后端不参与函数转发；验证无后端探测即可汇总受管工具与未绑定依赖到工具链设置视图，并可在缺失时按需触发准备、就绪后触发校验修复。使用合成可执行文件验证当前与其他已打开项目的 PATH、全局符号链接和检查函数返回路径不会绕过工具信任；绑定工具保持 Core 验证的规范文件与目录身份，工作区关闭后释放根引用。运行 desktop-go.sh test ./internal/toolchain/ ./internal/pluginservice/ ./internal/settingswindow/ ./internal/workbench/ 覆盖绑定/未绑定受管依赖投影与准备按钮。 #2257：desktop-go.sh test -race -tags 'dev vivahead' -count=1 ./internal/atomicfile ./internal/pluginruntime 覆盖流式写入归档、sync/close 后及改名前 ctx.Err 取消检查与崩溃残留 .archive.* 清理。macOS 与 Windows 真机仍保留 pending 状态以完成完整安装与原生流程验收。",
+  "notes": "通用能力 managedRuntimes 0/1 和权限 runtimes.install；清单、归档选择、缓存键及结果完整性由独立 Core 仓库定义，插件检查版本与目录是否合用。状态在 <plugin-root>/.state/<plugin-id>/runtimes/，与插件版本分开；旧插件不进入新流程。安装与更新不再阻塞下载受管依赖，改为在工具链“插件自用运行时”页按需准备/修复或在语言服务器首次启动前自动准备。平台实现共用 Go/Viva 服务，Windows 使用本机文件锁和可执行文件验证，实机验证状态独立保留为 pending。 #2257：pluginruntime.archive 改用 atomicfile.WriteWithCheck 流式写入（不额外缓存整包、保留 rename 前取消校验）并在 removeAbandoned 清理 .archive.* 残留。",
   "lastReviewed": "2026-11-19"
 }

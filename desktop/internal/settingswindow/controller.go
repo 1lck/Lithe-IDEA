@@ -17,6 +17,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/cli"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/fileassociations"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
@@ -293,6 +294,11 @@ type PluginViewLoader interface {
 	View(ctx context.Context, editor pluginservice.SettingsEditor, region, function string, event, view json.RawMessage, closing bool) (json.RawMessage, bool, error)
 }
 
+// PluginViewWatcher connects backend invalidations to a visible settings region.
+type PluginViewWatcher interface {
+	WatchView(pluginID, instance string, refresh func()) func()
+}
+
 // PluginSourceSettingsLoader publishes only explicitly saved native-source drafts.
 type PluginSourceSettingsLoader interface {
 	SaveSources(context.Context, pluginservice.SettingsEditor, string, pluginsettings.SourceEditor, []core.SourceSettingsEdits) (pluginsettings.SourceEditor, error)
@@ -385,8 +391,12 @@ type SearchPreferencesSource interface {
 
 // Options configure the settings window.
 type Options struct {
-	CLI               *cli.Manager
-	CLIAction         func(string)
+	CLI              *cli.Manager
+	CLIAction        func(string)
+	FileAssociations *fileassociations.Manager
+	// AssociationAction and AssociationError retain the originating settings operation.
+	AssociationAction func(context.Context, string) context.Context
+	AssociationError  func(context.Context, error)
 	SearchPreferences SearchPreferencesSource
 	// PluginInstallsClosed releases downloads retained by the settings session.
 	PluginInstallsClosed func()
@@ -540,9 +550,6 @@ type Options struct {
 	// is false until Core has answered. Nil hides the stop time, for a platform where a
 	// stopped program is ended at once.
 	StopTime func() (rule StopTime, ok bool)
-	// SweepsLeftovers says the client finds, at start-up, the processes an earlier run left
-	// behind; false hides the setting for them.
-	SweepsLeftovers bool
 	// SetKeymap hands a change of Values.Keymap to the settings owner, like SetTabRows.
 	SetKeymap            func(shortcuts.Overrides)
 	SetEditorPreferences func(core.EditorStoredPreferences, core.EditorPreferences)

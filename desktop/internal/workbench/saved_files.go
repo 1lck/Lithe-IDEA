@@ -249,7 +249,7 @@ func (a *App) drawSavedFolderArrow(c ui.C, f *savedFiles, r savedFileRow, dir st
 	slot := ui.Row(k).Size(treelist.Disclosure, treelist.Icon).Shrink(0).Center().
 		HitWith(ui.ID(k), name+" "+dir, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, Expandable: true, Expanded: open, SkipFocus: true})
 	slot.Children(func() {
-		ui.Icon(k, chevron).Size(12, 12).Color(a.colors.Subtle)
+		ui.Icon(c, chevron).Size(12, 12).Color(a.colors.Subtle)
 	})
 	if slot.Clicked() {
 		layer, folder := r.layer, r.folder

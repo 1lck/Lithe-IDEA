@@ -124,8 +124,9 @@ func (c *remoteHostClose) session(n int, resume *core.RemoteResume) *core.Remote
 		c.keys = map[string]string{}
 	}
 	id := "session-" + strconv.Itoa(n)
-	session := &core.RemoteSession{ID: id, HostName: "devbox", UserName: "dev", HomeDirectory: remoteTestHome, SessionKey: "key-" + strconv.Itoa(n)}
-	if resume != nil && resume.Token == "token-"+strings.TrimPrefix(resume.Key, "key-") {
+	session := &core.RemoteSession{ID: id, HostName: "devbox", UserName: "dev", HomeDirectory: remoteTestHome, SessionKey: "key-" + strconv.Itoa(n), SessionBinding: strings.Repeat("b", 64)}
+	session.ResumeConsumed = resume != nil && resume.Binding == session.SessionBinding
+	if session.ResumeConsumed && resume.Token == "token-"+strings.TrimPrefix(resume.Key, "key-") {
 		if kept, ok := c.kept[resume.Key]; ok {
 			delete(c.kept, resume.Key)
 			session.SessionKey, session.Resumed, session.KeptPrograms = resume.Key, true, kept

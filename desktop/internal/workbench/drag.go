@@ -340,7 +340,7 @@ func (a *App) paintSnappedToolGhost(canvas *gfx.Canvas, d *dragState) {
 		gfx.Rect{Width: d.viewport.Width, Height: d.viewport.Height},
 	)
 	canvas.RoundedBorder(ghost, dragGhostRadius, dragGhostBorderWidth, a.colors.Accent, a.colors.Ground)
-	if icon := a.chrome.catalog[d.item].icon; icon != nil {
+	if icon := a.chromeItemIcon(d.item); icon != nil {
 		canvas.DrawIcon(*icon, ghost.Inset(gfx.All(dragSnappedGhostIconInset)), a.colors.Text)
 	}
 }
@@ -366,7 +366,7 @@ func (a *App) paintDetachedToolGhost(canvas *gfx.Canvas, d *dragState) {
 	}
 	color = color.WithAlpha(dragFloatingGhostOpacity)
 	canvas.RoundedBorder(ghost, dragFloatingGhostRadius, dragFloatingGhostBorderWidth, color, color)
-	if icon := a.chrome.catalog[d.item].icon; icon != nil {
+	if icon := a.chromeItemIcon(d.item); icon != nil {
 		canvas.DrawIcon(*icon, ghost.Inset(gfx.All(dragFloatingGhostIconInset)), a.colors.Text.WithAlpha(dragFloatingGhostOpacity))
 	}
 }
@@ -407,7 +407,7 @@ func (a *App) paintDetachedDropPreview(canvas *gfx.Canvas, target dragTarget) {
 // because those bars do not detach into the workbench. A title bar button that may also sit
 // on the stripes takes it while the pointer is over the title bar.
 func (a *App) paintLegacyDragGhost(canvas *gfx.Canvas, d *dragState) {
-	icon := a.chrome.catalog[d.item].icon
+	icon := a.chromeItemIcon(d.item)
 	text := a.dragGhostText(d.item)
 	ghost := gfx.Rect{X: d.x + dragGhostOffset, Y: d.y + dragGhostOffset, Width: dragGhostSize, Height: dragGhostSize}
 	if text != "" {

@@ -61,7 +61,7 @@ func (a *App) markdownImageBitmap(p *project, d *document, s *markdownPreviewSta
 	}
 	image := &markdownImage{loading: true}
 	s.images[destination] = image
-	path, root, remote := s.path, p.root, a.previewRemote()
+	path, root, remote := s.path, p.previewWorkspaceRoot(), a.previewRemote()
 	a.background(p, markdownImageTimeout, func(ctx context.Context) func(*App) {
 		bitmap, err := loadMarkdownImage(ctx, kernel, path, root, destination, remote)
 		return func(a *App) {

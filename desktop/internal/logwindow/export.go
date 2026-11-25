@@ -29,6 +29,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/atomicfile"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logstore"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
@@ -587,21 +588,7 @@ func bundlePath(content, relative string) (string, error) {
 
 // writeAtomic replaces path with data: a reader sees the old file or the whole new one.
 func writeAtomic(path string, data []byte) error {
-	dir, name := filepath.Split(path)
-	file, err := os.CreateTemp(dir, "."+name+".*.tmp")
-	if err != nil {
-		return err
-	}
-	temp := file.Name()
-	defer os.Remove(temp)
-	if _, err := file.Write(data); err != nil {
-		file.Close()
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	return os.Rename(temp, path)
+	return atomicfile.Write(path, data, 0o600)
 }
 
 // zipFolder packs folder into a zip archive at destination, with the folder itself at the

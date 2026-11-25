@@ -72,6 +72,7 @@ jobs:
           bash -n scripts/desktop/build-remote-server.sh
           bash -n scripts/desktop/desktop-go.sh
           bash -n scripts/desktop/package-desktop.sh
+          bash -n scripts/desktop/generate-file-associations.sh
           bash -n scripts/desktop/build-viva-tool.sh
           bash -n scripts/desktop/perf/editor-bench.sh
           bash -n scripts/ci/desktop-release/package-release.sh
@@ -90,6 +91,7 @@ jobs:
             scripts/desktop/build-remote-server.sh \
             scripts/desktop/desktop-go.sh \
             scripts/desktop/package-desktop.sh \
+            scripts/desktop/generate-file-associations.sh \
             scripts/desktop/build-viva-tool.sh \
             scripts/desktop/perf/editor-bench.sh \
             scripts/ci/desktop-release/package-release.sh \
@@ -170,6 +172,31 @@ jobs:
           mkdir -p .artifacts/test-stability
           node --test --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/core-cache.junit.xml scripts/desktop/desktop-core-cache.test.mjs
 
+      - name: Install CJK fonts for visual evidence
+        timeout-minutes: 3
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+          fc-match 'sans-serif:lang=zh-cn'
+
+      - name: Capture plugin workflow surfaces
+        id: plugin-workflow-visual
+        timeout-minutes: 5
+        env:
+          LITHE_VISUAL_OUTPUT_DIR: ${{ github.workspace }}/.artifacts/plugin-workflow-visual
+        run: |
+          ./scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/workbench \
+            -run '^TestVisualPluginWorkflow$' -count=1 -timeout=90s
+
+      - name: Upload plugin workflow screenshots
+        if: ${{ !cancelled() && steps.plugin-workflow-visual.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: plugin-workflow-visual-${{ runner.os }}-${{ runner.arch }}
+          path: .artifacts/plugin-workflow-visual/*.png
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Vet and test
         run: ./scripts/desktop/check.sh
 
@@ -201,7 +228,7 @@ jobs:
           LITHE_VISUAL_OUTPUT_DIR: ${{ github.workspace }}/.artifacts/lsp-editor-visual
         run: |
           ./scripts/desktop/desktop-go.sh test -v -tags 'vivahead lithevisual' ./internal/workbench \
-            -run '^(TestLSP|TestCompletionPopup|TestVisual(LSPActions|CompletionPopup)$)' -count=1 -timeout=120s
+            -run '^(TestLSP|TestCompletionPopup|TestVisual(LSPActions|CompletionPopup|HoverContentsContract)$)' -count=1 -timeout=120s
 
       - name: Upload LSP editor screenshots
         if: ${{ !cancelled() && steps.lsp-visual.outcome != 'skipped' }}
@@ -269,6 +296,44 @@ jobs:
         with:
           name: project-tree-visual-${{ runner.os }}-${{ runner.arch }}
           path: .artifacts/project-tree-visual/*.png
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Capture run performance screenshots
+        id: run-performance-visual
+        if: ${{ !cancelled() && steps.rust.outcome == 'success' }}
+        timeout-minutes: 5
+        env:
+          LITHE_VISUAL_OUTPUT_DIR: ${{ github.workspace }}/.artifacts/run-performance-visual
+        run: |
+          ./scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/workbench \
+            -run '^TestVisualRunConsoleWrap$' -count=1 -timeout=120s
+
+      - name: Upload run performance screenshots
+        if: ${{ !cancelled() && steps.run-performance-visual.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: run-performance-visual-${{ runner.os }}-${{ runner.arch }}
+          path: .artifacts/run-performance-visual/*.png
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Capture new project field descriptions
+        id: new-project-visual
+        if: ${{ !cancelled() && steps.rust.outcome == 'success' }}
+        timeout-minutes: 5
+        env:
+          LITHE_VISUAL_OUTPUT_DIR: ${{ github.workspace }}/.artifacts/new-project-visual
+        run: |
+          ./scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/workbench \
+            -run '^TestVisualNewProjectFieldDescriptions$' -count=1 -timeout=120s
+
+      - name: Upload new project screenshots
+        if: ${{ !cancelled() && steps.new-project-visual.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: new-project-visual-${{ runner.os }}-${{ runner.arch }}
+          path: .artifacts/new-project-visual/*.png
           if-no-files-found: error
           retention-days: 14
 

@@ -18,7 +18,10 @@
       "desktop/internal/workbench/markdown_preview_test.go",
       "desktop/internal/workbench/markdown_web_test.go",
       "desktop/internal/webpreview/webpreview_test.go",
-      "desktop/internal/core/markdown_test.go"
+      "desktop/internal/core/markdown_test.go",
+      "desktop/internal/workbench/standalone_markdown_references_test.go",
+      "desktop/internal/workbench/window_sessions.go",
+      "desktop/internal/workbench/window_sessions_test.go"
     ]
   },
   "windows": {
@@ -36,12 +39,15 @@
       "desktop/internal/workbench/markdown_preview_test.go",
       "desktop/internal/workbench/markdown_web_test.go",
       "desktop/internal/webpreview/webpreview_test.go",
-      "desktop/internal/core/markdown_test.go"
+      "desktop/internal/core/markdown_test.go",
+      "desktop/internal/workbench/standalone_markdown_references_test.go",
+      "desktop/internal/workbench/window_sessions.go",
+      "desktop/internal/workbench/window_sessions_test.go"
     ]
   },
   "owner": "Editor",
-  "verification": "Windows 使用 markdown-render-v1.json 验证嵌套列表、任务列表、代码空白、中文、emoji、CRLF、front matter 隐藏及危险 HTML 过滤；修改、清空及关闭预览时不得被旧异步结果覆盖，失败显示提示且后续编辑可恢复。使用代码高亮、表格、Mermaid、链接和相对路径 fixture 对比渲染结果。打开含上千个代码块的大型 Markdown 预览，渲染不卡住，编辑时预览不会先闪成未高亮的代码；代码里的 `$&`、`$1` 按原文显示。macOS 在深浅主题运行 markdown-rich-content-v1.json：行内数学、块级化学反应、物理单位均生成可访问 MathML，没有 katex-error；Mermaid 生成真实 SVG，脚注链接及回链存在；H~2~O 与 x^2^ 正确，双波浪线仍是删除线，代码内语法保持原文。运行前后逐文件比较预览资源哈希，确认无网络脚本和远程资源请求、bundle 不变。macOS 使用 markdown-html-v1.json 及仓库 README 验证：宽预览中同一段内多个徽章同行居中，窄分栏按可用宽度自然折行；div/p/h1 的 align 生效，显式 br 和普通段落保留，正文行内图片不拆行，相对图片与点击放大仍可用。深浅主题均检查，脚本、事件处理器、危险 URL 和任意 style 仍被剥离。 macOS PlantUML：在深浅主题打开时序图和类图 fenced block，离线生成可放大的 SVG 图片，不能在文档 DOM 执行 SVG；多个代码块顺序执行，切换文档拒绝旧结果；本地 include 被拒绝且保留源码与本地化提示，超大输入立即失败，关闭和取消释放渲染器；运行前后比较预览资源 SHA-256。 GitHub 预览保留 Core 的硬换行与代码空白；Notebook 共享队列最多同时执行两个渲染，关闭和替换内容会取消未开始请求。 Viva 新桌面端：在深浅主题打开仓库 README 与 markdown-html-v1.json、markdown-rich-content-v1.json 的输入，确认内嵌 HTML（徽章同行、align、details、br）、内嵌 SVG、KaTeX 数学与 mhchem、Mermaid、markmap、代码高亮、脚注和上下标都显示在 web view 页里，脚本、事件处理器、危险 URL 和任意 style 仍被 Core 剥离；页面只能访问自身 lithe-preview 源，所有脚本与字体随应用内嵌，无网络请求；源码与页面按源码行双向同步滚动，切换模式保持位置；超过 1 MiB 显示过大提示。Linux 无 web 引擎时回落到 Viva 原生渲染。自动回归：scripts/desktop/desktop-go.sh test ./internal/workbench ./internal/webpreview -run 'Markdown|Preview|Serves|EveryPage' -count=1。",
-  "notes": "Viva：有系统 web 引擎（macOS WKWebView、Windows WebView2）时，Markdown 页显示在 web view 中：Core markdown.render 生成过滤后的 HTML（放行内嵌 SVG 白名单），页面用内嵌的 KaTeX 0.16.0 与 mhchem、Highlight.js、Mermaid 11、markmap 渲染富内容，只在文档用到时加载；链接交回宿主按 Core 的解析结果跳转，图片按 Core 解析结果提供。每次编辑后重新渲染，同一时间只有一次渲染。Linux 没有 web 引擎，仍用 Viva 的 Markdown 组件渲染（不支持 HTML 和富内容）。标签栏末尾三态切换“编辑 / 编辑与预览 / 预览”，默认编辑与预览，超过 1 MiB 不渲染。PlantUML 尚未接入。",
+  "verification": "Windows 使用 markdown-render-v1.json 验证嵌套列表、任务列表、代码空白、中文、emoji、CRLF、front matter 隐藏及危险 HTML 过滤；修改、清空及关闭预览时不得被旧异步结果覆盖，失败显示提示且后续编辑可恢复。使用代码高亮、表格、Mermaid、链接和相对路径 fixture 对比渲染结果。打开含上千个代码块的大型 Markdown 预览，渲染不卡住，编辑时预览不会先闪成未高亮的代码；代码里的 `$&`、`$1` 按原文显示。macOS 在深浅主题运行 markdown-rich-content-v1.json：行内数学、块级化学反应、物理单位均生成可访问 MathML，没有 katex-error；Mermaid 生成真实 SVG，脚注链接及回链存在；H~2~O 与 x^2^ 正确，双波浪线仍是删除线，代码内语法保持原文。运行前后逐文件比较预览资源哈希，确认无网络脚本和远程资源请求、bundle 不变。macOS 使用 markdown-html-v1.json 及仓库 README 验证：宽预览中同一段内多个徽章同行居中，窄分栏按可用宽度自然折行；div/p/h1 的 align 生效，显式 br 和普通段落保留，正文行内图片不拆行，相对图片与点击放大仍可用。深浅主题均检查，脚本、事件处理器、危险 URL 和任意 style 仍被剥离。 macOS PlantUML：在深浅主题打开时序图和类图 fenced block，离线生成可放大的 SVG 图片，不能在文档 DOM 执行 SVG；多个代码块顺序执行，切换文档拒绝旧结果；本地 include 被拒绝且保留源码与本地化提示，超大输入立即失败，关闭和取消释放渲染器；运行前后比较预览资源 SHA-256。 GitHub 预览保留 Core 的硬换行与代码空白；Notebook 共享队列最多同时执行两个渲染，关闭和替换内容会取消未开始请求。 Viva 新桌面端：在深浅主题打开仓库 README 与 markdown-html-v1.json、markdown-rich-content-v1.json 的输入，确认内嵌 HTML（徽章同行、align、details、br）、内嵌 SVG、KaTeX 数学与 mhchem、Mermaid、markmap、代码高亮、脚注和上下标都显示在 web view 页里，脚本、事件处理器、危险 URL 和任意 style 仍被 Core 剥离；页面只能访问自身 lithe-preview 源，所有脚本与字体随应用内嵌，无网络请求；源码与页面按源码行双向同步滚动，切换模式保持位置；超过 1 MiB 显示过大提示。Linux 无 web 引擎时回落到 Viva 原生渲染。自动回归：scripts/desktop/desktop-go.sh test ./internal/workbench ./internal/webpreview -run 'Markdown|Preview|Serves|EveryPage' -count=1。 单文件多文档引用：先打开根目录 Markdown，再在同一窗口打开其子目录及其他目录的 Markdown；各文档的相对图片和 /local.png 应按自己的目录加载，../local.png、../outside.png 与指向目录外的符号链接不得读取文档目录外的图片，/next.md 应打开当前文档目录里的文件，保持单文件会话。运行 TestStandaloneMarkdownImagesUseEachDocumentsFolder、TestStandaloneMarkdownWebPreviewKeepsScopeAndLifecycle、TestProjectMarkdownKeepsWorkspaceRootForNestedDocuments；两端原生网页引擎仍待验收。 多项目窗口：TestProjectTabsShareWindowWebHost 验证后续标签使用已绑定的窗口宿主及就绪状态；原生两端仍 pending，在两个项目各自打开不同 Markdown 文档，切换后各自保留预览内容与滚动，关闭第一个项目后其余项目仍能创建预览。",
+  "notes": "Viva：有系统 web 引擎（macOS WKWebView、Windows WebView2）时，Markdown 页显示在 web view 中：Core markdown.render 生成过滤后的 HTML（放行内嵌 SVG 白名单），页面用内嵌的 KaTeX 0.16.0 与 mhchem、Highlight.js、Mermaid 11、markmap 渲染富内容，只在文档用到时加载；链接交回宿主按 Core 的解析结果跳转，图片按 Core 解析结果提供。每次编辑后重新渲染，同一时间只有一次渲染。Linux 没有 web 引擎，仍用 Viva 的 Markdown 组件渲染（不支持 HTML 和富内容）。标签栏末尾三态切换“编辑 / 编辑与预览 / 预览”，默认编辑与预览，超过 1 MiB 不渲染。PlantUML 尚未接入。 #2334 已恢复单文件 Markdown 的预览入口；#2324 后续补全将原生图片、网页图片与链接解析的 workspaceRoot 留空，由 Core 按每个文档的目录解析引用。单文件会话的 p.root 不是工作区，后续文档不能继承首个文件的图片读取范围。项目窗口继续传项目根；本次不改变 Core 规则或两端 pending 的验收状态。 2026-11-24：网页宿主随原生窗口存活，后续项目标签复用窗口的就绪能力；预览页面、文档内容与失败回退仍按项目独立。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

@@ -16,7 +16,7 @@ import (
 
 func runConfigInstance(root string) buildInstance {
 	return buildInstance{
-		BuildInstance: core.BuildInstance{ID: "engine@" + root, PluginID: "dev.example.engine", BuildSystemID: "engine", Root: root},
+		BuildInstance: core.BuildInstance{ID: "engine@" + root, PluginID: "dev.example.engine", BuildSystemID: "engine", Root: root, ModelSource: "provider"},
 		PluginID:      "dev.example.engine",
 		System:        pluginservice.BuildSystemDeclaration{Runs: []pluginservice.BuildRunDeclaration{{ID: "application", Name: "Run", Tags: []string{"app"}}}},
 		Model: core.BuildModel{
@@ -44,6 +44,16 @@ func TestProviderRunsListTheLoadedModelsRuns(t *testing.T) {
 	if run.Reference.PluginID != "dev.example.engine" || run.ProjectPath != "app/server" || run.Name != "Run Main" || run.Reference.TargetID != "main" || run.Reference.Run != "application" ||
 		run.Reference.Root != "app" || run.Reference.UserArguments == nil {
 		t.Fatalf("run = %+v", run)
+	}
+}
+
+func TestDeclaredBuildTasksDoNotReplaceRunsBeforeTheModelLoads(t *testing.T) {
+	taskOnly := buildInstance{modelLoaded: true}
+	provider := runConfigInstance("app")
+	provider.modelLoaded = false
+	runs, loaded := providerRuns([]buildInstance{taskOnly, provider})
+	if loaded || len(runs) != 0 {
+		t.Fatalf("declared tasks made an unfinished run snapshot ready: %v, %+v", loaded, runs)
 	}
 }
 
@@ -98,5 +108,79 @@ func TestRunConfigurationRunsWithItsSavedChoices(t *testing.T) {
 	if request.Run != "application" || request.Target == nil || request.Target.Name != "Main" || options == nil ||
 		!slices.Equal(options.Arguments, []string{"--port", "9"}) || options.Environment["MODE"] != "dev" || options.Execution != "application" {
 		t.Fatalf("run request = %+v options = %+v", request, options)
+	}
+}
+
+// A model run entry targeting a declared runConfigurationType becomes a generated
+// `build.run-type` snapshot entry and lands in the exact same Run/Debug Configurations
+// dialog group as a user-created configuration of that kind.
+func TestGeneratedRunTypeSharesDialogGroupWithUserConfiguration(t *testing.T) {
+	ref := &core.RunTypeReference{
+		PluginID:      "dev.example.tasker",
+		BuildSystemID: "tasker",
+		Type:          "target",
+		Values:        map[string]json.RawMessage{"targets": json.RawMessage(`["build"]`)},
+	}
+	instance := buildInstance{
+		BuildInstance: core.BuildInstance{ID: "tasker@sub", PluginID: "dev.example.tasker", BuildSystemID: "tasker", Root: "sub", ModelSource: "provider"},
+		PluginID:      "dev.example.tasker",
+		Model: core.BuildModel{
+			Projects: []core.BuildProject{{ID: "sub", Path: "sub", Name: "sub"}},
+			Run: []core.BuildRunEntry{{
+				ID:               "tasker.target:sub:build",
+				Name:             "build",
+				Provider:         core.RunTypeProvider,
+				Execution:        "task",
+				WorkingDirectory: "sub",
+				BuildSystem:      core.BuildRunEntryBinding{ProjectID: "sub", TargetID: "sub:build"},
+				RunType:          ref,
+			}},
+		},
+		modelLoaded: true,
+	}
+	runs, loaded := providerRuns([]buildInstance{instance})
+	if !loaded || len(runs) != 1 || runs[0].Reference != nil || runs[0].RunType == nil ||
+		runs[0].ProjectPath != "sub" || runs[0].CWD != "sub" || runs[0].Selector != "tasker.target:sub:build" {
+		t.Fatalf("runs = %+v loaded = %v", runs, loaded)
+	}
+
+	key := core.RunTypeKey{PluginID: "dev.example.tasker", BuildSystemID: "tasker", Type: "target"}
+	ext, err := json.Marshal(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := &App{}
+	p := &project{}
+	p.runConfigs.types = []core.RunConfigurationType{{
+		Provider:    core.RunTypeProvider,
+		RunType:     &key,
+		DisplayName: "Tasker Target",
+		Execution:   "task",
+	}}
+	p.runConfigs.list = []core.RunConfiguration{
+		{
+			ID:         "generated:run-type:0123456789abcdef",
+			Name:       "build",
+			Provider:   core.RunTypeProvider,
+			Execution:  "task",
+			Cwd:        "sub",
+			Extensions: map[string]json.RawMessage{"build": ext},
+		},
+		{
+			ID:         "user:custom-build",
+			Name:       "Custom Build",
+			Provider:   core.RunTypeProvider,
+			Execution:  "task",
+			Cwd:        "sub",
+			Extensions: map[string]json.RawMessage{"build": ext},
+		},
+	}
+	p.collectRunConfigDialogRows(app)
+	if len(p.runConfigs.dialog.groups) != 1 {
+		t.Fatalf("dialog groups = %+v, want 1 unified group", p.runConfigs.dialog.groups)
+	}
+	group := p.runConfigs.dialog.groups[0]
+	if group.title != "Tasker Target" || len(group.keys) != 2 {
+		t.Fatalf("group = %+v, want title Tasker Target with 2 entries", group)
 	}
 }

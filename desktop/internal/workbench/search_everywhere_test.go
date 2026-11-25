@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -96,6 +98,67 @@ func TestEverywhereOpensWithFileSearchShortcut(t *testing.T) {
 	if !h.app.everywhereView.open || h.driver.Snapshot().Focused != everywhereQueryID {
 		t.Fatal("shortcut did not open and focus global search")
 	}
+}
+
+func TestEverywhereAllFindsAnnotationTextAndTextTabRetainsQuery(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.app.everywhereView.delay = 0
+	root := t.TempDir()
+	var source strings.Builder
+	source.WriteString("class Demo {\n")
+	for i := range 8 {
+		fmt.Fprintf(&source, "    @XxlJob(\"demo%d\")\n    void task%d() {}\n", i, i)
+	}
+	source.WriteString("}\n")
+	if err := os.WriteFile(filepath.Join(root, "Demo.java"), []byte(source.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.open(root)
+	p := h.app.project
+	h.click(center(h.button(itemTitleSearch)))
+	if err := h.driver.Type("@xxl"); err != nil {
+		t.Fatal(err)
+	}
+	h.await("All annotation search", func() bool {
+		return p.everywhere.query == "@xxl" && !p.everywhere.loading
+	})
+	assertMatches := func() {
+		t.Helper()
+		if p.everywhere.failed || len(p.everywhere.matches) != 8 {
+			t.Fatalf("annotation search: failed=%v, matches=%+v; want eight content rows", p.everywhere.failed, p.everywhere.matches)
+		}
+		for i, match := range p.everywhere.matches {
+			if match.Kind != "content" || match.Path != "Demo.java" || match.Line == nil || *match.Line != i*2+2 {
+				t.Fatalf("annotation match %d = %+v", i, match)
+			}
+		}
+		if got := h.app.everywhereView.query.Text(); got != "@xxl" {
+			t.Fatalf("query changed to %q", got)
+		}
+	}
+	assertMatches()
+	if len(p.docs.list) != 0 {
+		t.Fatal("search opened the fixture instead of reading its disk contents")
+	}
+
+	// All now searches contents by default. Its source filter can still hide them;
+	// switching to Text must keep the original query and search contents independently.
+	h.clickShared("native.filterResults")
+	text := i18n.Shared(h.app.language(), "desktop.everywhere.text")
+	if hit := h.pageHit(text); hit.Role != gfx.RoleCheckbox || !hit.Checked {
+		t.Fatalf("Text source is not initially checked: %+v", hit)
+	}
+	h.clickNamed(text)
+	h.await("All with its Text source hidden", func() bool { return !p.everywhere.loading })
+	if p.everywhere.failed || len(p.everywhere.matches) != 0 || h.pageHit(text).Checked {
+		t.Fatalf("hidden Text source: failed=%v, matches=%+v", p.everywhere.failed, p.everywhere.matches)
+	}
+	h.clickShared("native.filterResults")
+	h.clickShared("desktop.everywhere.text")
+	h.await("Text annotation search", func() bool {
+		return p.everywhere.scope == 5 && !p.everywhere.loading
+	})
+	assertMatches()
 }
 
 func TestEverywhereTextScopeFindsContentAndClosesWithEscape(t *testing.T) {

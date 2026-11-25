@@ -284,9 +284,7 @@ func (a *App) previewEdited(p *project, sp *sourcePreview, view *editorview.View
 	}
 	if !a.editDocumentFrom(p, d, view, edit) {
 		// The preview and its document disagree on the text; the preview shows the document again.
-		p.diffs.mirroring++
 		view.ShowContent(d.view.CopyContent())
-		p.diffs.mirroring--
 	}
 }
 

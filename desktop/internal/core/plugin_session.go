@@ -61,9 +61,10 @@ var EditorHost = EditorHostOptions{
 	ActionIcons: []string{
 		"run", "run-all", "debug", "test", "test-passed", "test-failed", "test-skipped",
 		"navigate-super", "navigate-implementations",
+		"navigate-implemented", "navigate-implementing", "navigate-overridden", "navigate-overriding",
 	},
 	ActionSourceBytes: 1024 * 1024,
-	ProviderTypes:     []string{"definition", "hover", "completion", "codeLens", "semanticTokens", "documentLink"},
+	ProviderTypes:     []string{"definition", "hover", "completion", "codeLens", "semanticTokens", "colorDecorations", "documentLink"},
 }
 
 // EditorActionDecodeVersion is the plugins.editorActions.decode request version EditorHost is

@@ -18,18 +18,30 @@ import (
 type fakeView struct {
 	loads, evals             []string
 	reloads, backs, forwards int
+	canGoBack, canGoForward  bool
+	loading                  bool
+	title                    string
+	failure                  app.WebProcessFailure
+	focused                  int
 	closed                   bool
 }
 
-func (f *fakeView) ID() gfx.NativeViewID    { return 1 }
-func (f *fakeView) Load(url string)         { f.loads = append(f.loads, url) }
-func (f *fakeView) Reload()                 { f.reloads++ }
-func (f *fakeView) Back()                   { f.backs++ }
-func (f *fakeView) Forward()                { f.forwards++ }
-func (f *fakeView) Eval(script string)      { f.evals = append(f.evals, script) }
-func (f *fakeView) PostMessage(string)      {}
-func (f *fakeView) Close()                  { f.closed = true }
-func (f *fakeView) count(script string) int { return countOf(f.evals, script) }
+func (f *fakeView) ID() gfx.NativeViewID                  { return 1 }
+func (f *fakeView) Load(url string)                       { f.loads = append(f.loads, url) }
+func (f *fakeView) Reload()                               { f.reloads++ }
+func (f *fakeView) Back()                                 { f.backs++ }
+func (f *fakeView) Forward()                              { f.forwards++ }
+func (f *fakeView) CanGoBack() bool                       { return f.canGoBack }
+func (f *fakeView) CanGoForward() bool                    { return f.canGoForward }
+func (f *fakeView) IsLoading() bool                       { return f.loading }
+func (f *fakeView) Title() string                         { return f.title }
+func (f *fakeView) IsCrashed() bool                       { return f.failure != app.WebProcessNoFailure }
+func (f *fakeView) ProcessFailure() app.WebProcessFailure { return f.failure }
+func (f *fakeView) Eval(script string)                    { f.evals = append(f.evals, script) }
+func (f *fakeView) PostMessage(string)                    {}
+func (f *fakeView) Focus()                                { f.focused++ }
+func (f *fakeView) Close()                                { f.closed = true }
+func (f *fakeView) count(script string) int               { return countOf(f.evals, script) }
 
 func countOf(list []string, item string) int {
 	n := 0
@@ -267,5 +279,46 @@ func TestSitePathDecodesAddressesOfTheSiteOnly(t *testing.T) {
 		if _, ok := sitePath(address); ok {
 			t.Fatalf("sitePath(%q) is on the site", address)
 		}
+	}
+}
+
+func TestSiteLoadFailureAndCrashReloadDirectly(t *testing.T) {
+	var logged []string
+	p, view := sitePage(t, nil)
+	p.config.Log = func(stage string, err error) {
+		logged = append(logged, stage+":"+err.Error())
+	}
+
+	p.siteLoaded(app.WebLoad{Phase: app.WebLoadStarted, URL: documentAddress})
+	p.siteLoaded(app.WebLoad{Phase: app.WebLoadFinished, URL: documentAddress, Code: app.WebLoadHostNotFound, Description: "host missing"})
+	if p.LoadFailure() != "host missing" || len(logged) != 1 {
+		t.Fatalf("load failure = %q, logged = %v", p.LoadFailure(), logged)
+	}
+	// Reloading after a load failure calls view.Reload rather than Eval(reloadScript).
+	p.Reload()
+	if view.reloads != 1 || view.count(reloadScript) != 0 || p.LoadFailure() != "" {
+		t.Fatalf("reload after load failure: reloads=%d evals=%v loadFailure=%q", view.reloads, view.evals, p.LoadFailure())
+	}
+
+	// Reloading a crashed page also calls view.Reload directly and invokes OnProcessFailed.
+	var processFailures []app.WebProcessFailure
+	p.config.OnProcessFailed = func(f app.WebProcessFailure) { processFailures = append(processFailures, f) }
+	view.failure = app.WebProcessCrashed
+	p.processFailed(app.WebProcessCrashed)
+	if !p.Crashed() || p.ProcessFailure() != app.WebProcessCrashed || len(processFailures) != 1 {
+		t.Fatalf("process failure state: crashed=%v failure=%v callbacks=%v", p.Crashed(), p.ProcessFailure(), processFailures)
+	}
+	p.Reload()
+	if view.reloads != 2 || view.count(reloadScript) != 0 {
+		t.Fatalf("reload after crash: reloads=%d evals=%v", view.reloads, view.evals)
+	}
+
+	// Navigation state and Focus delegate to the underlying webView.
+	view.canGoBack, view.canGoForward, view.loading, view.title = true, false, true, "Interactive Demo"
+	p.siteLoaded(app.WebLoad{Phase: app.WebLoadCommitted, URL: SiteOrigin + "site/sub.html"})
+	p.Focus()
+	if !p.CanGoBack() || p.CanGoForward() || !p.IsLoading() || p.Title() != "Interactive Demo" || p.CurrentPath() != "site/sub.html" || view.focused != 1 {
+		t.Fatalf("delegated state mismatch: back=%v fwd=%v loading=%v title=%q path=%q focused=%d",
+			p.CanGoBack(), p.CanGoForward(), p.IsLoading(), p.Title(), p.CurrentPath(), view.focused)
 	}
 }

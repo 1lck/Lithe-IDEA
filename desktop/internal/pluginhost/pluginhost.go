@@ -91,11 +91,12 @@ type Capabilities map[string][]int
 //     and documentLink), window/showInformation|showWarning|showError,
 //     browser/openExternal (http and https only), terminal/create|show|close|
 //     reopen|dispose|onExit, documents/registerContentProvider, run/start|stop|
-//     didExit and debug/start. Window-bound methods are registered only when the
+//     didExit, debug/start and workspace/readDirectory|stat|readFile|watch|
+//     findFiles|findText (bounded disk reads, search and event projection through
+//     Core, with Viva native watches). Window-bound methods are registered only when the
 //     window attaches (Service.AttachWorkbench); getCapabilities lists only what
-//     is registered. Workspace file and search services and preview/openHTML are
-//     not registered, so a plugin that needs one is refused when it asks for
-//     that permission.
+//     is registered. preview/openHTML is not registered, so a plugin that needs
+//     it is refused when it asks for that permission.
 //   - buildSystems and buildProviders: the Build window detects instances,
 //     loads provider models, resolves the ordered executable candidates Core
 //     returns, runs command and provider tasks, prepares application targets
@@ -108,8 +109,11 @@ type Capabilities map[string][]int
 //   - runConfigurationTypes: the Run/Debug Configurations dialog lists the
 //     kinds a build system declares after the built-in ones, edits them with the
 //     form Core describes in the plugin's translation, saves them and runs them
-//     with the command Core plans for the detected instance. A declared kind has
-//     no debugger.
+//     with the command Core plans for the detected instance. buildSystems[].run[]
+//     may also target a declared kind via configurationType and values so
+//     discovered model targets materialize generated configurations under the
+//     same group, icon, editor form and launch plan. A declared kind has no
+//     debugger.
 //   - beforeLaunchTasks: the Add New Task menu of every configuration's Before
 //     launch list offers the tasks a build system declares, edits each with the
 //     form Core describes in the plugin's translation, and runs the step with

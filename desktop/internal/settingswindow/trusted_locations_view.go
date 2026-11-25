@@ -26,13 +26,13 @@ func (w *window) trustedLocationsPage(c ui.C) {
 			w.card(c, i18n.Shared(language, "desktop.trustedLocations.folders"), i18n.Shared(language, "desktop.trustedLocations.foldersHelp"), func() {
 				w.trustedLocationsList(c.Part("list"), language, l)
 			})
-			w.trustedLocationsNotices(c.Part("notices"), language, l)
+			w.trustedLocationsNotices(c, language, l)
 		}
 		if remote.available() {
 			w.card(c.Part("remote"), i18n.Shared(language, "desktop.trustedLocations.remote"), i18n.Shared(language, "desktop.trustedLocations.remoteHelp"), func() {
 				w.remoteTrustList(c.Part("remote-list"), language, remote)
 			})
-			w.remoteTrustNotices(c.Part("remote-notices"), language, remote)
+			w.remoteTrustNotices(c, language, remote)
 		}
 	})
 }
@@ -72,10 +72,10 @@ func (w *window) remoteTrustList(c ui.C, language i18n.Language, r *remoteTrustS
 			name = i18n.Shared(language, "desktop.trustedLocations.remoteUnnamed")
 		}
 		ui.Row(g.Part("head")).FillWidth().MinWidth(0).Height(28).Gap(8).Items(ui.Center).Children(func() {
-			ui.Icon(g, icons.Server).Size(14, 14).Color(p.muted).Shrink(0)
-			ui.Text(g, name).FontSize(12).Weight(gfx.WeightSemibold).Color(p.text).Shrink(1).MinWidth(0).Ellipsis()
+			ui.Icon(c, icons.Server).Size(14, 14).Color(p.muted).Shrink(0)
+			ui.Text(c, name).FontSize(12).Weight(gfx.WeightSemibold).Color(p.text).Shrink(1).MinWidth(0).Ellipsis()
 			if place != "" {
-				ui.Text(g.Part("place"), place).FontSize(12).Mono().Color(p.muted).Grow(1).Shrink(1).MinWidth(0).Ellipsis()
+				ui.Text(c, place).FontSize(12).Mono().Color(p.muted).Grow(1).Shrink(1).MinWidth(0).Ellipsis()
 			}
 		})
 		for _, entry := range group.entries {
@@ -119,7 +119,7 @@ func (w *window) remoteTrustNotices(c ui.C, language i18n.Language, r *remoteTru
 	if r.readFailed == nil && r.failed == nil && !r.saving {
 		return
 	}
-	ui.Column(c).FillWidth().Shrink(0).Gap(8).Children(func() {
+	ui.Column(c.Part("remote-notices")).FillWidth().Shrink(0).Gap(8).Children(func() {
 		if r.readFailed != nil {
 			message := remoteTrustFailureMessage(language, r.readFailed)
 			w.box(c.Part("load-failed"), boxErr, func(words gfx.Color) {
@@ -173,7 +173,7 @@ func (w *window) trustedLocationsList(c ui.C, language i18n.Language, l *trusted
 			if row.mark == locationRemoved {
 				words = p.subtle
 			}
-			ui.Icon(k, icons.Folder).Size(14, 14).Color(p.muted).Shrink(0)
+			ui.Icon(c, icons.Folder).Size(14, 14).Color(p.muted).Shrink(0)
 			// The tooltip shows a path the row's width cuts; it needs an element with an identity.
 			path := k.Part("path")
 			ui.Row(path).Grow(1).Shrink(1).MinWidth(0).Items(ui.Center).
@@ -212,7 +212,7 @@ func (w *window) trustedLocationsNotices(c ui.C, language i18n.Language, l *trus
 	if l.readFailed == nil && l.refused == nil && l.failed == nil && !l.saving {
 		return
 	}
-	ui.Column(c).FillWidth().Shrink(0).Gap(8).Children(func() {
+	ui.Column(c.Part("notices")).FillWidth().Shrink(0).Gap(8).Children(func() {
 		if l.readFailed != nil {
 			message := toolchainFailureMessage(language, l.readFailed)
 			w.box(c.Part("load-failed"), boxErr, func(words gfx.Color) {

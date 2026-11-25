@@ -2,7 +2,7 @@
   "id": "plugin-web-tool-windows",
   "area": "插件",
   "group": "插件界面",
-  "capability": "插件可以在宿主管理的工具窗口里显示自己包内的 HTML 页面（ui 2、ui.web 权限）：只读取已安装包内的文件，CSP 禁止联网、内联脚本和 eval，网页存储不持久；页面通过 window.lithe 桥接只能操作本插件的构建系统和当前工作区，启动构建工具前由宿主确认，输出进入 Build Output，页面只可取消本次实际启动的运行；任务与测试在确认后最终启动前拒绝已有运行，保留宿主或其他页面的运行及 Build Output，包含等待确认期间新启动的运行；选择必须唯一命中模型，目标以经过校验的完整 tags 集合区分同名同目录的 binary/example，最终执行参数从模型重建，拒绝歧义和伪造标签；模型保留 Core 的声明运行项和任务类别；异步激活、检测和依赖请求复核工作区并受本地期限约束；直接关闭原生项目窗口时，在会话首次异步退出前同步销毁隐藏页面并撤销进程许可，即使设置窗口继续持有项目模型，待处理和后续桥接请求也被拒绝，不能重新激活执行模块；插件禁用、更新或卸载时同进程所有项目窗口（含隐藏页）都被销毁，新项目窗口继承阻断状态，包变更后的旧管理器重新启用不能在重启前重建页面；页面申请摄像头或麦克风时默认没有权限，由宿主逐次弹窗确认（写明这是插件并附插件 ID，只认本插件主框架，页面不在窗口里直接拒绝，视图离开窗口即结束采集）；桥接版本 2（lithe.version）增加 dialog.openFile 与 dialog.saveFile：由宿主弹出文件对话框并写明发起的插件，同一页面同时只开一个，页面只拿到用户选中的绝对路径（取消为 null），读写交给插件后端，页面关闭后不再返回选择结果",
+  "capability": "插件可以在宿主管理的工具窗口里显示自己包内的 HTML 页面（ui 2、ui.web 权限）：只读取已安装包内的文件，CSP 禁止联网、内联脚本和 eval，网页存储不持久；页面通过 window.lithe 桥接只能操作本插件的构建系统和当前工作区，启动构建工具前由宿主确认，输出进入 Build Output，页面只可取消本次实际启动的运行；任务与测试在确认后最终启动前拒绝已有运行，保留宿主或其他页面的运行及 Build Output，包含等待确认期间新启动的运行；选择必须唯一命中模型，目标以经过校验的完整 tags 集合区分同名同目录的 binary/example，最终执行参数从模型重建，拒绝歧义和伪造标签；模型保留 Core 的声明运行项和任务类别；异步激活、检测和依赖请求复核工作区并受本地期限约束；直接关闭原生项目窗口时，在会话首次异步退出前同步销毁隐藏页面并撤销进程许可，即使设置窗口继续持有项目模型，待处理和后续桥接请求也被拒绝，不能重新激活执行模块；插件禁用、更新或卸载时同进程所有项目窗口（含隐藏页）都被销毁，新项目窗口继承阻断状态，包变更后的旧管理器重新启用不能在重启前重建页面；页面申请摄像头或麦克风时默认没有权限，由宿主逐次弹窗确认（写明这是插件并附插件 ID，只认本插件主框架，页面不在窗口里直接拒绝，视图离开窗口即结束采集）；桥接版本 2（lithe.version）增加 dialog.openFile 与 dialog.saveFile：由宿主弹出文件对话框并写明发起的插件，同一页面同时只开一个，页面只拿到用户选中的绝对路径（取消为 null），读写交给插件后端，页面关闭后不再返回选择结果；同一原生窗口的项目标签共享已就绪的网页宿主，各项目独立创建网页视图与桥接状态，关闭首个项目不影响剩余或新开项目",
   "macos": {
     "implementationStatus": "partial",
     "verificationStatus": "pending",
@@ -17,7 +17,19 @@
       "desktop/internal/workbench/plugintools.go",
       "desktop/internal/workbench/plugintools_test.go",
       "desktop/internal/pluginhost/pluginhost.go",
-      ".agents/notes/implemented/architecture/2026-10-18-plugin-web-content-in-host-windows.md"
+      ".agents/notes/implemented/architecture/2026-10-18-plugin-web-content-in-host-windows.md",
+      "desktop/internal/pluginservice/backendhost.go",
+      "desktop/internal/workbench/root.go",
+      "desktop/internal/workbench/pluginsemantics_hover_test.go",
+      "desktop/internal/workbench/pluginsemantics_hover_visual_test.go",
+      "desktop/internal/pluginservice/installed_snapshot_test.go",
+      "desktop/internal/workbench/plugins.go",
+      "desktop/internal/workbench/chrome_view.go",
+      "desktop/internal/workbench/drag.go",
+      "desktop/internal/workbench/window_sessions.go",
+      "desktop/internal/workbench/window_sessions_test.go",
+      "desktop/internal/workbench/pluginpages_visual_test.go",
+      ".agents/notes/implemented/bug-fix/2026-11-24-project-tabs-web-host-lifetime.md"
     ]
   },
   "windows": {
@@ -34,11 +46,23 @@
       "desktop/internal/workbench/plugintools.go",
       "desktop/internal/workbench/plugintools_test.go",
       "desktop/internal/pluginhost/pluginhost.go",
-      ".agents/notes/implemented/architecture/2026-10-18-plugin-web-content-in-host-windows.md"
+      ".agents/notes/implemented/architecture/2026-10-18-plugin-web-content-in-host-windows.md",
+      "desktop/internal/pluginservice/backendhost.go",
+      "desktop/internal/workbench/root.go",
+      "desktop/internal/workbench/pluginsemantics_hover_test.go",
+      "desktop/internal/workbench/pluginsemantics_hover_visual_test.go",
+      "desktop/internal/pluginservice/installed_snapshot_test.go",
+      "desktop/internal/workbench/plugins.go",
+      "desktop/internal/workbench/chrome_view.go",
+      "desktop/internal/workbench/drag.go",
+      "desktop/internal/workbench/window_sessions.go",
+      "desktop/internal/workbench/window_sessions_test.go",
+      "desktop/internal/workbench/pluginpages_visual_test.go",
+      ".agents/notes/implemented/bug-fix/2026-11-24-project-tabs-web-host-lifetime.md"
     ]
   },
   "owner": "Plugin Platform",
-  "verification": "自动回归（Viva）：scripts/desktop/desktop-go.sh test -race -count=1 ./internal/pluginweb ./internal/pluginservice -run 'TestPage'，以及 ./internal/workbench -run TestPluginToolWindows：用共享 web-panel 夹具和真实 Core 验证入口文档注入 CSP 与桥接脚本、包内符号链接/目录链接/../ 与保留的 .lithe-host/ 路径被拒绝、文件大小上限、ui.getState/setState 按窗口与工作区隔离存储在插件状态目录、functions.list/invoke 的结果与只属于本调用的进度、页面取消与关闭页面都取消调用且不再投递、调用 ID 不可复用、对话框一次一个且取消返回 null、workspace.openFile 拒绝工作区外路径、build.* 在未提供构建系统时为 plugin.web.unknownMethod、离开插件源的导航被送回入口、主题变化发送 ui.themeChanged；工作台里文本窗口显示原文，网页窗口在 Web 引擎就绪前显示“正在打开…”、打不开时说明原因，隐藏窗口即关闭页面；停用插件后窗口离开工具栏，期间保存的布局仍保留其位置，重新启用回到原处。产品界面验收仍 pending：macOS 与 Windows 开发版（make -C desktop run）用“从磁盘安装插件”安装 web-panel 夹具（plugin.json 旁放 ui/index.html），打开右侧 Web Panel，确认页面显示、根元素带 data-theme 与 --lithe-* 变量、切换浅色/深色后收到 ui.themeChanged；页面内联脚本与 fetch 外网被 CSP 拦截；lithe.request('ui.setState', {state:{a:1}}) 后隐藏再显示窗口，ui.getState 仍返回该值；dialog.openFile 的标题写明插件名；之后运行 scripts/desktop/verify/verify-runtime-bundle-immutability.sh 确认包与应用 bundle 不变。",
+  "verification": "自动回归（Viva）：scripts/desktop/desktop-go.sh test -race -count=1 ./internal/pluginweb ./internal/pluginservice -run 'TestPage'，以及 ./internal/workbench -run TestPluginToolWindows：用共享 web-panel 夹具和真实 Core 验证入口文档注入 CSP 与桥接脚本、包内符号链接/目录链接/../ 与保留的 .lithe-host/ 路径被拒绝、文件大小上限、ui.getState/setState 按窗口与工作区隔离存储在插件状态目录、functions.list/invoke 的结果与只属于本调用的进度、页面取消与关闭页面都取消调用且不再投递、调用 ID 不可复用、对话框一次一个且取消返回 null、workspace.openFile 拒绝工作区外路径、build.* 在未提供构建系统时为 plugin.web.unknownMethod、离开插件源的导航被送回入口、主题变化发送 ui.themeChanged；工作台里文本窗口显示原文，网页窗口在 Web 引擎就绪前显示“正在打开…”、打不开时说明原因，隐藏窗口即关闭页面；停用插件后窗口离开工具栏，期间保存的布局仍保留其位置，重新启用回到原处。产品界面验收仍 pending：macOS 与 Windows 开发版（make -C desktop run）用“从磁盘安装插件”安装 web-panel 夹具（plugin.json 旁放 ui/index.html），打开右侧 Web Panel，确认页面显示、根元素带 data-theme 与 --lithe-* 变量、切换浅色/深色后收到 ui.themeChanged；页面内联脚本与 fetch 外网被 CSP 拦截；lithe.request('ui.setState', {state:{a:1}}) 后隐藏再显示窗口，ui.getState 仍返回该值；dialog.openFile 的标题写明插件名；之后运行 scripts/desktop/verify/verify-runtime-bundle-immutability.sh 确认包与应用 bundle 不变。 2026-11-24 修复补充：TestPagePreservesBackendFunctionFailure 覆盖后端函数的 code、message、pluginErrorCode 原样进入网页回复；TestPointerHoverPaintsAboveTheNativeContentLayer 覆盖工作台浮层高于正文，TestVisualPointerHover 记录深浅色、中英文的悬停和导航表面。原生验收仍 pending：用契约 web-panel 夹具打开网页，在跨越网页区域的位置显示悬停、补全、导航、菜单和对话框，确认遮挡、点击与关闭恢复正确。用户要求自行验收，最终收尾未重新运行检查。 包图标回归：TestInstalledToolWindowKeepsPackageIconDeclaration、TestPluginToolWindowUsesPackageIconAcrossThemes 已编写未执行；用户自行检查声明 SVG 的工具窗口入口、隐藏列表及拖动预览，亮暗切换与模板着色。 项目标签回归：TestProjectTabsShareWindowWebHost 与 TestPluginToolWindowsKeepWebPagesPerProjectTab 覆盖窗口就绪前/后打开第二项目、首个项目关闭后新开标签、不同原生窗口宿主隔离，以及每个项目独立页面对象、桥接持久状态和隐藏清理。TestVisualPluginWebProjectTabs 采集第二项目加载和无引擎错误状态。macOS 原生探针通过独立页面和桥接状态、切换、关闭首个项目及重开恢复（3.225 秒，临时数据已清理）；实际插件滚动与选择、Windows 原生流程仍 pending。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
@@ -92,5 +116,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端 2026-11-11 接入：页面规则（资源、文档注入、桥接请求校验、回复与事件封装）在 Rust Core plugins.web.*，桌面端只做 Web 视图、包文件读取、状态存储、对话框与调用。尚缺：build.* 方法（本宿主不向页面提供构建系统）、摄像头/麦克风授权、插件声明的窗口图标（暂用通用工具窗口图标）；Viva 的 Web 视图无法设置响应头（CSP 以 meta 注入）、无法在导航前拦截（提交后送回入口）、数据存储是持久的，均待上游补齐。"
+  "notes": "Viva 客户端 2026-11-11 接入：页面规则（资源、文档注入、桥接请求校验、回复与事件封装）在 Rust Core plugins.web.*，桌面端只做 Web 视图、包文件读取、状态存储、对话框与调用。尚缺：build.* 方法（本宿主不向页面提供构建系统）、摄像头/麦克风授权；Viva 的 Web 视图无法设置响应头（CSP 以 meta 注入）、无法在导航前拦截（提交后送回入口）、数据存储是持久的，均待上游补齐。 2026-11-24：工作台弹层明确使用 Viva LayerPaneChrome，由框架处理原生网页遮罩与点击；桥接保留后端结构化失败，不把业务错误改为 plugin.web.invalidRequest。两端共用代码，原生验证状态保持 pending。 2026-11-24：工具窗口保留包内图标声明，后台复用 pluginicons 只读加载 SVG；工具栏、隐藏入口列表和拖动预览按主题使用缓存，模板使用控件着色。缺失或不支持的图标记录一次降级并使用通用图标。PNG 仍不支持；本次接线按用户要求未运行验证。 2026-11-24：WebHost 和就绪状态移至 windowSessions，只共享原生窗口创建网页的能力；pluginPages、WebView、previews 与工作区状态仍在各项目独立持有，不共享显示内容。"
 }

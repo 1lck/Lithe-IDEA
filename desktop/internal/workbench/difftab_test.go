@@ -307,6 +307,9 @@ func TestDiffTabSidesScrollInStep(t *testing.T) {
 	if d.before == nil || d.after == nil || d.differences() != 1 {
 		t.Fatalf("split diff has editors %v and %v and %d differences", d.before, d.after, d.differences())
 	}
+	if diffCount := i18n.SharedFormat(h.app.language(), "git.diff.differences", map[string]string{"count": "1"}); !h.shows(diffCount) {
+		t.Fatalf("split diff with 1 difference does not show %q", diffCount)
+	}
 	lineH := d.after.view.LineHeight()
 	if lineH <= 0 {
 		t.Fatal("the after editor was not painted")
@@ -414,5 +417,63 @@ func TestDiffSettingsMenuUsesExistingWhitespaceAndCloseActions(t *testing.T) {
 	h.settleChain()
 	if len(p.diffs.list) != 0 {
 		t.Fatal("Close diff kept the tab alive")
+	}
+}
+
+func TestDiffTabUntrackedFileDoesNotEditOrAutosaveOnOpenAndReload(t *testing.T) {
+	dir := newTestRepository(t)
+	cases := []struct {
+		name string
+		body string
+	}{
+		{name: "untracked_lf.txt", body: "alpha\nbeta\n"},
+		{name: "untracked_crlf.txt", body: "alpha\r\nbeta\r\n"},
+	}
+	for _, tc := range cases {
+		if err := os.WriteFile(filepath.Join(dir, tc.name), []byte(tc.body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	h := newHarness(t, gitKernel{core.NewClient()})
+	p := h.openCommit(dir)
+
+	for _, tc := range cases {
+		fullPath := filepath.Join(dir, tc.name)
+		tab := openDiffTab(t, h, p, tc.name)
+		h.await("tabless document for "+tc.name, func() bool { return p.docs.byPath(fullPath) != nil })
+		h.settle()
+
+		doc := p.docs.byPath(fullPath)
+		if doc == nil || !doc.tabless {
+			t.Fatalf("%s: expected tabless document, got %+v", tc.name, doc)
+		}
+		for round := range 3 {
+			if doc.dirty() {
+				t.Fatalf("%s round %d: document became dirty with %q", tc.name, round, doc.view.TextSnapshot().String())
+			}
+			if doc.autoSaveTimer != nil {
+				t.Fatalf("%s round %d: autosave was scheduled without user edits", tc.name, round)
+			}
+			if got := doc.view.TextSnapshot().String(); got != tc.body {
+				t.Fatalf("%s round %d: document text = %q, want %q", tc.name, round, got, tc.body)
+			}
+			diskBytes, err := os.ReadFile(fullPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(diskBytes) != tc.body {
+				t.Fatalf("%s round %d: file on disk changed to %q, want %q", tc.name, round, string(diskBytes), tc.body)
+			}
+			h.app.reloadDiffsOfPath(p, fullPath)
+			h.await("reloaded diff for "+tc.name, func() bool { return !tab.loading })
+			h.settle()
+		}
+
+		h.app.closeDiffTab(p, tab.id)
+		h.settle()
+		if p.docs.byPath(fullPath) != nil {
+			t.Fatalf("%s: closing an unedited diff tab left its tabless document open", tc.name)
+		}
 	}
 }

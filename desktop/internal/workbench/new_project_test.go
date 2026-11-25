@@ -212,6 +212,59 @@ func (h *harness) offerGenerators(plugins ...pluginservice.GeneratorPlugin) {
 	}
 }
 
+// The localized link must stay inside the sidebar even for the long English
+// sentence, and remain reachable and activatable by keyboard.
+func TestNewProjectMarketplaceLinkFitsSidebar(t *testing.T) {
+	for _, language := range []string{"en-US", "zh-Hans"} {
+		t.Run(language, func(t *testing.T) {
+			h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{language})
+			log := &treeRecordingLog{}
+			h.app.logSink = log
+			t.Cleanup(func() { h.app.logSink = nil })
+			h.clickNamed(h.app.text.Welcome.NewProject)
+			label := i18n.Shared(h.app.language(), "native.getMoreLanguagesAndFrameworksFromPlugins")
+			hit := h.pageHit(label)
+			if hit.Bounds.Width <= 0 || hit.Bounds.Width > 240 {
+				t.Fatalf("marketplace link bounds = %+v, want within the 240px sidebar", hit.Bounds)
+			}
+			if hit.Role != gfx.RoleButton || !hit.Focusable || hit.SkipTab {
+				t.Fatalf("marketplace link hit = %+v, want focusable RoleButton in Tab order", hit)
+			}
+			if !h.showsWrapped(label) {
+				t.Fatalf("the complete %s marketplace label is not visible", language)
+			}
+			reached := false
+			for range 12 {
+				if err := h.driver.Key(gfx.KeyTab, 0); err != nil {
+					t.Fatal(err)
+				}
+				if h.driver.Snapshot().Focused == hit.ID {
+					reached = true
+					break
+				}
+			}
+			if !reached {
+				t.Fatalf("Tab did not reach marketplace link %q (focused=%q)", label, h.focusedName())
+			}
+			if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
+				t.Fatal(err)
+			}
+			log.mu.Lock()
+			defer log.mu.Unlock()
+			opened := false
+			for _, event := range log.events {
+				if event.Event == "app.action.performed" && event.Fields["action"] == "settings.open" {
+					opened = true
+					break
+				}
+			}
+			if !opened {
+				t.Fatal("Enter on focused marketplace link did not invoke plugin settings")
+			}
+		})
+	}
+}
+
 func TestWelcomeCreatesEmptyProjectWithGitThroughCore(t *testing.T) {
 	parent := t.TempDir()
 	h := newHarnessWithLanguages(t, &gitKernel{Client: core.NewClient()}, []string{"en-US"})
@@ -219,7 +272,7 @@ func TestWelcomeCreatesEmptyProjectWithGitThroughCore(t *testing.T) {
 	if !h.app.newProject.open || !h.shows("Empty Project") {
 		t.Fatal("the welcome action did not open New Project")
 	}
-	if !h.shows("Get more languages and frameworks from plugins…") {
+	if !h.showsWrapped("Get more languages and frameworks from plugins…") {
 		t.Fatal("the marketplace entry is missing its localized label")
 	}
 	h.app.newProject.parent = parent

@@ -293,6 +293,15 @@ func TestExportStagesTheEvidenceAndPacksIt(t *testing.T) {
 	if q := fx.source.queries; len(q) != 1 || q[0].Session != sessionCurrent {
 		t.Fatalf("collected %+v, want the current session once", q)
 	}
+	if stagedEntries, err := os.ReadDir(filepath.Join(e.root, exportFolder)); err != nil {
+		t.Fatalf("read staged folder: %v", err)
+	} else {
+		for _, entry := range stagedEntries {
+			if strings.HasPrefix(entry.Name(), ".") {
+				t.Fatalf("temporary staging file left behind: %s", entry.Name())
+			}
+		}
+	}
 
 	root := e.root
 	destination := filepath.Join(fx.saves, "bundle.zip")

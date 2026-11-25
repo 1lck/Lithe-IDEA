@@ -48,6 +48,7 @@ func TestVisualSettings(t *testing.T) {
 		{"27-settings-terminal", pageTerminal}, {"28-plugins-installed", pagePlugins},
 		{"29-marketplace-empty", pagePlugins}, {"29-marketplace-recommendations", pagePlugins},
 		{"32-settings-build", pageBuild}, {"32-settings-build-kind", pageBuild}, {"34-settings-debuggers", pageDebuggers},
+		{"34-settings-debuggers-pattern-hover", pageDebuggers}, {"34-settings-debuggers-feature-hover", pageDebuggers},
 		{"33-settings-toolchains", pageToolchains}, {"m44-toolchain-directory-menu", pageToolchains}, {"m45-toolchain-custom-directory", pageToolchains},
 		{"m47-toolchain-project-untrusted", pageToolchains}, {"m48-toolchain-project-trusted", pageToolchains}, {"m49-toolchain-project-trust-click", pageToolchains},
 		{"m50-toolchain-project-trust-tip", pageToolchains},
@@ -73,7 +74,7 @@ func TestVisualSettings(t *testing.T) {
 					},
 					PluginState: func(string) PluginState { return PluginState{Installed: true, Enabled: true, Version: "1.0.0"} }, SystemDark: func() bool { return theme == "dark" },
 					SetNetwork: func(NetworkSettings, *string) {}, SetLocalHistory: func(LocalHistorySettings) {},
-					StopTime: func() (StopTime, bool) { return StopTime{Default: 5, Min: 1, Max: 30}, true }, SweepsLeftovers: true,
+					StopTime: func() (StopTime, bool) { return StopTime{Default: 5, Min: 1, Max: 30}, true },
 					TerminalShells: func() ([]localshell.Choice, string) {
 						return []localshell.Choice{{Name: "zsh", Path: "/bin/zsh", Default: true}, {Name: "bash", Path: "/bin/bash"}}, "/bin/zsh"
 					},
@@ -166,6 +167,25 @@ func TestVisualSettings(t *testing.T) {
 				}
 				text := func(key string) string { return i18n.Shared(language, key) }
 				switch scenario.id {
+				case "34-settings-debuggers-pattern-hover", "34-settings-debuggers-feature-hover":
+					d.pump()
+					label := "java.*"
+					if scenario.id == "34-settings-debuggers-feature-hover" {
+						label = text("desktop.settings.stepping.skipSynthetics")
+					}
+					found := false
+					for _, text := range d.driver.Snapshot().Labels {
+						if text.Value == label {
+							if err := d.driver.Move(text.Bounds.X+4, text.Bounds.Y+text.Bounds.Height/2); err != nil {
+								t.Fatal(err)
+							}
+							found = true
+							break
+						}
+					}
+					if !found {
+						t.Fatalf("no hover target for %q", label)
+					}
 				case "m35-editor-tab-layout":
 					d.click(w.text.Settings.TabsShowIn)
 				case "21-settings-language-popup":

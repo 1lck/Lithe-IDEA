@@ -1,5 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
+import { realpathSync } from "node:fs";
 import { StringDecoder } from "node:string_decoder";
+import { fileURLToPath } from "node:url";
 
 function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -275,4 +277,15 @@ export function positiveInteger(value, label) {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed <= 0) throw new Error(`${label} must be a positive integer.`);
   return parsed;
+}
+
+// Resolve symlinks on both paths so CLI entrypoints execute when invoked
+// through symlinked paths such as macOS's `/var` -> `/private/var` temp directory.
+export function isMainModule(metaUrl) {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(metaUrl));
+  } catch {
+    return false;
+  }
 }

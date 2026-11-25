@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"slices"
 	"sync"
 
@@ -18,11 +19,11 @@ import (
 //
 // The item's account is a digest of the connection's id, so the store's list of items names no
 // host or WSL distribution. Its secret is a JSON list of the connection's kept sessions, newest
-// last. keptLimit caps the list so the item fits Windows Credential Manager's 2560 bytes: keeping a
-// ninth session on one connection forgets the oldest, whose programs then run until they are ended
-// on the host. Each connection presents one stored session: a connection resumes the newest, and
-// whichever session it ends up with, the entry is forgotten; giving the session back without
-// opening a workspace stores it again (workbench, remote_close.go).
+// last. Both entry count and actual serialized bytes are capped to fit Windows Credential
+// Manager. Eviction forgets the oldest record. Core compares the newest record's verified binding
+// before sending it to the host; only a consumed record is forgotten. A mismatch or legacy record
+// remains available for its original target. Giving a resumed session back without opening a
+// workspace stores it again (workbench, remote_close.go).
 
 // KeptNamespace is the secret-store namespace of the kept sessions; "@host/" namespaces are the
 // application's own and cannot clash with a plugin's id.
@@ -30,6 +31,9 @@ const KeptNamespace = "@host/remote-sessions"
 
 // keptLimit is how many kept sessions one connection remembers.
 const keptLimit = 8
+
+// Credential Manager limits the actual UTF-8 secret blob to 2560 bytes.
+const keptBytes = 2560
 
 // Secrets is the secret store the kept sessions and the remembered answers (answers.go) are
 // kept in, credentials.Store in the application. Get reports found false for an item that is not
@@ -74,6 +78,16 @@ func writeKept(ctx context.Context, secrets Secrets, connectionID string, kept [
 	secret, err := json.Marshal(kept)
 	if err != nil {
 		return err
+	}
+	for len(secret) > keptBytes && len(kept) > 1 {
+		kept = kept[1:]
+		secret, err = json.Marshal(kept)
+		if err != nil {
+			return err
+		}
+	}
+	if len(secret) > keptBytes {
+		return errors.New("remote session credential exceeds storage capacity")
 	}
 	return secrets.Set(ctx, KeptNamespace, account, string(secret))
 }

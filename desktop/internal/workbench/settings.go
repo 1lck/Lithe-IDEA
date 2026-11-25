@@ -9,13 +9,13 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildinfo"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/cli"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/fileassociations"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fontprefs"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginicons"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/processledger"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
@@ -34,8 +34,15 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		navigation = kernel.SettingsNavigation
 	}
 	return settingswindow.NewController(settingswindow.Options{
-		CLI:               cli.New(),
-		CLIAction:         func(action string) { a.post(func(a *App) { a.performed("settings.cli."+action, surfaceButton) }) },
+		CLI:              cli.New(),
+		CLIAction:        func(action string) { a.post(func(a *App) { a.performed("settings.cli."+action, surfaceButton) }) },
+		FileAssociations: fileassociations.New(),
+		AssociationAction: func(ctx context.Context, action string) context.Context {
+			return a.performedIn(ctx, "settings.fileAssociations."+action, surfaceButton)
+		},
+		AssociationError: func(ctx context.Context, err error) {
+			a.operationFailedIn(ctx, "file_associations", err)
+		},
 		SearchPreferences: appSearchPreferences{app: a},
 		PluginInstallsClosed: func() {
 			a.post(func(a *App) { a.closePluginDownloads() })
@@ -247,7 +254,6 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 			a.post(func(a *App) { a.setConsoleEncoding(value) })
 		},
 		ConsoleEncodings:         a.consoleEncodingsOption,
-		SweepsLeftovers:          processledger.Supported,
 		SteppingAdapters:         a.steppingAdapters,
 		NormalizeSteppingFilters: a.kernel.NormalizeSteppingFilters,
 		SetSteppingFilters: func(adapter string, filters *core.DebugSteppingFilters) {

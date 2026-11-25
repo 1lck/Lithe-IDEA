@@ -20,12 +20,18 @@ type RunProviderReference struct {
 	UserArguments []string `json:"userArguments"`
 }
 
-// RunProviderRun is one entry of the providerRuns snapshot: a run the current
-// build models offer, under the workspace-relative project path that owns it.
+// RunProviderRun is one entry of the providerRuns snapshot: either a build
+// provider selector (Reference) or a generated run-configuration-type entry
+// (RunType, CWD, Execution, Selector), under the workspace-relative project
+// path that owns it.
 type RunProviderRun struct {
-	ProjectPath string               `json:"projectPath"`
-	Name        string               `json:"name"`
-	Reference   RunProviderReference `json:"reference"`
+	ProjectPath string                `json:"projectPath"`
+	Name        string                `json:"name"`
+	Reference   *RunProviderReference `json:"reference,omitempty"`
+	CWD         string                `json:"cwd,omitempty"`
+	Execution   string                `json:"execution,omitempty"`
+	Selector    string                `json:"selector,omitempty"`
+	RunType     *RunTypeReference     `json:"runType,omitempty"`
 }
 
 // RunConfiguration is one effective run configuration after Core merged the

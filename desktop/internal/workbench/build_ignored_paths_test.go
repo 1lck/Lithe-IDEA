@@ -34,7 +34,7 @@ const ignoredPathsManifest = `{
     "detection": {"markers": ["fixture.build"]},
     "invocation": {"executables": [{"kind": "command", "command": "fixture-build"}]},
     "options": [{"id": "release", "displayName": "Release Profile", "kind": "boolean", "arguments": ["--release"]}],
-    "tasks": [{"id": "build", "displayName": "Build", "group": "build", "scopes": ["project"], "arguments": ["build"]}]
+    "tasks": [{"id": "build", "displayName": "Fixture Task", "group": "build", "scopes": ["workspace", "project"], "arguments": ["build"]}]
   }]
 }`
 
