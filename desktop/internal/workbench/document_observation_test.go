@@ -651,6 +651,124 @@ func TestAcknowledgedDeletionCanRecreateOnClose(t *testing.T) {
 	}
 }
 
+func TestAcknowledgedDeletionRecreatesMissingParentDirectory(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	root := t.TempDir()
+	oldDir := filepath.Join(root, "test", "controller")
+	newParent := filepath.Join(root, "test1")
+	if err := os.MkdirAll(oldDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(newParent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(oldDir, "TestController.java")
+	if err := os.WriteFile(path, []byte("class TestController {}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.app.openProject(root)
+	h.app.openFile(h.app.project, path)
+	awaitDocumentState(t, h, func() bool { return h.app.project.docs.byPath(path) != nil })
+	p := h.app.project
+	d := p.docs.byPath(path)
+
+	// Move the parent directory away outside Lithe so the open document's parent vanishes.
+	if err := os.Rename(oldDir, filepath.Join(newParent, "controller")); err != nil {
+		t.Fatal(err)
+	}
+	awaitDocumentState(t, h, func() bool { return d.conflicted && d.conflictMissing && !d.checking && !d.checkPending })
+	for _, watch := range p.docs.watches {
+		watch.close()
+	}
+	p.docs.watches = nil
+	h.app.invalidator.Invalidate()
+	if err := h.driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	h.clickShared("native.allowRecreatingFile")
+	if d.conflicted || !d.recreateMissing || !d.dirty() {
+		t.Fatal("acknowledged missing file was not marked for recreation")
+	}
+	h.app.saveDocument(p, d.id)
+	awaitDocumentState(t, h, func() bool { return !d.saving && !d.dirty() && !d.recreateMissing && !d.conflicted })
+	if data, err := os.ReadFile(path); err != nil || string(data) != "class TestController {}" {
+		t.Fatalf("recreated data = %q, error = %v", data, err)
+	}
+	closed := false
+	h.app.requestCloseProject(func() { closed = true })
+	awaitDocumentState(t, h, func() bool { return closed })
+}
+
+func TestDeletedDocumentCanBeDiscardedAndClosed(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	root := t.TempDir()
+	oldDir := filepath.Join(root, "test", "controller")
+	if err := os.MkdirAll(oldDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(oldDir, "TestController.java")
+	if err := os.WriteFile(path, []byte("class TestController {}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.app.openProject(root)
+	h.app.openFile(h.app.project, path)
+	awaitDocumentState(t, h, func() bool { return h.app.project.docs.byPath(path) != nil })
+	p := h.app.project
+	d := p.docs.byPath(path)
+	input := d.view.TextInput(app.TextInputContext{ID: d.hit})
+	if _, err := input.OnEvent(app.TextEvent{Kind: app.TextInsert, Text: "// unsaved edit\n"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.RemoveAll(oldDir); err != nil {
+		t.Fatal(err)
+	}
+	awaitDocumentState(t, h, func() bool { return d.conflicted && d.conflictMissing && !d.checking && !d.checkPending })
+	for _, watch := range p.docs.watches {
+		watch.close()
+	}
+	p.docs.watches = nil
+	// A regular file now blocks the original parent directory. Use the real writer to
+	// verify that a failed recreation restores the way to discard the preserved buffer.
+	if err := os.WriteFile(oldDir, []byte("keep blocker"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.app.invalidator.Invalidate()
+	if err := h.driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	h.clickShared("native.allowRecreatingFile")
+	h.app.saveDocument(p, d.id)
+	awaitDocumentState(t, h, func() bool {
+		return !d.saving && d.conflicted && d.conflictMissing && !d.recreateMissing && !d.checking && !d.checkPending
+	})
+	h.app.flushCheckpoint(p, d, false)
+	h.settle()
+	if _, found, err := h.app.recovery.store.Load(root, path); err != nil || !found {
+		t.Fatalf("preserved draft before discard: found=%v, error=%v", found, err)
+	}
+
+	h.app.invalidator.Invalidate()
+	if err := h.driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	if !h.shows(i18n.Shared(h.app.language(), "desktop.document.discardAndClose")) {
+		t.Fatal("discard and close action not shown for deleted file")
+	}
+	h.clickShared("desktop.document.discardAndClose")
+	awaitDocumentState(t, h, func() bool { return p.docs.byPath(path) == nil })
+	h.settle()
+	if _, found, err := h.app.recovery.store.Load(root, path); err != nil || found {
+		t.Fatalf("discarded draft remained: found=%v, error=%v", found, err)
+	}
+	if data, err := os.ReadFile(oldDir); err != nil || string(data) != "keep blocker" {
+		t.Fatalf("blocking file was changed: %q, error = %v", data, err)
+	}
+	closed := false
+	h.app.requestCloseProject(func() { closed = true })
+	awaitDocumentState(t, h, func() bool { return closed })
+}
+
 func TestRecreateRejectsFileThatAppearedAfterAcknowledgement(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	root := t.TempDir()

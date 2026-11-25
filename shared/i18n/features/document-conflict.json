@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.document.discardAndClose",
+      "description": "Action in the external deletion banner to discard the preserved editor buffer and close the tab",
+      "platforms": [
+        "desktop"
+      ]
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.document.discardAndClose": "Discard and Close"
+    },
+    "zh-CN": {
+      "desktop.document.discardAndClose": "丢弃并关闭"
+    }
+  }
+}
