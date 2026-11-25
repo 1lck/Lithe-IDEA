@@ -196,6 +196,7 @@ func (a *App) scheduleDocumentChecks(p *project) {
 		d.checking = true
 		p.docs.checking++
 		baseline := d.view.SavedSnapshot()
+		path := d.path
 		missing := d.recreateMissing
 		read, raw := a.documentTextOf(p), a.documentRawOf(p)
 		maximum := int64(a.searchPreferences.MaximumFileBytes)
@@ -214,10 +215,10 @@ func (a *App) scheduleDocumentChecks(p *project) {
 			if disk != nil {
 				// The file is not plain UTF-8: it is compared as bytes and decoded as it was
 				// opened. Its bytes may even be invalid UTF-8, which the text reader refuses.
-				data, err = raw(ctx, d.path)
+				data, err = raw(ctx, path)
 				same = func() bool { return bytes.Equal(data, disk) }
 			} else {
-				data, err = read(ctx, d.path)
+				data, err = read(ctx, path)
 				// The baseline is compared in place: copying it would double the memory a check
 				// needs for a large document.
 				same = func() bool { return baseline.EqualBytes(data) }
@@ -237,7 +238,7 @@ func (a *App) scheduleDocumentChecks(p *project) {
 				p.docs.checking--
 				d.checking = false
 				if p.docs.find(d.id) == d {
-					if d.recreateMissing != missing {
+					if d.path != path || d.recreateMissing != missing {
 						d.checkPending = true
 					} else {
 						a.applyDocumentCheck(p, d, baseline, content, changed, prepared, err, data)

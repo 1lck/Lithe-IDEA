@@ -1,13 +1,20 @@
 name: Set up desktop Windows build tools
 description: >-
-  Puts MinGW-w64 gcc (for the cgo core link) and NSIS makensis (for the installer) on PATH.
-  Shared by the release and AutoBuild workflows so both package Windows with the same tools.
+  Puts MinGW-w64 gcc (for the cgo core link) and optionally NSIS makensis (for the installer) on PATH.
+
+inputs:
+  nsis:
+    description: Set up NSIS for workflows that build a Windows installer.
+    required: false
+    default: 'true'
 
 runs:
   using: composite
   steps:
-    - name: Ensure MinGW-w64 and NSIS
+    - name: Ensure Windows build tools
       shell: bash
+      env:
+        SETUP_NSIS: ${{ inputs.nsis }}
       run: |
         if ! command -v gcc >/dev/null 2>&1; then
           choco install mingw -y
@@ -22,6 +29,9 @@ runs:
           printf '%s\n' "$(cygpath -m "$mingw_bin")" >> "$GITHUB_PATH"
         fi
         gcc --version
+        if [[ "$SETUP_NSIS" != 'true' ]]; then
+          exit 0
+        fi
         nsis_x86='/c/Program Files (x86)/NSIS'
         nsis_x64='/c/Program Files/NSIS'
         if ! command -v makensis >/dev/null 2>&1 && \

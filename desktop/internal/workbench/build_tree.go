@@ -610,6 +610,7 @@ func (a *App) reloadBuildSystems(p *project) {
 	b.generation++
 	b.loading = false
 	b.instances = nil
+	a.publishWorkspaceBuildOptions(nil)
 	b.loaded = false
 	b.selected = 0
 	a.loadBuildSystems(p)

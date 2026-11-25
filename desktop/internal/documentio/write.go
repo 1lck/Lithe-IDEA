@@ -48,6 +48,7 @@ func writeLock(path string) *sync.Mutex {
 
 // WriteMissing creates a previously acknowledged missing document without ever
 // replacing a newly created directory entry, including a symlink or a directory.
+// Missing parent directories are restored as part of the acknowledged recreation.
 // On Unix the staged file has private permissions because the removed file's metadata
 // can no longer be recovered reliably. On Windows it inherits the directory's ACL.
 func WriteMissing(path string, data []byte) (err error) {
@@ -56,6 +57,9 @@ func WriteMissing(path string, data []byte) (err error) {
 	defer lock.Unlock()
 	if len(data) > maxBytes {
 		return ErrTooLarge
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
 	}
 	staged, err := os.CreateTemp(filepath.Dir(path), ".lithe-document-*")
 	if err != nil {

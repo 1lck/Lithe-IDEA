@@ -74,7 +74,7 @@ func TestVisualSettings(t *testing.T) {
 					},
 					PluginState: func(string) PluginState { return PluginState{Installed: true, Enabled: true, Version: "1.0.0"} }, SystemDark: func() bool { return theme == "dark" },
 					SetNetwork: func(NetworkSettings, *string) {}, SetLocalHistory: func(LocalHistorySettings) {},
-					StopTime: func() (StopTime, bool) { return StopTime{Default: 5, Min: 1, Max: 30}, true }, SweepsLeftovers: true,
+					StopTime: func() (StopTime, bool) { return StopTime{Default: 5, Min: 1, Max: 30}, true },
 					TerminalShells: func() ([]localshell.Choice, string) {
 						return []localshell.Choice{{Name: "zsh", Path: "/bin/zsh", Default: true}, {Name: "bash", Path: "/bin/bash"}}, "/bin/zsh"
 					},

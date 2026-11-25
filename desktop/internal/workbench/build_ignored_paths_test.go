@@ -34,7 +34,7 @@ const ignoredPathsManifest = `{
     "detection": {"markers": ["fixture.build"]},
     "invocation": {"executables": [{"kind": "command", "command": "fixture-build"}]},
     "options": [{"id": "release", "displayName": "Release Profile", "kind": "boolean", "arguments": ["--release"]}],
-    "tasks": [{"id": "build", "displayName": "Build", "group": "build", "scopes": ["project"], "arguments": ["build"]}]
+    "tasks": [{"id": "build", "displayName": "Fixture Task", "group": "build", "scopes": ["workspace", "project"], "arguments": ["build"]}]
   }]
 }`
 
@@ -174,7 +174,7 @@ func TestBuildOptionsIgnoredPathsAreSavedOnThisMachineAndRestored(t *testing.T) 
 		t.Fatalf("by default the build systems are at %q, want the dot-named folder skipped", got)
 	}
 
-	h.clickNamed(h.shared("desktop.build.optionsTitle"))
+	h.clickNamed(h.shared("desktop.build.ignoredPaths"))
 	h.awaitIgnoredPathsLoaded(p)
 	e := &p.build.options
 	if e.instance != "" || len(e.fields) != 0 {
@@ -198,7 +198,7 @@ func TestBuildOptionsIgnoredPathsAreSavedOnThisMachineAndRestored(t *testing.T) 
 		t.Fatalf("the project stores %+v, want the typed list on this machine", got)
 	}
 
-	h.clickNamed(h.shared("desktop.build.optionsTitle"))
+	h.clickNamed(h.shared("desktop.build.ignoredPaths"))
 	h.awaitIgnoredPathsLoaded(p)
 	if !h.showsWrapped(h.shared("desktop.build.ignoredPathsLocal")) {
 		t.Fatal("the dialog does not say the list is the one saved on this machine")
@@ -326,4 +326,27 @@ func TestBuildOptionsWaitForResolutionBeforeEditAndSave(t *testing.T) {
 	if got := string(instance.Options["release"]); got != "true" {
 		t.Fatalf("release option after saving and reloading = %q, want true", got)
 	}
+}
+
+func TestWorkspaceBuildSettingsLinkOpensDetectedInstanceWithoutResettingDraft(t *testing.T) {
+	h, p := openIgnoredPathsProject(t, "", nil)
+	targets := h.app.workspaceBuildOptions(p)["fixture-ignored"]
+	for _, target := range targets {
+		if target.Root != "tools" {
+			continue
+		}
+		target.Open()
+		h.settleUntil("nested options loaded", func() bool {
+			e := &p.build.options
+			return e.open && !e.loading && e.instance == target.InstanceID && e.root == "tools" && len(e.fields) > 0
+		})
+		session := p.build.options.session
+		target.Open()
+		h.settle()
+		if p.build.options.session != session {
+			t.Fatal("clicking the settings link replaced the active options editor")
+		}
+		return
+	}
+	t.Fatal("no workspace settings link for the detected tools project")
 }

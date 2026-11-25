@@ -210,6 +210,9 @@ func (a *App) commands() []command {
 	addFrom("git.commitPush", t.GroupGit, t.CommitAndPush, true, func(surface actionSurface) { a.startCommit(p, true, surface) })
 	add("git.branches", t.GroupGit, t.Branches, "", true, a.openBranches)
 	add("git.pull", t.GroupGit, a.text.Sync.Pull.MenuItem, "", p.hasRepository(), func() { a.openPullDialog(p) })
+	addFrom("git.push", t.GroupGit, t.Push, p.hasRepository(), func(surface actionSurface) { a.openPush(p, surface) })
+	addFrom("git.fetch", t.GroupGit, t.Fetch, p.hasRepository(), func(surface actionSurface) { a.fetchAll(p, surface) })
+	addFrom("git.updateBranch", t.GroupGit, t.UpdateBranch, p.hasRepository() && (p.log.current != "" || p.git.branch() != ""), func(surface actionSurface) { a.updateCurrentBranch(p, surface) })
 	if d := p.selectedDocument(p.docs.group); d != nil && !d.virtual {
 		addFrom("git.lineHistory", t.GroupGit, i18n.Shared(a.language(), "desktop.editorMenu.lineHistory"), p.git.isRepository(), func(surface actionSurface) { a.startLineHistory(p, d, surface) })
 	}

@@ -8,8 +8,11 @@
     "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/workbench/documents.go",
+      "desktop/internal/workbench/document_conflict.go",
+      "desktop/internal/workbench/document_conflict_visual_test.go",
       "desktop/internal/workbench/document_observation.go",
       "desktop/internal/workbench/document_observation_test.go",
+      "desktop/internal/workbench/filetree_menu_test.go",
       "desktop/internal/documentio/"
     ]
   },
@@ -18,13 +21,15 @@
     "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/workbench/documents.go",
+      "desktop/internal/workbench/document_conflict.go",
       "desktop/internal/workbench/document_observation.go",
       "desktop/internal/workbench/document_observation_test.go",
+      "desktop/internal/workbench/filetree_menu_test.go",
       "desktop/internal/documentio/"
     ]
   },
   "owner": "Workspace",
-  "notes": "Viva 已接入 Core 文档状态、受保护保存、自动保存与外部修改冲突提示；虚拟只读文档关闭前跳过磁盘变化检查与目录监听，干净且未冲突的文档在外部读取失败时不阻断关闭（已删除文件仍受冲突保护，脏文档在外部校验失败时保留）。硬链接保存选择、旧版完整场景和 Windows 整机验收尚未完成。Windows 原生文件读写组件已实测，符号链接用例因权限跳过。",
+  "notes": "Viva 已接入 Core 文档状态、受保护保存、自动保存与外部修改冲突提示；虚拟只读文档关闭前跳过磁盘变化检查与目录监听，干净且未冲突的文档在外部读取失败时不阻断关闭（已删除文件仍受冲突保护，脏文档在外部校验失败时保留）。#2405：明确允许重建本地文件时补齐缺失父目录，仍以原子不覆盖方式提交；失败后恢复删除提示，可明确丢弃并关闭、清除恢复草稿；项目树剪切粘贴后打开标签跟随新路径，晚到的旧路径检查不能影响新路径标签。上述场景提供 macOS 本地文件系统回归与中英文、明暗主题无头截图，Windows 原生流程仍待验证。硬链接保存选择、旧版完整场景和 Windows 整机验收尚未完成。Windows 原生文件读写组件已实测，符号链接用例因权限跳过。",
   "verification": "编辑未保存文件、外部修改文件并重启应用，确认冲突、保存和恢复行为；另在 Windows 于写入进行中继续连续编辑，确认更晚的正文仍被写入且未保存标记消失；再制造写入失败并关闭自动保存，确认不会自动补写。 macOS 创建两个硬链接 POM，分别验证独立保存不改别名、更新全部保留同一底层文件、取消不丢失编辑、自动保存不写盘且不弹确认、关闭/运行前保存取消会中止后续动作；自动检查尚未完成时触发手动保存，应在同一次操作里弹出确认并保存最新输入，显式编码须保留，取消/重置/关闭/移走再移回不得接续，普通权限错误不重试；确认期间更改目标/内容/链接数须拒绝覆盖。核对权限、超过 32 MB、无效编码、符号链接、目录与命名管道的中英文提示；完整产品弹窗验收仍 pending。 Windows 连续输入时自动保存在停顿 1 秒后写入，切到其他窗口、终端或其他面板时立即写入；运行前保存不受该延迟影响。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",

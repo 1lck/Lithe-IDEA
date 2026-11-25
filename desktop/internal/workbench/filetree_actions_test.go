@@ -14,6 +14,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/keymap"
+	"github.com/vivaui/viva/ui"
 )
 
 // writeTreeFiles makes the files at the slash-separated paths under root, with the folders
@@ -85,6 +86,56 @@ func TestProjectTreeLocatesTheActiveFile(t *testing.T) {
 	h.settle()
 	if i := p.tree.view.Selected(); i < 0 || p.tree.rows[i] != p.tree.selected {
 		t.Fatalf("the located row is not the tree's current row: %d", i)
+	}
+}
+
+// A large tree must expose the selected row after the Locate click alone, not
+// after another pointer event. The Viva List ScrollTo request is applied in
+// the same frame (the stale-offset regression tracked by #1820).
+func TestProjectTreeLocatePaintsAnOffscreenFileAfterOneClick(t *testing.T) {
+	root := t.TempDir()
+	paths := make([]string, 96)
+	for i := range paths {
+		paths[i] = fmt.Sprintf("file-%03d.go", i)
+	}
+	writeTreeFiles(t, root, paths...)
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	p := h.openTree(t, root)
+	target := filepath.Join(root, paths[len(paths)-1])
+	h.app.openFile(p, target)
+	awaitDocumentState(t, h, func() bool { return p.docs.byPath(target) != nil })
+	h.settle()
+	// Opening a document may reveal its tree node automatically; force an
+	// offscreen starting viewport before testing the Locate scroll itself.
+	p.tree.view.ScrollTo(0, ui.ListStart)
+	h.app.invalidator.Invalidate()
+	if err := h.driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	for _, hit := range h.driver.Snapshot().Hits {
+		if hit.Label == "file-095.go" && !hit.IsLabel && h.treeRowOwned(hit.ID) {
+			t.Fatal("the target row was already visible before Locate")
+		}
+	}
+
+	locate := h.treeAction(treeActionLocate)
+	if locate.Disabled {
+		t.Fatal("Locate is unavailable for the active file")
+	}
+	point := center(locate.Bounds)
+	if err := h.driver.Click(point.X, point.Y); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	if p.tree.selected == nil || p.tree.selected.path != paths[len(paths)-1] {
+		t.Fatalf("Locate selected %+v, want %s", p.tree.selected, paths[len(paths)-1])
+	}
+	// treeRowHit reads the last completed paint. A stale List scroll offset would
+	// leave this offscreen hit absent until another frame or mouse movement.
+	if hit := h.treeRowHit("file-095.go"); hit.Bounds.Height <= 0 {
+		t.Fatalf("Locate did not paint the requested row: %+v", hit)
 	}
 }
 

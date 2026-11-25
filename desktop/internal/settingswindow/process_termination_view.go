@@ -72,25 +72,23 @@ func (w *window) processTerminationPage(c ui.C) {
 				w.setProcessTermination(value, false)
 			}
 		})
-		if w.ctrl.opts.SweepsLeftovers {
-			w.card(c, i18n.Shared(language, "native.afterLitheClosesUnexpectedly"), i18n.Shared(language, "desktop.settings.processTermination.startupSweepHelp"), func() {
-				sweep := value.StartupSweep
-				label := func(choice string) string {
-					if choice == StartupSweepTerminate {
-						return i18n.Shared(language, "native.endOnNextLaunch")
-					}
-					return i18n.Shared(language, "native.askOnNextLaunch")
+		w.card(c, i18n.Shared(language, "native.afterLitheClosesUnexpectedly"), i18n.Shared(language, "desktop.settings.processTermination.startupSweepHelp"), func() {
+			sweep := value.StartupSweep
+			label := func(choice string) string {
+				if choice == StartupSweepTerminate {
+					return i18n.Shared(language, "native.endOnNextLaunch")
 				}
-				ui.Row(c).FillWidth().Height(28).Items(ui.Center).Gap(12).Children(func() {
-					ui.Text(c, i18n.Shared(language, "desktop.settings.processTermination.leftoverTerminals")).FontSize(12).Color(w.pal.text).Grow(1).MinWidth(0).Ellipsis()
-					if ui.Select(c.Part("sweep"), &sweep, startupSweepChoices, label).Width(selectWidth).
-						Label(i18n.Shared(language, "desktop.settings.processTermination.leftoverTerminals")).Changed() {
-						value.StartupSweep = sweep
-						w.setProcessTermination(value, false)
-					}
-				})
+				return i18n.Shared(language, "native.askOnNextLaunch")
+			}
+			ui.Row(c).FillWidth().Height(28).Items(ui.Center).Gap(12).Children(func() {
+				ui.Text(c, i18n.Shared(language, "desktop.settings.processTermination.leftoverTerminals")).FontSize(12).Color(w.pal.text).Grow(1).MinWidth(0).Ellipsis()
+				if ui.Select(c.Part("sweep"), &sweep, startupSweepChoices, label).Width(selectWidth).
+					Label(i18n.Shared(language, "desktop.settings.processTermination.leftoverTerminals")).Changed() {
+					value.StartupSweep = sweep
+					w.setProcessTermination(value, false)
+				}
 			})
-		}
+		})
 		if w.ctrl.opts.StopTime != nil {
 			w.stopTimeCard(c, value)
 		}

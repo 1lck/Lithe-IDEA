@@ -83,7 +83,7 @@ func (a *App) drawStashList(c ui.C, p *project) ui.Box {
 	s, lang := &p.stash, a.language()
 	return ui.Column(c).FillWidth().Clip().Children(func() {
 		if len(s.list) == 0 {
-			message := i18n.Shared(lang, "native.noSavedChanges")
+			message := i18n.Shared(lang, "git.noStashes")
 			if !s.loaded {
 				message = a.text.Git.Loading
 			}

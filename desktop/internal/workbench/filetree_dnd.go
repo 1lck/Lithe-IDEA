@@ -143,6 +143,8 @@ func (a *App) treePaste(p *project, n *treeNode) {
 			}
 			if err := os.Rename(src, dst); err != nil {
 				failed = err
+			} else {
+				a.moveOpenDocuments(p, src, dst)
 			}
 			continue
 		}

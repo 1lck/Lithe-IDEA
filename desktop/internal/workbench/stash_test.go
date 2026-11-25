@@ -31,8 +31,8 @@ func TestStashTabMakesShowsPopsAndDropsStashes(t *testing.T) {
 	}
 	h.await("the stashes", func() bool { return s.loaded })
 	h.settle()
-	if !h.shows(i18n.Shared(lang, "native.noSavedChanges")) {
-		t.Fatal("the empty Stash tab does not say there are no saved changes")
+	if !h.shows(i18n.Shared(lang, "git.noStashes")) {
+		t.Fatal("the empty Stash tab does not say there are no stashes")
 	}
 
 	h.clickNamed(i18n.Shared(lang, "desktop.gitReview.stashPush"))
@@ -121,5 +121,19 @@ func TestGitActionsMenuShowsTheStashTab(t *testing.T) {
 	h.settle()
 	if h.app.layout.commitTab != commitTabStash || !h.app.chrome.isOpen(catalogIndex[itemCommit]) {
 		t.Fatalf("Commit tab %d, open %v; want the Stash tab shown", h.app.layout.commitTab, h.app.chrome.isOpen(catalogIndex[itemCommit]))
+	}
+}
+
+// Regression test for #2406: Chinese Stash labels must use "贮藏" instead of "暂存"
+// so the Stash tab is not confused with the Git staging area ("已暂存").
+func TestStashChineseCopyDistinguishesStashFromStaging(t *testing.T) {
+	if got := i18n.Shared(i18n.Chinese, "native.stash"); got != "贮藏" {
+		t.Fatalf("native.stash (zh-CN) = %q, want %q", got, "贮藏")
+	}
+	if got := i18n.Shared(i18n.Chinese, "git.saved.stashes"); got != "Git 贮藏记录" {
+		t.Fatalf("git.saved.stashes (zh-CN) = %q, want %q", got, "Git 贮藏记录")
+	}
+	if got := i18n.Shared(i18n.Chinese, "git.noStashes"); got != "暂无贮藏" {
+		t.Fatalf("git.noStashes (zh-CN) = %q, want %q", got, "暂无贮藏")
 	}
 }

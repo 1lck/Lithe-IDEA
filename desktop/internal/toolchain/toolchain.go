@@ -105,11 +105,14 @@ type Tool struct {
 type Snapshot struct {
 	Global             bool `json:"global,omitempty"`
 	ProjectCodeAllowed bool `json:"projectCodeAllowed,omitempty"`
-	catalog            *catalogSource
-	Root               string                   `json:"root"`
-	Directory          string                   `json:"directory"`
-	Tools              []Tool                   `json:"tools"`
-	Conflicts          []core.ToolchainConflict `json:"conflicts"`
+	// DiscoveryIncomplete reports that another enabled plugin could not be
+	// read; usable tools remain available but this is not a complete catalog.
+	DiscoveryIncomplete bool `json:"discoveryIncomplete,omitempty"`
+	catalog             *catalogSource
+	Root                string                   `json:"root"`
+	Directory           string                   `json:"directory"`
+	Tools               []Tool                   `json:"tools"`
+	Conflicts           []core.ToolchainConflict `json:"conflicts"`
 	// Baseline is the exact bytes of .lithe/toolchains/local.json that the
 	// snapshot was built from, nil when the file did not exist.
 	Baseline []byte `json:"-"`

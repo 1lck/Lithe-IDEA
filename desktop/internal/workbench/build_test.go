@@ -124,3 +124,35 @@ func TestBuildWindowNamesInstancesByTheirRoots(t *testing.T) {
 		t.Fatalf("nested root group = %q, %q", name, root)
 	}
 }
+
+func TestBuildPanelShowsDeclaredTasksWithoutLoadingAModel(t *testing.T) {
+	h, p := openIgnoredPathsProject(t, "", nil)
+	p.setAllBuildGroups(true)
+	checkTasks := func() {
+		t.Helper()
+		taskCount := 0
+		for _, row := range laidOutBuildRows(t, h, p) {
+			if row.model || row.warning {
+				t.Fatalf("declarative build system showed a model warning: %q", row.label)
+			}
+			if row.kind == buildRowTask && row.label == "Fixture Task" {
+				taskCount++
+			}
+		}
+		if taskCount != 2 {
+			t.Fatalf("found %d workspace task rows, want one for each of 2 detected instances", taskCount)
+		}
+		if count := buildSyncSessions(p); count != 0 {
+			t.Fatalf("opening the declared task tree started %d model-load sessions", count)
+		}
+	}
+	checkTasks()
+
+	h.app.reloadBuildModel(p, 0)
+	h.settle()
+	checkTasks()
+
+	h.app.reloadPluginBuildModels(p, "dev.lithe.test.ignored-paths")
+	h.settle()
+	checkTasks()
+}

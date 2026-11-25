@@ -97,3 +97,30 @@ func TestWriteMissingDoesNotReplaceSymlink(t *testing.T) {
 		t.Fatalf("symlink changed: %q, %v", target, err)
 	}
 }
+
+func TestWriteMissingCreatesMissingParentDirectories(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test", "controller", "TestController.java")
+	if err := WriteMissing(path, []byte("class TestController {}")); err != nil {
+		t.Fatalf("WriteMissing with missing parent directories: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "class TestController {}" {
+		t.Fatalf("content = %q, error = %v", data, err)
+	}
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("staging files remained: %v, error = %v", entries, err)
+	}
+
+	blocker := filepath.Join(dir, "blocker")
+	if err := os.WriteFile(blocker, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteMissing(filepath.Join(blocker, "TestController.java"), []byte("new")); err == nil {
+		t.Fatal("WriteMissing succeeded through a regular file ancestor")
+	}
+	if data, err := os.ReadFile(blocker); err != nil || string(data) != "keep" {
+		t.Fatalf("blocker changed: %q, error = %v", data, err)
+	}
+}

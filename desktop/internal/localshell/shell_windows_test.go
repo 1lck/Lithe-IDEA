@@ -3,14 +3,17 @@
 package localshell
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/processledger"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/term"
 	"github.com/vivaui/viva/gfx"
 	"golang.org/x/sys/windows"
@@ -126,6 +129,35 @@ func TestConPTYExitEndsTheShellWithItsStatus(t *testing.T) {
 	}
 	if shell.Write([]byte("x")) {
 		t.Fatal("Write succeeded after the shell ended")
+	}
+}
+
+// A terminal's shell is in the process ledger while it runs, so a shell an earlier run of the app
+// left behind can be offered for ending at start-up; it leaves the ledger when it ends.
+func TestConPTYShellIsRecordedWhileItRuns(t *testing.T) {
+	preferences := t.TempDir()
+	t.Cleanup(func() { processledger.Activate("") })
+	ledger := processledger.Activate(preferences)
+	shell, _ := startWindows(t, Config{})
+	records, err := ledger.Leftovers()
+	if err != nil || len(records) != 1 || records[0].Kind != processledger.KindTerminal ||
+		!strings.EqualFold(filepath.Base(records[0].Command), "cmd.exe") {
+		t.Fatalf("leftovers = %+v, %v; want the shell as a terminal", records, err)
+	}
+	shell.Write([]byte("exit 0\r\n"))
+	select {
+	case <-shell.Done():
+	case <-time.After(15 * time.Second):
+		t.Fatal("the shell did not end")
+	}
+	// An ended process is never a leftover, so the file itself shows that the record was removed.
+	data, err := os.ReadFile(filepath.Join(preferences, processledger.LedgerFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var recorded []processledger.Record
+	if err := json.Unmarshal(data, &recorded); err != nil || len(recorded) != 0 {
+		t.Fatalf("the ended shell is still recorded: %s, %v", data, err)
 	}
 }
 

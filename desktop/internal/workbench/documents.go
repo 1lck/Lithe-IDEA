@@ -765,7 +765,14 @@ func (a *App) saveDocumentMode(p *project, id int, mode saveMode) {
 					}
 					return
 				}
-				if errors.Is(err, documentio.ErrConflict) {
+				if missing {
+					// Restore the last observed deletion so a failed recreation still offers
+					// a way to discard the buffer. The fresh check updates that observation.
+					d.recreateMissing = false
+					d.conflicted, d.conflictMissing = true, true
+					d.conflictGeneration++
+				}
+				if missing || errors.Is(err, documentio.ErrConflict) {
 					d.checkPending = true
 				}
 				a.saveFailed(id, revision, name, err)

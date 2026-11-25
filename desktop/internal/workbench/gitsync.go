@@ -297,7 +297,11 @@ func (a *App) submitFetchOptions(p *project) {
 // updateCurrentBranch fetches, then brings the branch checked out in the repository the log
 // walks up to its upstream, see updateCurrentBranchAt.
 func (a *App) updateCurrentBranch(p *project, surface actionSurface) {
-	a.updateCurrentBranchAt(p, p.logRepositoryRoot(), p.log.current, surface)
+	branch := p.log.current
+	if branch == "" {
+		branch = p.git.branch()
+	}
+	a.updateCurrentBranchAt(p, p.logRepositoryRoot(), branch, surface)
 }
 
 // updateCurrentBranchAt fetches, then brings branch, the one checked out in the repository at

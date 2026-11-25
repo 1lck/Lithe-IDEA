@@ -69,8 +69,15 @@ func (s *integrated) lastExit() int {
 // await feeds the shell's output to the terminal until done holds. The
 // terminal's state changes only with output, and every output wakes the wait.
 func (s *integrated) await(what string, done func() bool) {
+	s.awaitWithin(what, 10*time.Second, done)
+}
+
+// awaitWithin uses the caller's bounded deadline for the first cold shell
+// startup under full-CI load, without changing the interactive command budget.
+func (s *integrated) awaitWithin(what string, timeout time.Duration, done func() bool) {
 	s.t.Helper()
-	deadline := time.After(10 * time.Second)
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
 	for {
 		data := s.shell.Drain(nil)
 		s.output += string(data)
@@ -80,7 +87,7 @@ func (s *integrated) await(what string, done func() bool) {
 		}
 		select {
 		case <-s.wakes:
-		case <-deadline:
+		case <-deadline.C:
 			s.t.Fatalf("waiting for %s (ready=%d starts=%d): %q", what, s.ready(), s.starts(), s.output)
 		}
 	}
