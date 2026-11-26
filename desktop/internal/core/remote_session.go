@@ -94,6 +94,7 @@ const (
 // malformed field by name ("container" or "user") with the reasons required and invalid, read by
 // RemoteConnectionFieldError.
 type ContainerConnection struct {
+	Context string `json:"context,omitempty"`
 	// Engine is ContainerEngineDocker or ContainerEnginePodman.
 	Engine string `json:"engine"`
 	// Container is the container's name or id, as remote.listContainers lists it.
@@ -106,10 +107,14 @@ type ContainerConnection struct {
 // engine:container, or engine:user@container, the form RemoteWorkspaceTrustTarget.Place uses.
 func (c ContainerConnection) Identity() string {
 	container, user := strings.TrimSpace(c.Container), strings.TrimSpace(c.User)
-	if user == "" {
-		return c.Engine + ":" + container
+	engine := c.Engine
+	if c.Context != "" {
+		engine += "[" + c.Context + "]"
 	}
-	return c.Engine + ":" + user + "@" + container
+	if user == "" {
+		return engine + ":" + container
+	}
+	return engine + ":" + user + "@" + container
 }
 
 // RemoteContainer is a running container remote.listContainers found.

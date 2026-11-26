@@ -3115,21 +3115,21 @@
     },
     {
       "id": "desktop.remote.devcontainer.open",
-      "description": "Remote Development window, dev container page: the list toolbar button and empty page link that open the page to open a folder of this computer in its dev container",
+      "description": "Create or open Dev Container…",
       "platforms": [
         "desktop"
       ]
     },
     {
       "id": "desktop.remote.devcontainer.title",
-      "description": "Remote Development window, dev container page: the page heading and the window title crumb",
+      "description": "Dev Container",
       "platforms": [
         "desktop"
       ]
     },
     {
       "id": "desktop.remote.devcontainer.about",
-      "description": "Remote Development window, dev container page: what the page does and what it runs",
+      "description": "Choose a container environment and workspace folder. Create a configuration with the basic options, or use an existing devcontainer.json. The official Dev Container CLI builds and starts the container after you trust the workspace.",
       "platforms": [
         "desktop"
       ]
@@ -3143,7 +3143,7 @@
     },
     {
       "id": "desktop.remote.devcontainer.folderPlaceholder",
-      "description": "Remote Development window, dev container page: the placeholder of the folder field; Return reads the folder",
+      "description": "Choose a folder, or type an absolute path (a Linux path for WSL) and press Return",
       "platforms": [
         "desktop"
       ]
@@ -3222,27 +3222,6 @@
       }
     },
     {
-      "id": "desktop.remote.devcontainer.none",
-      "description": "Remote Development window, dev container page: shown when the folder has no devcontainer.json",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.remote.devcontainer.engine",
-      "description": "Remote Development window, dev container page: the label of the picker of the engine to build with",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.remote.devcontainer.engineHelp",
-      "description": "Remote Development window, dev container page: the ⓘ help of the engine picker",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.remote.devcontainer.untrusted",
       "description": "Remote Development window, dev container page: the notice that the folder is not trusted and building trusts it",
       "platforms": [
@@ -3300,7 +3279,7 @@
     },
     {
       "id": "desktop.remote.devcontainer.missing",
-      "description": "Remote Development window, dev container page: why the build failed: this computer has no Dev Container CLI",
+      "description": "The Dev Container CLI (devcontainer) was not found in the selected environment. Run npm install -g @devcontainers/cli in that environment, then build again.",
       "platforms": [
         "desktop"
       ]
@@ -3754,11 +3733,11 @@
       "desktop.remote.hostContainers.enter": "Enter Container",
       "desktop.remote.hostContainers.title": "Choose a Container on {name}",
       "desktop.remote.hostContainers.name": "{container} on {host}",
-      "desktop.remote.devcontainer.open": "Open from devcontainer.json…",
-      "desktop.remote.devcontainer.title": "Open in Dev Container",
-      "desktop.remote.devcontainer.about": "Builds and starts the dev container a local folder’s devcontainer.json describes, with the official Dev Container CLI, and opens its workspace folder in it. Building runs the folder’s Dockerfile, features and commands here, so the folder must be trusted. Lithe adds no mount or option.",
+      "desktop.remote.devcontainer.open": "Create or open Dev Container…",
+      "desktop.remote.devcontainer.title": "Dev Container",
+      "desktop.remote.devcontainer.about": "Choose a container environment and workspace folder. Create a configuration with the basic options, or use an existing devcontainer.json. The official Dev Container CLI builds and starts the container after you trust the workspace.",
       "desktop.remote.devcontainer.folder": "Folder on this computer",
-      "desktop.remote.devcontainer.folderPlaceholder": "Choose a folder, or type its path and press Return",
+      "desktop.remote.devcontainer.folderPlaceholder": "Choose a folder, or type an absolute path (a Linux path for WSL) and press Return",
       "desktop.remote.devcontainer.choose": "Choose Folder…",
       "desktop.remote.devcontainer.chooseTitle": "Choose the Folder to Open in Its Dev Container",
       "desktop.remote.devcontainer.folderRelative": "Enter the folder’s full path, such as /Users/me/project.",
@@ -3768,9 +3747,6 @@
       "desktop.remote.devcontainer.config": "Configuration",
       "desktop.remote.devcontainer.configHelp": "The devcontainer.json files of this folder, in the order the Dev Container specification looks for them: .devcontainer/devcontainer.json, .devcontainer.json, then one folder below .devcontainer.",
       "desktop.remote.devcontainer.configNamed": "{name} ({path})",
-      "desktop.remote.devcontainer.none": "This folder has no devcontainer.json in .devcontainer or at its top.",
-      "desktop.remote.devcontainer.engine": "Engine",
-      "desktop.remote.devcontainer.engineHelp": "Docker or Podman runs the container. With Podman, the CLI is given podman as its docker path.",
       "desktop.remote.devcontainer.untrusted": "This folder is not trusted. Trust and Build trusts it, the same as opening it as a trusted project, and then builds.",
       "desktop.remote.devcontainer.log": "Build Log",
       "desktop.remote.devcontainer.logHelp": "The Dev Container CLI’s own output, with secrets hidden. It is shown here and not written to Lithe’s logs.",
@@ -3779,7 +3755,7 @@
       "desktop.remote.devcontainer.build": "Build and Open",
       "desktop.remote.devcontainer.trustAndBuild": "Trust and Build",
       "desktop.remote.devcontainer.building": "Building the dev container…",
-      "desktop.remote.devcontainer.missing": "The Dev Container CLI (devcontainer) was not found on this computer. Install it with npm install -g @devcontainers/cli, then build again.",
+      "desktop.remote.devcontainer.missing": "The Dev Container CLI (devcontainer) was not found in the selected environment. Run npm install -g @devcontainers/cli in that environment, then build again.",
       "desktop.remote.devcontainer.failed": "The Dev Container CLI could not start the container. Its output is below.",
       "desktop.remote.devcontainer.timedOut": "The build took longer than an hour and was stopped.",
       "desktop.remote.devcontainer.unusable": "The Dev Container CLI started something Lithe cannot open: its result names no container or workspace folder.",
@@ -4191,11 +4167,11 @@
       "desktop.remote.hostContainers.enter": "进入容器",
       "desktop.remote.hostContainers.title": "选择 {name} 上的容器",
       "desktop.remote.hostContainers.name": "{container}（{host}）",
-      "desktop.remote.devcontainer.open": "从 devcontainer.json 打开…",
-      "desktop.remote.devcontainer.title": "在 Dev Container 中打开",
-      "desktop.remote.devcontainer.about": "用官方 Dev Container CLI 按本机文件夹里 devcontainer.json 的描述构建并启动 dev container，然后在容器里打开它的工作区文件夹。构建会在本机运行这个文件夹的 Dockerfile、features 和命令，因此文件夹必须受信任。Lithe 不额外挂载目录，也不额外加参数。",
+      "desktop.remote.devcontainer.open": "创建或打开 Dev Container…",
+      "desktop.remote.devcontainer.title": "Dev Container",
+      "desktop.remote.devcontainer.about": "选择容器环境和工作区文件夹，可填写基础选项创建配置，也可使用已有 devcontainer.json。信任工作区后，由官方 Dev Container CLI 构建并启动容器。",
       "desktop.remote.devcontainer.folder": "本机文件夹",
-      "desktop.remote.devcontainer.folderPlaceholder": "选择文件夹，或输入路径后按回车",
+      "desktop.remote.devcontainer.folderPlaceholder": "选择文件夹，或输入绝对路径（WSL 可填 Linux 路径）后按回车",
       "desktop.remote.devcontainer.choose": "选择文件夹…",
       "desktop.remote.devcontainer.chooseTitle": "选择要在 Dev Container 中打开的文件夹",
       "desktop.remote.devcontainer.folderRelative": "请输入文件夹的完整路径，例如 /Users/me/project。",
@@ -4205,9 +4181,6 @@
       "desktop.remote.devcontainer.config": "配置",
       "desktop.remote.devcontainer.configHelp": "这个文件夹里的 devcontainer.json，按 Dev Container 规范查找的顺序列出：.devcontainer/devcontainer.json、.devcontainer.json，然后是 .devcontainer 下一层文件夹里的。",
       "desktop.remote.devcontainer.configNamed": "{name}（{path}）",
-      "desktop.remote.devcontainer.none": "这个文件夹的 .devcontainer 里和顶层都没有 devcontainer.json。",
-      "desktop.remote.devcontainer.engine": "容器引擎",
-      "desktop.remote.devcontainer.engineHelp": "由 Docker 或 Podman 运行容器。选 Podman 时，CLI 的 docker 路径设为 podman。",
       "desktop.remote.devcontainer.untrusted": "这个文件夹还不受信任。“信任并构建”会信任它（与以受信任项目打开时相同），然后开始构建。",
       "desktop.remote.devcontainer.log": "构建日志",
       "desktop.remote.devcontainer.logHelp": "Dev Container CLI 自己的输出，已隐藏敏感信息。只在这里显示，不写入 Lithe 的日志。",
@@ -4216,7 +4189,7 @@
       "desktop.remote.devcontainer.build": "构建并打开",
       "desktop.remote.devcontainer.trustAndBuild": "信任并构建",
       "desktop.remote.devcontainer.building": "正在构建 dev container…",
-      "desktop.remote.devcontainer.missing": "本机没有找到 Dev Container CLI（devcontainer）。请用 npm install -g @devcontainers/cli 安装后再构建。",
+      "desktop.remote.devcontainer.missing": "所选环境中没有找到 Dev Container CLI（devcontainer）。请在该环境中运行 npm install -g @devcontainers/cli 安装后再构建。",
       "desktop.remote.devcontainer.failed": "Dev Container CLI 没能启动容器，输出如下。",
       "desktop.remote.devcontainer.timedOut": "构建超过一小时，已停止。",
       "desktop.remote.devcontainer.unusable": "Dev Container CLI 启动的结果无法打开：结果里没有容器或工作区文件夹。",

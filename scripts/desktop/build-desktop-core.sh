@@ -380,7 +380,10 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # log before spawning `ssh.exe` so Win32-OpenSSH no longer fails with ERROR_SHARING_VIOLATION (32 /
 # Broken pipe), inherits owner-only DACL on PrivateDirectory, and keeps Evidence alive until
 # `end_transport` reaps the SSH process.
-PINNED_CORE_REVISION="e8927412b6324636f2636b58c521758451d97fc4"
+# Lithe-core-rust devcontainer runtime discovery branch at d1b86b55: discovers local Docker
+# contexts, Podman and Windows WSL engines, prepares standard devcontainer configurations,
+# and preserves the selected context and distribution through build, connection and trust.
+PINNED_CORE_REVISION="d1b86b55f344af572fd472edaf60d91240cf1149"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

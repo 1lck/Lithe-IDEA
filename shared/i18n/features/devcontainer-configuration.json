@@ -1,0 +1,349 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "description": "Container environment",
+      "platforms": [
+        "desktop"
+      ],
+      "id": "desktop.remote.devcontainer.runtime"
+    },
+    {
+      "description": "Discovers local Docker contexts (including Docker Desktop and OrbStack), Podman, and Docker in Windows WSL distributions. Build and connection use the selected environment; your default Docker context is unchanged.",
+      "platforms": [
+        "desktop"
+      ],
+      "id": "desktop.remote.devcontainer.runtimeHelp"
+    },
+    {
+      "description": "{name} ({context})",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "context": "string"
+      },
+      "id": "desktop.remote.devcontainer.runtimeContext"
+    },
+    {
+      "description": "{name} — WSL: {distribution}",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "distribution": "string"
+      },
+      "id": "desktop.remote.devcontainer.runtimeWSL"
+    },
+    {
+      "description": "{name} (unavailable)",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string"
+      },
+      "id": "desktop.remote.devcontainer.runtimeUnavailable"
+    },
+    {
+      "description": "Detecting container environments…",
+      "platforms": [
+        "desktop"
+      ],
+      "id": "desktop.remote.devcontainer.detecting"
+    },
+    {
+      "description": "No container engine found. Install or start Docker, OrbStack, or Podman, then refresh.",
+      "platforms": [
+        "desktop"
+      ],
+      "id": "desktop.remote.devcontainer.noRuntime"
+    },
+    {
+      "description": "Refresh environments",
+      "platforms": [
+        "desktop"
+      ],
+      "id": "desktop.remote.devcontainer.refreshRuntimes"
+    },
+    {
+      "description": "Could not detect container environments: {reason}",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      },
+      "id": "desktop.remote.devcontainer.detectFailed"
+    },
+    {
+      "description": "This folder has no configuration. Create one using the options below.",
+      "platforms": [
+        "desktop"
+      ],
+      "id": "desktop.remote.devcontainer.createMissing"
+    },
+    {
+      "description": "Create configuration",
+      "platforms": [
+        "desktop"
+      ],
+      "id": "desktop.remote.devcontainer.createConfig"
+    },
+    {
+      "description": "Will create: {path}",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "path": "string"
+      },
+      "id": "desktop.remote.devcontainer.configDestination"
+    },
+    {
+      "description": "Could not create configuration: {reason}",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      },
+      "id": "desktop.remote.devcontainer.createFailed"
+    },
+    {
+      "description": "A configuration already exists or changed. Reload the folder before continuing.",
+      "platforms": [
+        "desktop"
+      ],
+      "id": "desktop.remote.devcontainer.configConflict"
+    },
+    {
+      "description": "Name",
+      "platforms": [
+        "desktop"
+      ],
+      "id": "desktop.remote.devcontainer.form.name"
+    },
+    {
+      "description": "Optional name stored in devcontainer.json.",
+      "platforms": [
+        "desktop"
+      ],
+      "id": "desktop.remote.devcontainer.form.nameHelp"
+    },
+    {
+      "description": "Container source",
+      "platforms": [
+        "desktop"
+      ],
+      "id": "desktop.remote.devcontainer.form.source"
+    },
+    {
+      "description": "Use an existing image, or build the Dockerfile in your workspace. The official Dev Container CLI handles building and startup.",
+      "platforms": [
+        "desktop"
+      ],
+      "id": "desktop.remote.devcontainer.form.sourceHelp"
+    },
+    {
+      "description": "Image",
+      "platforms": [
+        "desktop"
+      ],
+      "id": "desktop.remote.devcontainer.form.source.image"
+    },
+    {
+      "description": "Dockerfile",
+      "platforms": [
+        "desktop"
+      ],
+      "id": "desktop.remote.devcontainer.form.source.dockerfile"
+    },
+    {
+      "description": "Image",
+      "platforms": [
+        "desktop"
+      ],
+      "id": "desktop.remote.devcontainer.form.image"
+    },
+    {
+      "description": "Image name and optional tag or digest. The engine may download the image when you build.",
+      "platforms": [
+        "desktop"
+      ],
+      "id": "desktop.remote.devcontainer.form.imageHelp"
+    },
+    {
+      "description": "Dockerfile path",
+      "platforms": [
+        "desktop"
+      ],
+      "id": "desktop.remote.devcontainer.form.dockerfile"
+    },
+    {
+      "description": "Path relative to the selected workspace folder. The file must stay inside the workspace.",
+      "platforms": [
+        "desktop"
+      ],
+      "id": "desktop.remote.devcontainer.form.dockerfileHelp"
+    },
+    {
+      "description": "Build context",
+      "platforms": [
+        "desktop"
+      ],
+      "id": "desktop.remote.devcontainer.form.buildContext"
+    },
+    {
+      "description": "Folder relative to the workspace, made available to Dockerfile COPY commands. Empty uses the workspace root.",
+      "platforms": [
+        "desktop"
+      ],
+      "id": "desktop.remote.devcontainer.form.buildContextHelp"
+    },
+    {
+      "description": "Container user",
+      "platforms": [
+        "desktop"
+      ],
+      "id": "desktop.remote.devcontainer.form.remoteUser"
+    },
+    {
+      "description": "User or UID to connect as inside the container. Empty uses the image default.",
+      "platforms": [
+        "desktop"
+      ],
+      "id": "desktop.remote.devcontainer.form.remoteUserHelp"
+    },
+    {
+      "description": "Container workspace folder",
+      "platforms": [
+        "desktop"
+      ],
+      "id": "desktop.remote.devcontainer.form.workspaceFolder"
+    },
+    {
+      "description": "Absolute folder to open inside the container. Empty uses the folder resolved by the Dev Container CLI. This option does not add a mount.",
+      "platforms": [
+        "desktop"
+      ],
+      "id": "desktop.remote.devcontainer.form.workspaceFolderHelp"
+    },
+    {
+      "description": "Published ports",
+      "platforms": [
+        "desktop"
+      ],
+      "id": "desktop.remote.devcontainer.form.ports"
+    },
+    {
+      "description": "TCP ports from 1 to 65535, separated by commas. Published on the same loopback port of the selected environment; WSL ports are published inside that distribution.",
+      "platforms": [
+        "desktop"
+      ],
+      "id": "desktop.remote.devcontainer.form.portsHelp"
+    },
+    {
+      "description": "Command after creation",
+      "platforms": [
+        "desktop"
+      ],
+      "id": "desktop.remote.devcontainer.form.postCreateCommand"
+    },
+    {
+      "description": "Optional command run inside the new container by the official CLI. It runs only after you trust and build the workspace.",
+      "platforms": [
+        "desktop"
+      ],
+      "id": "desktop.remote.devcontainer.form.postCreateCommandHelp"
+    },
+    {
+      "id": "desktop.remote.devcontainer.invalidField",
+      "description": "Invalid value for {field}. Check the field’s information and try again.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "field": "string"
+      }
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.remote.devcontainer.runtime": "Container environment",
+      "desktop.remote.devcontainer.runtimeHelp": "Discovers local Docker contexts (including Docker Desktop and OrbStack), Podman, and Docker in Windows WSL distributions. Build and connection use the selected environment; your default Docker context is unchanged.",
+      "desktop.remote.devcontainer.runtimeContext": "{name} ({context})",
+      "desktop.remote.devcontainer.runtimeWSL": "{name} — WSL: {distribution}",
+      "desktop.remote.devcontainer.runtimeUnavailable": "{name} (unavailable)",
+      "desktop.remote.devcontainer.detecting": "Detecting container environments…",
+      "desktop.remote.devcontainer.noRuntime": "No container engine found. Install or start Docker, OrbStack, or Podman, then refresh.",
+      "desktop.remote.devcontainer.refreshRuntimes": "Refresh environments",
+      "desktop.remote.devcontainer.detectFailed": "Could not detect container environments: {reason}",
+      "desktop.remote.devcontainer.createMissing": "This folder has no configuration. Create one using the options below.",
+      "desktop.remote.devcontainer.createConfig": "Create configuration",
+      "desktop.remote.devcontainer.configDestination": "Will create: {path}",
+      "desktop.remote.devcontainer.createFailed": "Could not create configuration: {reason}",
+      "desktop.remote.devcontainer.configConflict": "A configuration already exists or changed. Reload the folder before continuing.",
+      "desktop.remote.devcontainer.form.name": "Name",
+      "desktop.remote.devcontainer.form.nameHelp": "Optional name stored in devcontainer.json.",
+      "desktop.remote.devcontainer.form.source": "Container source",
+      "desktop.remote.devcontainer.form.sourceHelp": "Use an existing image, or build the Dockerfile in your workspace. The official Dev Container CLI handles building and startup.",
+      "desktop.remote.devcontainer.form.source.image": "Image",
+      "desktop.remote.devcontainer.form.source.dockerfile": "Dockerfile",
+      "desktop.remote.devcontainer.form.image": "Image",
+      "desktop.remote.devcontainer.form.imageHelp": "Image name and optional tag or digest. The engine may download the image when you build.",
+      "desktop.remote.devcontainer.form.dockerfile": "Dockerfile path",
+      "desktop.remote.devcontainer.form.dockerfileHelp": "Path relative to the selected workspace folder. The file must stay inside the workspace.",
+      "desktop.remote.devcontainer.form.buildContext": "Build context",
+      "desktop.remote.devcontainer.form.buildContextHelp": "Folder relative to the workspace, made available to Dockerfile COPY commands. Empty uses the workspace root.",
+      "desktop.remote.devcontainer.form.remoteUser": "Container user",
+      "desktop.remote.devcontainer.form.remoteUserHelp": "User or UID to connect as inside the container. Empty uses the image default.",
+      "desktop.remote.devcontainer.form.workspaceFolder": "Container workspace folder",
+      "desktop.remote.devcontainer.form.workspaceFolderHelp": "Absolute folder to open inside the container. Empty uses the folder resolved by the Dev Container CLI. This option does not add a mount.",
+      "desktop.remote.devcontainer.form.ports": "Published ports",
+      "desktop.remote.devcontainer.form.portsHelp": "TCP ports from 1 to 65535, separated by commas. Published on the same loopback port of the selected environment; WSL ports are published inside that distribution.",
+      "desktop.remote.devcontainer.form.postCreateCommand": "Command after creation",
+      "desktop.remote.devcontainer.form.postCreateCommandHelp": "Optional command run inside the new container by the official CLI. It runs only after you trust and build the workspace.",
+      "desktop.remote.devcontainer.invalidField": "Invalid value for {field}. Check the field’s information and try again."
+    },
+    "zh-CN": {
+      "desktop.remote.devcontainer.runtime": "容器环境",
+      "desktop.remote.devcontainer.runtimeHelp": "自动识别本机 Docker context（含 Docker Desktop、OrbStack）、Podman，以及 Windows WSL 各发行版中的 Docker。构建和连接始终使用所选环境，不更改默认 Docker context。",
+      "desktop.remote.devcontainer.runtimeContext": "{name}（{context}）",
+      "desktop.remote.devcontainer.runtimeWSL": "{name} — WSL：{distribution}",
+      "desktop.remote.devcontainer.runtimeUnavailable": "{name}（未就绪）",
+      "desktop.remote.devcontainer.detecting": "正在识别容器环境…",
+      "desktop.remote.devcontainer.noRuntime": "未找到容器引擎。安装或启动 Docker、OrbStack 或 Podman 后刷新。",
+      "desktop.remote.devcontainer.refreshRuntimes": "刷新环境",
+      "desktop.remote.devcontainer.detectFailed": "无法识别容器环境：{reason}",
+      "desktop.remote.devcontainer.createMissing": "此文件夹还没有配置，可填写以下选项创建。",
+      "desktop.remote.devcontainer.createConfig": "创建配置",
+      "desktop.remote.devcontainer.configDestination": "将创建：{path}",
+      "desktop.remote.devcontainer.createFailed": "无法创建配置：{reason}",
+      "desktop.remote.devcontainer.configConflict": "配置已存在或发生变化，请重新读取文件夹后继续。",
+      "desktop.remote.devcontainer.form.name": "名称",
+      "desktop.remote.devcontainer.form.nameHelp": "可选的配置名称，将写入 devcontainer.json。",
+      "desktop.remote.devcontainer.form.source": "容器来源",
+      "desktop.remote.devcontainer.form.sourceHelp": "可直接使用镜像，或构建工作区中的 Dockerfile。构建和启动交给官方 Dev Container CLI。",
+      "desktop.remote.devcontainer.form.source.image": "镜像",
+      "desktop.remote.devcontainer.form.source.dockerfile": "Dockerfile",
+      "desktop.remote.devcontainer.form.image": "镜像",
+      "desktop.remote.devcontainer.form.imageHelp": "填写镜像名及可选的标签或摘要。构建时容器引擎可能下载镜像。",
+      "desktop.remote.devcontainer.form.dockerfile": "Dockerfile 路径",
+      "desktop.remote.devcontainer.form.dockerfileHelp": "相对于所选工作区文件夹的路径，文件必须位于工作区内。",
+      "desktop.remote.devcontainer.form.buildContext": "构建上下文",
+      "desktop.remote.devcontainer.form.buildContextHelp": "相对于工作区的文件夹，Dockerfile 的 COPY 命令可读取其中的文件。留空使用工作区根目录。",
+      "desktop.remote.devcontainer.form.remoteUser": "容器用户",
+      "desktop.remote.devcontainer.form.remoteUserHelp": "进入容器时使用的用户名或 UID。留空使用镜像的默认用户。",
+      "desktop.remote.devcontainer.form.workspaceFolder": "容器内工作目录",
+      "desktop.remote.devcontainer.form.workspaceFolderHelp": "容器内要打开的绝对路径。留空使用 Dev Container CLI 确定的目录，此选项不会新增挂载。",
+      "desktop.remote.devcontainer.form.ports": "映射端口",
+      "desktop.remote.devcontainer.form.portsHelp": "填写 1 到 65535 的 TCP 端口，以逗号分隔。将映射到所选环境的本机回环地址同号端口；WSL 环境中映射到该发行版。",
+      "desktop.remote.devcontainer.form.postCreateCommand": "创建后命令",
+      "desktop.remote.devcontainer.form.postCreateCommandHelp": "可选命令，由官方 CLI 在容器创建后执行。仅在信任并构建工作区后运行。",
+      "desktop.remote.devcontainer.invalidField": "{field}填写有误，请查看该项说明后修改。"
+    }
+  }
+}

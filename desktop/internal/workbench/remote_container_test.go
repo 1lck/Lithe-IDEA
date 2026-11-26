@@ -340,3 +340,11 @@ func TestRemoteContainersAbsentShowsNothing(t *testing.T) {
 		t.Fatal("the window shows the containers' heading without an engine")
 	}
 }
+
+// Runtime discovery is outside the unit test boundary; integration tests use the real Core.
+func (k *testKernel) RemoteContainerRuntimes(context.Context) (core.ContainerRuntimes, error) {
+	return core.ContainerRuntimes{}, nil
+}
+func (k *remoteProbeKernel) RemoteContainerRuntimes(context.Context) (core.ContainerRuntimes, error) {
+	return core.ContainerRuntimes{}, nil
+}
