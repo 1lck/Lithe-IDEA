@@ -104,6 +104,11 @@ func (h *harness) settleUntil(what string, condition func() bool) {
 		h.t.Fatal(err)
 	}
 	h.await(what, condition)
+	// A result can satisfy the model predicate in an after-frame callback. Paint
+	// its invalidation before the caller sends input to the newly enabled view.
+	if err := h.driver.Pump(); err != nil {
+		h.t.Fatal(err)
+	}
 }
 
 // awaitBuildDetection waits until the Build tool window has detected the instances of p.
@@ -142,12 +147,14 @@ func (h *harness) storedIgnoredPaths(p *project) core.BuildIgnoredPaths {
 	return storage.IgnoredPaths
 }
 
-// awaitIgnoredPathsLoaded waits until the open Build options dialog shows the ignored paths Core picked.
+// awaitIgnoredPathsLoaded waits until the dialog has resolved its values and
+// runtime rows, so later input uses the final control positions.
 func (h *harness) awaitIgnoredPathsLoaded(p *project) {
 	h.t.Helper()
 	h.settleUntil("the ignored paths", func() bool {
 		e := &p.build.options
-		return e.open && e.ignored.loaded && !e.ignored.restoring
+		return e.open && !e.loading && e.ignored.loaded && !e.ignored.restoring &&
+			(e.instance == "" || e.runtimesLoaded)
 	})
 }
 

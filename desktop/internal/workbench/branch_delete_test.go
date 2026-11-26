@@ -177,7 +177,13 @@ func TestLogDeletesTheMarkedBranchesFromTheMenu(t *testing.T) {
 	}
 
 	label := i18n.SharedFormat(h.app.language(), "desktop.branch.deleteSelected", map[string]string{"count": "3"})
-	h.rightClickAt(h.topHit(h.app.logView.refs.RowID(h.logRefRowOf("two"))))
+	point := center(h.topHit(h.app.logView.refs.RowID(h.logRefRowOf("two"))))
+	if err := h.driver.ClickButton(point.X, point.Y, gfx.PointerButtonSecondary); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
 	if got := h.topMenuItems(); !slices.Equal(got, []string{label}) {
 		t.Fatalf("the menu of a chosen row shows %q, want only %q", got, label)
 	}
