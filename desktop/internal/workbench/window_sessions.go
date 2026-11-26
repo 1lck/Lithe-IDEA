@@ -58,6 +58,9 @@ type windowSessions struct {
 	// meter times the window thread for the status bar's frame readout (frame_meter.go). Every
 	// callback of the window starts in config, so that is where it is timed.
 	meter frameMeter
+	// geometry tracks the window's floating size and maximized state so the next window opens
+	// at the size the user left this one in (window_size.go).
+	geometry windowGeometryState
 }
 
 // Project tab metrics, as the earlier client drew them.
@@ -77,7 +80,8 @@ func newWindowSessions(first *App, options Options) *windowSessions {
 	options.first = first
 	s := &windowSessions{
 		list: []*App{first}, active: first, configs: map[*App]app.Config{}, options: options,
-		meter: frameMeter{now: first.now},
+		meter:    frameMeter{now: first.now},
+		geometry: newWindowGeometryState(first.settings),
 	}
 	s.web.OnReady = func() {
 		s.webReady = true
@@ -169,6 +173,16 @@ func (s *windowSessions) config() app.Config {
 			s.active.resumePluginAutoUpdates()
 		}
 	}
+	window.OnFrameChange = func(frame gfx.Rect) {
+		meter.begin(true)
+		defer meter.end()
+		s.geometry.framed(frame)
+	}
+	window.OnMaximize = func(maximized bool) {
+		meter.begin(true)
+		defer meter.end()
+		s.geometry.setMaximized(maximized)
+	}
 	window.OnFullscreen = func(fullscreen bool) {
 		meter.begin(true)
 		defer meter.end()
@@ -187,6 +201,7 @@ func (s *windowSessions) config() app.Config {
 				closed()
 			}
 		}
+		s.saveWindowGeometry()
 		if logs := s.list[0].logs; logs != nil {
 			logs.Close()
 		}
