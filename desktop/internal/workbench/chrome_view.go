@@ -139,6 +139,7 @@ func (a *App) titleBar(c ui.C) {
 		if !a.title.menuOpen {
 			// The open menu takes the place of the project and branch controls, the way the old
 			// Windows menu bar turned into the open menu's title.
+			a.remoteStatus(c)
 			a.chromeProject(c)
 			a.chromeBranch(c)
 		}
@@ -256,6 +257,7 @@ func (a *App) chromeTitleButton(c ui.C, i int) bool {
 // openGear opens the settings button's menu and closes the other title bar menus, which
 // would stay open under it otherwise.
 func (a *App) openGear(c ui.C) {
+	a.closeRemoteHostMenu()
 	a.title.gearOpen = true
 	a.title.projectOpen, a.title.runConfigOpen = false, false
 	c.After(a.closeBranches)
@@ -506,14 +508,13 @@ func (a *App) hiddenToolWindowRow(c ui.C, i int) (ui.Box, bool) {
 	return row, row.Clicked()
 }
 
-// statusBar is the strip across the bottom of the workbench: the connection of a remote workspace
-// (remote_status_view.go) and the navigation path of the item the user is on at the leading end
+// statusBar is the strip across the bottom of the workbench: remote ports and the navigation
+// path of the item the user is on at the leading end
 // (status_path_view.go), and at the trailing end the readouts the user can arrange.
 func (a *App) statusBar(c ui.C) {
 	clicked := -1
 	ui.Row(c).FillWidth().Height(statusBarHeight).Shrink(0).Background(a.chromeFill()).
 		Items(ui.Center).PadX(chromeEdge).Children(func() {
-		a.remoteStatus(c)
 		a.remotePortsStatusItem(c)
 		a.statusPathView(c)
 		a.pluginWorkflowStatus(c)

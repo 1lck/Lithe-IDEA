@@ -146,7 +146,7 @@ func (r *remoteState) wslShown() bool {
 func (a *App) loadRemoteWSL() {
 	r := &a.remote
 	generation, kernel := r.generation, a.kernel
-	a.background(nil, remoteWSLTimeout, func(ctx context.Context) func(*App) {
+	cancel := a.background(nil, remoteWSLTimeout, func(ctx context.Context) func(*App) {
 		list, err := kernel.RemoteListWSLDistributions(ctx)
 		return func(a *App) {
 			r := &a.remote
@@ -165,6 +165,9 @@ func (a *App) loadRemoteWSL() {
 			r.syncListSelection()
 		}
 	})
+	if r.hostsOnly {
+		r.hostReads = append(r.hostReads, cancel)
+	}
 }
 
 // wslRows are the list's rows of the WSL distributions: their heading, and the distributions

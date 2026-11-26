@@ -187,6 +187,7 @@ func (a *App) selectedEditorDocument() *document {
 // lists. The branches are read again on every opening, because a project's branch changes
 // while the menu is shut; the ones read before are shown until the new answer arrives.
 func (a *App) openProjectMenu() {
+	a.closeRemoteHostMenu()
 	a.title.projectOpen = true
 	a.title.runConfigOpen = false
 	a.closeBranches()
