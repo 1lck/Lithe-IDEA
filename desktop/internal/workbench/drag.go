@@ -105,6 +105,11 @@ type dragDrop struct {
 	tool, tab ui.DragState
 	// tree drags a project tree row onto a folder, which moves it (filetree_dnd.go).
 	tree ui.DragState
+	// run drags a Run tree session row up to the Run tab bar to detach it, or drags a Run tab
+	// to reorder it or merge it back into its plugin group (run_drag.go).
+	run       ui.DragState
+	runDrag   runDragState
+	runPlaces runDragPlaces
 }
 
 // toolAccept is the tool button target's accept callback: it follows the pointer of the drag
@@ -169,6 +174,9 @@ func (a *App) endDrags() {
 	}
 	if !a.dnd.tab.Dragging() {
 		a.term.drag = tabDrag{}
+	}
+	if !a.dnd.run.Dragging() {
+		a.dnd.runDrag = runDragState{}
 	}
 }
 

@@ -112,11 +112,22 @@ func TestRunConsoleWrapSwitchBreaksLongLinesInsteadOfCuttingThem(t *testing.T) {
 	if hit := h.pageHit(wrap); hit.Role != gfx.RoleSwitch || hit.Checked {
 		t.Fatalf("the wrap switch is %+v, want an unchecked switch", hit)
 	}
-	// Unwrapped, the long line ends in an ellipsis at the console's edge.
-	if h.shows("finish") || !h.shows("…") || !h.shows("short line") {
-		t.Fatal("an unwrapped long line is not cut with an ellipsis at the console's edge")
+	// Unwrapped, the long line scrolls horizontally instead of being truncated with an ellipsis.
+	if h.shows("…") || !h.shows("short line") {
+		t.Fatal("an unwrapped long line should not be cut with an ellipsis")
 	}
 	unwrapped := labelsHolding(h, "word")
+
+	// Horizontal wheel scrolling reaches the end of the long line.
+	consoleHit := h.pageHit(h.app.text.Build.Output)
+	pt := center(consoleHit.Bounds)
+	if err := h.driver.Scroll(gfx.ScrollEvent{X: pt.X, Y: pt.Y, DeltaX: 10000, Precise: true}); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+	if !h.shows("finish") {
+		t.Fatal("horizontal scrolling did not reveal the end of the unwrapped long line")
+	}
 
 	h.clickNamed(wrap)
 	h.settle()
@@ -132,8 +143,8 @@ func TestRunConsoleWrapSwitchBreaksLongLinesInsteadOfCuttingThem(t *testing.T) {
 
 	h.clickNamed(wrap)
 	h.settle()
-	if h.app.runWrap || h.shows("finish") || !h.shows("…") {
-		t.Fatal("a second click did not cut the long line again")
+	if h.app.runWrap || h.shows("…") {
+		t.Fatal("a second click did not turn wrap back off cleanly")
 	}
 }
 
