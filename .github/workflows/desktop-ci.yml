@@ -195,6 +195,12 @@ jobs:
       - name: Ensure Core fixtures checkout
         run: ./scripts/desktop/build-desktop-core.sh --checkout-only > /dev/null
 
+      # The first Linux desktop-go invocation is a five-minute visual evidence step. Build the
+      # cold release Core here instead; a restored stage makes this step return immediately.
+      - name: Build release Core
+        timeout-minutes: 25
+        run: ./scripts/desktop/desktop-go.sh --print-core-stage > /dev/null
+
       - name: Verify Core cgo cache invalidation
         run: |
           mkdir -p .artifacts/test-stability
