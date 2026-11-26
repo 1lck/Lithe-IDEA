@@ -99,7 +99,7 @@ func (s *Store) QueryWindow(ctx context.Context, q Query) (Collection, error) {
 		if err != nil {
 			return err
 		}
-		incompleteInventory = scan.firstErr != nil
+		incompleteInventory = scan.missingEvidence(q.Session, sessionName(session))
 		files := scan.files
 		known := make(map[string]string, len(files))
 		metadata := make([]core.LogFile, 0, len(files))

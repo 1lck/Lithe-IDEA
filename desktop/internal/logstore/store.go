@@ -1538,9 +1538,6 @@ func inventory(root string) (fileScan, error) {
 			scan.add(filepath.Join(root, name), "application/"+name, "", entry)
 		}
 	}
-	if len(scan.files) == 0 {
-		return scan, scan.firstErr
-	}
 	return scan, nil
 }
 
@@ -1549,21 +1546,44 @@ func isLegacyName(name string) bool {
 }
 
 type fileScan struct {
-	files    []diskFile
-	firstErr error
+	files      []diskFile
+	firstErr   error
+	incomplete map[string]bool // Session name, "sessions" for its parent, or "" for legacy files.
 }
 
-func (scan *fileScan) record(err error) {
+func (scan *fileScan) record(scope string, err error) {
 	// log-exempt: 预期的缺失：另一进程可在枚举和读取元数据之间清理旧日志。
-	if scan.firstErr == nil && !errors.Is(err, fs.ErrNotExist) {
-		scan.firstErr = err
+	if err == nil || errors.Is(err, fs.ErrNotExist) {
+		return
 	}
+	if scan.firstErr == nil {
+		scan.firstErr = err
+		scan.incomplete = make(map[string]bool)
+	}
+	scan.incomplete[scope] = true
+}
+
+// missingEvidence reports whether an unreadable session could contribute structured logs
+// to the selection. Legacy files are only used for disk usage, retention and clearing.
+func (scan *fileScan) missingEvidence(selection, current string) bool {
+	if scan.incomplete["sessions"] {
+		return true
+	}
+	if selection == "current" {
+		return current != "" && scan.incomplete[current]
+	}
+	for name := range scan.incomplete {
+		if name != "" && (selection == "all" || name != current) {
+			return true
+		}
+	}
+	return false
 }
 
 func (scan *fileScan) add(target, relative, session string, entry fs.DirEntry) {
 	info, err := entry.Info()
 	if err != nil {
-		scan.record(err)
+		scan.record(session, err)
 		return
 	}
 	scan.files = append(scan.files, diskFile{path: target, relative: relative, session: session, size: info.Size(), modified: info.ModTime()})
@@ -1574,7 +1594,7 @@ func (scan *fileScan) sessionFiles(root string) {
 	sessionsDir := filepath.Join(root, "sessions")
 	entries, err := os.ReadDir(sessionsDir)
 	if err != nil {
-		scan.record(err)
+		scan.record("sessions", err)
 		return
 	}
 	for _, entry := range entries {
@@ -1586,7 +1606,7 @@ func (scan *fileScan) sessionFiles(root string) {
 		// WalkDir does not follow links found below base, and base itself is a real directory.
 		err := filepath.WalkDir(base, func(target string, d fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
-				scan.record(walkErr)
+				scan.record(name, walkErr)
 				return nil // Continue with readable siblings.
 			}
 			if target == base {
@@ -1608,7 +1628,7 @@ func (scan *fileScan) sessionFiles(root string) {
 			scan.add(target, "sessions/"+name+"/"+filepath.ToSlash(inside), name, d)
 			return nil
 		})
-		scan.record(err)
+		scan.record(name, err)
 	}
 }
 
@@ -1616,7 +1636,7 @@ func (scan *fileScan) sessionFiles(root string) {
 func (scan *fileScan) categoryFiles(root, category string) {
 	entries, err := os.ReadDir(filepath.Join(root, category))
 	if err != nil {
-		scan.record(err)
+		scan.record("", err)
 		return
 	}
 	for _, entry := range entries {
@@ -1643,14 +1663,15 @@ func (s *Store) runRetention(ctx context.Context, root string, at time.Time) err
 	if err != nil {
 		return err
 	}
-	// Retention can remove whole sessions. Plan deletions only from a complete inventory.
-	if scan.firstErr != nil {
-		return scan.firstErr
-	}
 	originals := make(map[string]string, len(scan.files))
 	bySession := make(map[string][]core.LogFile)
 	var legacy []core.LogFile
 	for _, file := range scan.files {
+		// Core may remove a whole session. Offer only complete sessions and individually
+		// listed legacy files, so other sessions can still be cleaned up.
+		if file.session != "" && scan.incomplete[file.session] {
+			continue
+		}
 		originals[file.relative] = file.path
 		entry := core.LogFile{RelativePath: file.relative, SizeBytes: uint64(max(0, file.size)), ModifiedAt: formatTime(file.modified)}
 		if file.session != "" {
@@ -1701,6 +1722,8 @@ func (s *Store) runRetention(ctx context.Context, root string, at time.Time) err
 			s.fail()
 		}
 	}
-	s.startupDone = true
-	return nil
+	if scan.firstErr == nil {
+		s.startupDone = true
+	}
+	return scan.firstErr
 }

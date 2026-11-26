@@ -80,7 +80,7 @@ func (s *Store) Collect(ctx context.Context, q ExportQuery) (Export, error) {
 		if err != nil {
 			return err
 		}
-		incompleteInventory = scan.firstErr != nil
+		incompleteInventory = scan.missingEvidence(q.Session, sessionName(s.sessionPath))
 		files := scan.files
 		known := make(map[string]string, len(files))
 		metadata := make([]core.LogFile, 0, len(files))
