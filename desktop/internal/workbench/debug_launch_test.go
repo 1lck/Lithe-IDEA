@@ -139,8 +139,15 @@ func TestDebugRuntimeArgumentsComeFromTheToolDefinition(t *testing.T) {
 		t.Fatal(err)
 	}
 	expected := []string{"-test.count=1", "-test.run=^TestDebugAdapterRunner$", entry}
-	if plan.Executable != executable || !reflect.DeepEqual(plan.Arguments, expected) || plan.Environment["FICTIONAL_VM_HOME"] != home {
-		t.Fatalf("tool definition launch = %+v, arguments want %v", plan, expected)
+	// Core may return slash-separated paths on Windows as well.
+	if filepath.Clean(plan.Executable) != filepath.Clean(executable) {
+		t.Fatalf("executable = %q, want %q", plan.Executable, executable)
+	}
+	if !reflect.DeepEqual(plan.Arguments, expected) {
+		t.Fatalf("arguments = %q, want %q", plan.Arguments, expected)
+	}
+	if got := plan.Environment["FICTIONAL_VM_HOME"]; filepath.Clean(got) != filepath.Clean(home) {
+		t.Fatalf("FICTIONAL_VM_HOME = %q, want %q", got, home)
 	}
 	manifests, discoveryErr := h.app.toolchainManifests(ctx)
 	if len(manifests) == 0 || discoveryErr == nil {

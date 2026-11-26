@@ -198,7 +198,7 @@ func TestRunPerformanceCollapseKeepsSummaryAndPersistsTheChoice(t *testing.T) {
 		t.Fatalf("collapse preference was not saved: %+v, err=%v", savedCollapsed, err)
 	}
 
-	// A second run tab shares the collapsed preference while keeping its own samples.
+	// Grouped executions share the collapsed preference while keeping their own samples.
 	h.app.applyRunEvent(pluginservice.RunEvent{Type: pluginservice.RunStarted, RunID: "run-second", PluginID: "dev.lithe.test.output-links", Label: "Second run", Workspace: root})
 	h.settle()
 	if len(p.build.runs) != 2 {
@@ -214,8 +214,12 @@ func TestRunPerformanceCollapseKeepsSummaryAndPersistsTheChoice(t *testing.T) {
 	if !h.shows(h.app.text.Run.Performance.CPU("70")) || !h.shows(h.app.text.Run.Performance.Memory("128")) {
 		t.Fatal("second run does not show its own resource summary")
 	}
-	h.clickNamed("Test run")
+	firstNode := h.pageHit(run.label + ", " + h.app.runStatusText(run))
+	h.click(center(firstNode.Bounds))
 	h.settle()
+	if p.activeRun() != run {
+		t.Fatal("the execution tree did not select the first run")
+	}
 	if !h.shows(h.app.text.Run.Performance.CPU("25")) || !h.shows(h.app.text.Run.Performance.Memory("96")) {
 		t.Fatal("switching back did not preserve the first run's samples")
 	}
@@ -244,7 +248,7 @@ func TestRunPerformanceCollapseKeepsSummaryAndPersistsTheChoice(t *testing.T) {
 	if reopenedCollapsedHit.Expanded {
 		t.Fatalf("reopened run chart started expanded: %+v", reopenedCollapsedHit)
 	}
-	reopened.clickNamed("Test run")
+	reopened.click(center(reopened.pageHit(reopenedRun.label + ", " + reopened.app.runStatusText(reopenedRun)).Bounds))
 	reopened.settle()
 	for range 40 {
 		if reopened.focusedName() == expand {
