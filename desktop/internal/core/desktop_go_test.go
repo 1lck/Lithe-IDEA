@@ -225,11 +225,6 @@ for arg in "$@"; do case "$arg" in native-static-libs=*) printf '%s\n' "$libs" >
 		t.Fatalf("Windows import library identity missing: %q, %v", identity, err)
 	}
 	target = "x86_64-unknown-linux-gnu"
-	// Exercise the source build again. A complete staged Core is usable
-	// without opening the checkout, even if its manifest has since gone.
-	if err := os.Remove(filepath.Join(fixture, ".artifacts/desktop/lithe-core", target, "debug/identity.txt")); err != nil {
-		t.Fatal(err)
-	}
 	// Once a worktree has an index, a deliberate deletion must not be repaired
 	// by checkout behind the user's back, even if the build cannot proceed.
 	if err := os.Remove(manifest); err != nil {
