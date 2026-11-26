@@ -401,6 +401,12 @@ type settings struct {
 	Language         string      `json:"language,omitempty"`
 	Theme            themeChoice `json:"theme,omitempty"`
 	MarketplaceWidth float32     `json:"marketplaceWidth,omitempty"`
+	// WindowWidth, WindowHeight and WindowMaximized are the size and maximized state the user
+	// last gave the workbench window, which the next one opens at; zero width or height opens
+	// at the default size.
+	WindowWidth     int  `json:"windowWidth,omitempty"`
+	WindowHeight    int  `json:"windowHeight,omitempty"`
+	WindowMaximized bool `json:"windowMaximized,omitempty"`
 	// SettingsWindowWidth and SettingsWindowHeight are the size the user last gave the settings
 	// window, which the next one opens at; zero opens it at its default size.
 	SettingsWindowWidth  int `json:"settingsWindowWidth,omitempty"`
@@ -1559,6 +1565,7 @@ func (a *App) saveSettings() {
 	// The background is the window's, which another tab may have changed since this one loaded.
 	a.settings.WorkbenchBackground = a.savedBackgroundState()
 	a.updates.store(&a.settings)
+	geo, appliedGeo := a.sessions.applyWindowGeometry(&a.settings)
 	backup, err := a.store.SaveWithBackup(settingsFile, a.settings)
 	if backup != "" {
 		a.noticeSettingsBackup(backup)
@@ -1566,6 +1573,10 @@ func (a *App) saveSettings() {
 	if err != nil {
 		a.operationFailed("settings_save", documentLogError(err))
 		a.notifyError(a.text.Errors.SaveFailed(err.Error()))
+		return
+	}
+	if appliedGeo {
+		a.sessions.noteSavedWindowGeometry(geo)
 	}
 }
 

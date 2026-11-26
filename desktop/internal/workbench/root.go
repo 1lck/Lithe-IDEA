@@ -33,13 +33,15 @@ func (a *App) Config() app.Config {
 // sessionConfig is the configuration of this workbench's page, as if it had the window alone.
 func (a *App) sessionConfig() app.Config {
 	a.subscribeSettings()
+	opening := openingWindowGeometry(a.settings)
 	base := app.Config{
 		Title:          a.text.App.Name,
 		Icon:           appicon.Window(),
-		Width:          1280,
-		Height:         800,
-		MinWidth:       900,
-		MinHeight:      600,
+		Width:          opening.width,
+		Height:         opening.height,
+		MinWidth:       minWindowWidth,
+		MinHeight:      minWindowHeight,
+		Maximized:      opening.maximized,
 		WindowMode:     app.WindowCustomTitlebar,
 		TitlebarHeight: titleBarHeight,
 		ClearColor:     a.startupBackground(),

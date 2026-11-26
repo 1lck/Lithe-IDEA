@@ -9,6 +9,9 @@
     "evidence": [
       "desktop/internal/workbench/root.go",
       "desktop/internal/workbench/chrome_view.go",
+      "desktop/internal/workbench/window_sessions.go",
+      "desktop/internal/workbench/window_size.go",
+      "desktop/internal/workbench/window_size_test.go",
       "desktop/internal/workbench/fault_test.go"
     ]
   },
@@ -19,13 +22,16 @@
       "desktop/internal/windowcontrols/style.go",
       "desktop/internal/windowcontrols/style_test.go",
       "desktop/internal/workbench/app.go",
+      "desktop/internal/workbench/window_sessions.go",
+      "desktop/internal/workbench/window_size.go",
+      "desktop/internal/workbench/window_size_test.go",
       "desktop/internal/settingswindow/window.go",
       "desktop/internal/logwindow/window.go",
       "desktop/internal/workbench/fault_test.go"
     ]
   },
   "owner": "Workbench",
-  "verification": "在 macOS 检查系统标题栏控制及全屏入口，并确认绿色按钮进入独立全屏 Space（窗口 styleMask 出现 fullScreen、frame 覆盖整屏）而不是在主桌面最大化，退出后窗口回到原位置；进入全屏后确认工作台顶栏内容从左缘开始、不再保留红绿灯按钮空位，退出全屏后恢复按钮预留；在 Windows 验证标题栏最小化、最大化/还原和关闭，以及命令面板的窗口操作，确认图标语义、最大化/还原状态与按钮标签一致，并确认悬停关闭按钮背景贴合窗口右边缘。抓住工作台和设置窗口的边缘连续调整尺寸，检查拖动期间内容持续重绘，松开后内容与窗口最终尺寸对齐；最小化并还原后确认仍可正常调整尺寸。 macOS 同一窗口角色下更新模型和标题时保留 SwiftUI 宿主测量的最小内容尺寸，切换欢迎页/工作台角色仍应用对应尺寸，避免重复覆盖引发窗口布局反馈。在语言服务器运行时中断窗口循环，确认项目后台任务退出，未保存内容保留为恢复草稿，原文件内容保持原状。",
+  "verification": "在 macOS 检查系统标题栏控制及全屏入口，并确认绿色按钮进入独立全屏 Space（窗口 styleMask 出现 fullScreen、frame 覆盖整屏）而不是在主桌面最大化，退出后窗口回到原位置；进入全屏后确认工作台顶栏内容从左缘开始、不再保留红绿灯按钮空位，退出全屏后恢复按钮预留；在 Windows 验证标题栏最小化、最大化/还原和关闭，以及命令面板的窗口操作，确认图标语义、最大化/还原状态与按钮标签一致，并确认悬停关闭按钮背景贴合窗口右边缘。抓住工作台和设置窗口的边缘连续调整尺寸，检查拖动期间内容持续重绘，松开后内容与窗口最终尺寸对齐；最小化并还原后确认仍可正常调整尺寸。 macOS 同一窗口角色下更新模型和标题时保留 SwiftUI 宿主测量的最小内容尺寸，切换欢迎页/工作台角色仍应用对应尺寸，避免重复覆盖引发窗口布局反馈。在语言服务器运行时中断窗口循环，确认项目后台任务退出，未保存内容保留为恢复草稿，原文件内容保持原状。 2026-11-26 主窗口尺寸记忆：拖动调整主工作台窗口尺寸后关闭再重开，确认按上次关闭时的尺寸打开（无已存或无效尺寸回退 1280×800，小于 900×600 按最小尺寸钳位）；拖动过程中不逐帧写盘，仅移动或改回打开尺寸关闭时不写设置文件；在 Windows/Linux 上最大化后关闭再重开确认以最大化打开，取消最大化后还原到最大化前的浮动尺寸；多项目标签页下调整尺寸并在其他标签页保存设置时不写回旧尺寸。运行 scripts/desktop/desktop-go.sh test -race ./internal/workbench -run 'TestWorkbenchWindowOpensAtSavedSizeAndMaximizedState|TestWorkbenchWindowClosingPersistsResizedAndMaximizedGeometry|TestWorkbenchWindowSizeSurvivesOtherProjectTabSave' -count=1。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
@@ -48,5 +54,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：Windows 使用 WindowCustomTitlebar 自绘最小化、最大化和关闭（root.go），windowcontrols/style.go 按标题栏墨色着色并使用本地化名称。macOS 依赖 Viva 框架保留系统红绿灯（chrome_view.go 的 titleBar 使用 app.TitlebarInsets），desktop/ 中未找到全屏切换后去掉左侧空位的处理。"
+  "notes": "Viva：Windows 使用 WindowCustomTitlebar 自绘最小化、最大化和关闭（root.go），windowcontrols/style.go 按标题栏墨色着色并使用本地化名称。macOS 依赖 Viva 框架保留系统红绿灯（chrome_view.go 的 titleBar 使用 app.TitlebarInsets），desktop/ 中未找到全屏切换后去掉左侧空位的处理。 2026-11-26：主工作台窗口接入 Viva OnFrameChange 与 OnMaximize，拖动与切换最大化时仅更新内存，关闭窗口或保存其他设置时把 windowWidth/windowHeight/windowMaximized 写入应用设置并在所有项目标签页间同步；下次打开按上次尺寸与最大化状态恢复（最小钳位 900×600，无记录时默认 1280×800），最大化时仍保留还原后的浮动尺寸。自动化：TestWorkbenchWindowOpensAtSavedSizeAndMaximizedState、TestWorkbenchWindowClosingPersistsResizedAndMaximizedGeometry、TestWorkbenchWindowSizeSurvivesOtherProjectTabSave；macOS 与 Windows 真机原生窗口验收仍 pending。"
 }
