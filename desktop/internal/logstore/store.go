@@ -93,8 +93,9 @@ var (
 	// ErrBusy is returned when too many control operations are already in flight.
 	ErrBusy = errors.New("logstore: too many concurrent operations")
 
-	errUnsafePath  = errors.New("logstore: unsafe log path")
-	errNoDirectory = errors.New("logstore: no log directory")
+	errUnsafePath       = errors.New("logstore: unsafe log path")
+	errNoDirectory      = errors.New("logstore: no log directory")
+	errRestoreDirectory = errors.New("restore previous log directory")
 )
 
 // categories are the top-level directories older layouts kept their files in.
@@ -751,7 +752,8 @@ func (s *Store) relocate(target, saved string) error {
 		if err := s.settings.Save(settingsName, directorySetting{Directory: saved}); err != nil {
 			if previous != "" {
 				if rollbackErr := s.switchDirectory(previous); rollbackErr != nil {
-					return errors.Join(err, fmt.Errorf("restore previous log directory: %w", rollbackErr))
+					// Keep the rollback label when diagnostics unwrap private filesystem paths.
+					return errors.Join(err, fmt.Errorf("%w: %w", errRestoreDirectory, rollbackErr))
 				}
 			}
 			return err

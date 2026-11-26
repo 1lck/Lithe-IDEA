@@ -525,6 +525,9 @@ func TestChangeDirectoryReportsSaveAndRollbackFailures(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), saved) || !strings.Contains(err.Error(), previous) {
 		t.Fatalf("ChangeDirectory = %v, want errors for both %q and %q", err, saved, previous)
 	}
+	if !errors.Is(err, errRestoreDirectory) {
+		t.Fatalf("joined error has no path-independent rollback cause: %v", err)
+	}
 	if got := s.Directory(); got != target {
 		t.Fatalf("active directory = %q, want the last usable target %q", got, target)
 	}
