@@ -235,6 +235,10 @@ type Kernel interface {
 	RemoteReadFile(ctx context.Context, sessionID, path string) ([]byte, core.RemoteFileVersion, error)
 	RemoteWriteFile(ctx context.Context, sessionID, path string, data []byte, expected *core.RemoteFileVersion, root ...string) (core.RemoteFileVersion, bool, error)
 	RemoteCreateDirectory(ctx context.Context, sessionID, path string) error
+	RemoteMakeDirectory(ctx context.Context, sessionID, path string) error
+	RemoteRename(ctx context.Context, sessionID, from, to string, overwrite bool) error
+	RemoteCopy(ctx context.Context, sessionID, from, to string, recursive, overwrite bool) error
+	RemoteTrash(ctx context.Context, sessionID, path string) error
 	RemoteServerState(ctx context.Context, sessionID string) error
 	SearchRemoteConnections(ctx context.Context, document *string, query string) (core.RemoteConnectionsState, error)
 	RemoteParseAddress(ctx context.Context, text string) (core.RemoteAddress, error)

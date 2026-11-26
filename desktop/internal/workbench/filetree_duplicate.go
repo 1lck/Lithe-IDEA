@@ -27,6 +27,10 @@ func (a *App) duplicateTreeItem(p *project, n *treeNode) {
 	if n == nil || n == p.tree.root {
 		return
 	}
+	if p.remote != nil {
+		a.remoteDuplicateTreeItem(p, n)
+		return
+	}
 	source := filepath.Join(p.root, filepath.FromSlash(n.path))
 	dir, base := filepath.Split(source)
 	stem, ext := base, ""

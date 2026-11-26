@@ -584,6 +584,46 @@ func (c *Client) RemoteCreateDirectory(ctx context.Context, sessionID, path stri
 	}{path, true}, nil)
 }
 
+// RemoteMakeDirectory creates the host folder path over the session sessionID without creating
+// missing parents; an existing entry at path fails with remoteCode ALREADY_EXISTS.
+func (c *Client) RemoteMakeDirectory(ctx context.Context, sessionID, path string) error {
+	return c.RemoteHostRequest(ctx, sessionID, "fs.createDir", struct {
+		Path      string `json:"path"`
+		Recursive bool   `json:"recursive"`
+	}{path, false}, nil)
+}
+
+// RemoteRename moves the host entry at from to to over the session sessionID. When overwrite is
+// false, an existing destination fails with remoteCode ALREADY_EXISTS.
+func (c *Client) RemoteRename(ctx context.Context, sessionID, from, to string, overwrite bool) error {
+	return c.RemoteHostRequest(ctx, sessionID, "fs.rename", struct {
+		From      string `json:"from"`
+		To        string `json:"to"`
+		Overwrite bool   `json:"overwrite"`
+	}{from, to, overwrite}, nil)
+}
+
+// RemoteCopy copies the host entry at from to to over the session sessionID, copying a directory
+// tree when recursive is set. When overwrite is false, an existing destination fails with
+// remoteCode ALREADY_EXISTS.
+func (c *Client) RemoteCopy(ctx context.Context, sessionID, from, to string, recursive, overwrite bool) error {
+	var ignored json.RawMessage
+	return c.RemoteHostRequest(ctx, sessionID, "fs.copy", struct {
+		From      string `json:"from"`
+		To        string `json:"to"`
+		Recursive bool   `json:"recursive"`
+		Overwrite bool   `json:"overwrite"`
+	}{from, to, recursive, overwrite}, &ignored)
+}
+
+// RemoteTrash moves the host entry at path to the host account's system trash over the session
+// sessionID.
+func (c *Client) RemoteTrash(ctx context.Context, sessionID, path string) error {
+	return c.RemoteHostRequest(ctx, sessionID, "fs.trash", struct {
+		Path string `json:"path"`
+	}{path}, nil)
+}
+
 // RemoteHostRequest performs the finite host method with params over the session sessionID and
 // decodes its result into result, which may be nil. Core accepts the filesystem, environment
 // and port queries, server.state and the controls of existing processes and terminals; a
