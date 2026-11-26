@@ -96,17 +96,19 @@ func openIgnoredPathsProject(t *testing.T, team string, kernel Kernel) (*harness
 	return h, p
 }
 
-// settleUntil settles the window until condition holds, a step at a time: each settle waits for the
-// background work queued so far and paints its results, so a chain of steps ends within a few.
+// settleUntil observes the requested state, without waiting for unrelated work or
+// imposing a fixed number of background turns on a valid chain.
 func (h *harness) settleUntil(what string, condition func() bool) {
 	h.t.Helper()
-	for range 12 {
-		h.settle()
-		if condition() {
-			return
-		}
+	if err := h.driver.Pump(); err != nil {
+		h.t.Fatal(err)
 	}
-	h.t.Fatalf("%s did not happen", what)
+	h.await(what, condition)
+	// A result can satisfy the model predicate in an after-frame callback. Paint
+	// its invalidation before the caller sends input to the newly enabled view.
+	if err := h.driver.Pump(); err != nil {
+		h.t.Fatal(err)
+	}
 }
 
 // awaitBuildDetection waits until the Build tool window has detected the instances of p.
@@ -145,12 +147,14 @@ func (h *harness) storedIgnoredPaths(p *project) core.BuildIgnoredPaths {
 	return storage.IgnoredPaths
 }
 
-// awaitIgnoredPathsLoaded waits until the open Build options dialog shows the ignored paths Core picked.
+// awaitIgnoredPathsLoaded waits until the dialog has resolved its values and
+// runtime rows, so later input uses the final control positions.
 func (h *harness) awaitIgnoredPathsLoaded(p *project) {
 	h.t.Helper()
 	h.settleUntil("the ignored paths", func() bool {
 		e := &p.build.options
-		return e.open && e.ignored.loaded && !e.ignored.restoring
+		return e.open && !e.loading && e.ignored.loaded && !e.ignored.restoring &&
+			(e.instance == "" || e.runtimesLoaded)
 	})
 }
 

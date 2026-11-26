@@ -517,7 +517,7 @@ func TestWorktreeChangesCommitInTheirCheckout(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := newHarness(t, gitKernel{core.NewClient()})
-	w := h.openWorktrees(t, dir)
+	h.openWorktrees(t, dir)
 	p, commit := h.app.project, h.app.text.Commit
 	p.commit.editor.Insert("The project's draft")
 	h.selectWorktreeAt(t, linked)
@@ -535,10 +535,11 @@ func TestWorktreeChangesCommitInTheirCheckout(t *testing.T) {
 	if !p.canCommitWorktree(linked, target.state) {
 		t.Fatalf("the commit is off with draft.txt staged and the message %q", target.state.message())
 	}
-	h.clickNamed(commit.Commit)
-	h.awaitWorktreeWrite("the commit", w, func() bool {
-		return !target.state.busy && gitRun(t, linked, "log", "-1", "--format=%s") == "Linked work"
-	})
+	h.sendNamed(commit.Commit)
+	h.awaitWithin(gitTimeout, "the linked checkout's commit", func() bool { return !target.state.busy })
+	if got := gitRun(t, linked, "log", "-1", "--format=%s"); got != "Linked work" {
+		t.Fatalf("last commit of the linked checkout = %q, want Linked work", got)
+	}
 	h.awaitWorktreeChanges("the clean checkout", linked, func(c []core.GitChange) bool { return len(c) == 0 })
 	if got := gitRun(t, dir, "log", "-1", "--format=%s"); got != "initial" {
 		t.Fatalf("the project's checkout moved to %q", got)
@@ -582,9 +583,9 @@ func TestWorktreeChangesShareTheProjectsCommit(t *testing.T) {
 	target := p.worktreeCommit(linked)
 	target.state.editor.Insert("Publish linked work")
 	h.settle()
-	h.clickNamed(commit.CommitAndPush)
+	h.sendNamed(commit.CommitAndPush)
 	push := &p.review.workspacePush
-	h.await("the Push Commits dialog", func() bool { return !target.state.busy && push.open && push.reviewed })
+	h.awaitWithin(reviewTimeout, "the Push Commits dialog", func() bool { return !target.state.busy && push.open && push.reviewed })
 	if got := gitRun(t, linked, "log", "-1", "--format=%s"); got != "Publish linked work" {
 		t.Fatalf("last commit of the linked checkout = %q, want the one Commit and Push made", got)
 	}

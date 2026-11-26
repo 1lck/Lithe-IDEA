@@ -40,7 +40,7 @@ func newWorkspaceFolder(t *testing.T, names ...string) string {
 func (h *harness) openWorkspaceFolder(dir string) *project {
 	h.t.Helper()
 	h.app.delays = logDelays{}
-	h.open(dir)
+	h.app.openProject(dir)
 	h.settleUntil("reading the nested repositories", func() bool {
 		p := h.app.project
 		return p != nil && p.workspaceMode() && p.nested.grouped
