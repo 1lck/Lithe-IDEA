@@ -163,7 +163,7 @@ func (a *App) scratchPopup(c ui.C) {
 	if !v.open || p == nil {
 		return
 	}
-	ui.ModalWith(c.Part("scratch-files"), &v.open, i18n.Shared(a.language(), "desktop.drafts.list"), ui.ModalSpec{Width: 620}, func() {
+	ui.Modal(c.Part("scratch-files"), &v.open, i18n.Shared(a.language(), "desktop.drafts.list"), ui.ModalSpec{Width: 620}, func() {
 		if !v.loading && len(v.entries) == 0 {
 			ui.Text(c, i18n.Shared(a.language(), "desktop.drafts.empty")).Color(a.colors.Subtle)
 		}

@@ -56,7 +56,7 @@ func (a *App) drawRunConfigDialog(c ui.C, p *project) {
 	p.collectRunConfigDialogRows(a)
 	open := true
 	title := i18n.Shared(a.language(), "desktop.runConfig.dialogTitle")
-	ui.ModalWith(c, &open, title, ui.ModalSpec{Width: runConfigDialogWidth, Height: runConfigDialogHeight}, func() {
+	ui.Modal(c, &open, title, ui.ModalSpec{Width: runConfigDialogWidth, Height: runConfigDialogHeight}, func() {
 		k := c.Part("run-config-dialog")
 		ui.Row(k).Fill().Children(func() {
 			a.drawRunConfigDialogTree(k, p)

@@ -552,6 +552,9 @@ func (a *App) paintLabels(canvas *gfx.Canvas, rect gfx.Rect, g referenceGroup, t
 	}
 	icon := g.iconWidth(size)
 	a.paintText(canvas, text, gfx.Rect{X: rect.X + 5 + icon, Y: rect.Y, Width: max(0, rect.Width-icon-9), Height: rect.Height}, logRefSize, a.colors.Text, gfx.AlignStart)
+	if text != g.title {
+		canvas.HoverHint(0, rect, g.title)
+	}
 }
 
 // paintText paints one line cut to its rectangle with an ellipsis.
@@ -564,6 +567,9 @@ func (a *App) paintText(canvas *gfx.Canvas, text string, rect gfx.Rect, size flo
 		return
 	}
 	canvas.LabelAligned(line, rect, gfx.TextStyle{Size: size, Color: color}, align)
+	if line != text {
+		canvas.HoverHint(0, rect, text)
+	}
 }
 
 // date is the date a row shows, in local time, cached by commit.

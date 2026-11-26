@@ -245,7 +245,7 @@ func (w *window) sourceEntryChooser(c ui.C, p *sourceSettingsForm) {
 	kind := field.EntryKinds[chooser.kind]
 	available := choiceEntries(field, chooser.kind, control.input.Entries)
 	title := i18n.SharedFormat(language, "desktop.sourceSettings.chooseTitle", map[string]string{"title": kind.Title})
-	ui.ModalWith(c, &chooser.open, title, ui.ModalSpec{Width: 480, Height: 440}, func() {
+	ui.Modal(c, &chooser.open, title, ui.ModalSpec{Width: 480, Height: 440}, func() {
 		if len(available) == 0 {
 			ui.Wrap(c, i18n.Shared(language, "desktop.sourceSettings.chooseNone")).FontSize(12).Color(w.pal.muted)
 			return

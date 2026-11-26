@@ -359,7 +359,7 @@ func (a *App) renameDialog(c ui.C) {
 	language := a.language()
 	label := i18n.Shared(language, "desktop.semantics.renameName")
 	submitted, cancelled, confirmed := false, false, false
-	closed := ui.ModalWith(c, &state.open, i18n.Shared(language, "desktop.semantics.renameTitle"),
+	closed := ui.Modal(c, &state.open, i18n.Shared(language, "desktop.semantics.renameTitle"),
 		ui.ModalSpec{Description: i18n.Shared(language, "desktop.semantics.renameDescription"), Width: 420}, func() {
 			submitted = ui.TextField(c, &state.name, label, label).FillWidth().Disabled(state.busy).Submitted()
 		}, func() {

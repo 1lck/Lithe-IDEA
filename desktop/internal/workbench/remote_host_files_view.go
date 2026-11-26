@@ -32,7 +32,7 @@ func (a *App) remoteHostFilesPopup(c ui.C) {
 	ui.Stack(c.Part("remote-host-files-anchor")).Fill().Children(func() {
 		anchor = ui.Row(c).Absolute().Left((bounds.Width - width) / 2).Top(84).Width(width).Height(1)
 	})
-	closed := ui.PopoverWith(c.Part("remote-host-files"), anchor, &f.open, ui.PopoverSpec{
+	closed := ui.Popover(c.Part("remote-host-files"), anchor, &f.open, ui.PopoverSpec{
 		Width: width, Offset: 1, Align: ui.Start, KeepOpenOnAnchor: true,
 	}, func() {
 		ui.Column(c).FillWidth().Height(height).Gap(8).Children(func() {
@@ -40,8 +40,8 @@ func (a *App) remoteHostFilesPopup(c ui.C) {
 				ui.Text(c, i18n.Shared(language, "desktop.remote.hostFile.title")).Bold().Shrink(0)
 				ui.Text(c, p.remote.remoteLocation()).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
 			})
-			ui.TextFieldID(c, remoteHostFilesQueryID, &f.query, i18n.Shared(language, "desktop.remote.hostFile.title"),
-				i18n.Shared(language, "desktop.remote.hostFile.placeholder")).Icon(icons.FolderOpen)
+			ui.TextField(c, &f.query, i18n.Shared(language, "desktop.remote.hostFile.title"),
+				i18n.Shared(language, "desktop.remote.hostFile.placeholder"), ui.WithID(remoteHostFilesQueryID)).Icon(icons.FolderOpen)
 			a.remoteHostFilesList(c, p)
 			if text := remoteSkippedText(language, f.skipped); text != "" {
 				ui.Text(c, text).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()

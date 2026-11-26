@@ -1,12 +1,51 @@
 package workbench
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/gfx"
 )
+
+func TestLogEllipsisShowsFullSubjectAndKeepsSelection(t *testing.T) {
+	dir := newTestRepository(t)
+	full := strings.Repeat("完整提交说明-long-subject-", 10) + "end"
+	gitRun(t, dir, "commit", "--allow-empty", "-m", full)
+	h := newHarness(t, gitKernel{core.NewClient()})
+	p := h.openLog(t, dir)
+	var text gfx.Rect
+	for _, label := range h.driver.Snapshot().Labels {
+		if strings.HasPrefix(label.Value, "完整提交") && strings.HasSuffix(label.Value, "…") {
+			text = label.Bounds
+			break
+		}
+	}
+	if text.Width == 0 {
+		t.Fatal("the commit subject was not ellipsized")
+	}
+	x, y := text.X+5, text.Y+text.Height/2
+	if err := h.driver.Move(x, y); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.driver.Advance(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	var tip strings.Builder
+	for _, label := range h.tooltips() {
+		tip.WriteString(label.Value)
+	}
+	if tip.String() != full {
+		t.Fatalf("commit tooltip %q, want %q", tip.String(), full)
+	}
+	h.click(gfx.Point{X: x, Y: y})
+	h.settle()
+	if p.log.selected != p.log.graph.Rows[0].CommitHash {
+		t.Fatal("the full-text hint intercepted commit selection")
+	}
+}
 
 // openLog opens dir with the log tab of the Git tool window shown and waits for its history.
 func (h *harness) openLog(t *testing.T, dir string) *project {

@@ -31,7 +31,7 @@ func (a *App) searchPanel(c ui.C) {
 	ui.Column(c).Fill().Children(func() {
 		ui.Row(c).FillWidth().PadSides(3, 10, 6, 10).Items(ui.Center).Gap(6).Children(func() {
 			label := i18n.Shared(language, "native.searchFilesAndContents")
-			field := ui.TextFieldID(c, searchQueryID, &v.query, label, label).Icon(icons.Search).
+			field := ui.TextField(c, &v.query, label, label, ui.WithID(searchQueryID)).Icon(icons.Search).
 				Action(icons.X, i18n.Shared(language, "native.clearSearch")).Grow(1).MinWidth(0)
 			if field.ActionClicked() {
 				a.performed("workspace.search.clear", surfaceButton)
@@ -56,7 +56,7 @@ func (a *App) searchPanel(c ui.C) {
 		a.searchReplaceRow(c, query)
 		ui.Row(c).FillWidth().PadX(10).PadSides(0, 10, 10, 10).Children(func() {
 			label := i18n.Shared(language, "native.fileMask")
-			mask := ui.TextFieldID(c, searchMaskID, &v.mask, label, i18n.Shared(language, "desktop.search.fileMaskPlaceholder")).
+			mask := ui.TextField(c, &v.mask, label, i18n.Shared(language, "desktop.search.fileMaskPlaceholder"), ui.WithID(searchMaskID)).
 				Icon(icons.Search).Action(icons.X, i18n.Shared(language, "native.clearSearch")).Grow(1).MinWidth(0)
 			if mask.ActionClicked() {
 				a.performed("workspace.search.clear", surfaceButton)
@@ -95,7 +95,7 @@ func (a *App) searchOptions(c ui.C, language i18n.Language) {
 	if button.Clicked() {
 		v.optionsOpen = !v.optionsOpen
 	}
-	ui.PopoverWith(c, button, &v.optionsOpen, ui.PopoverSpec{Align: ui.End, Width: 300}, func() {
+	ui.Popover(c, button, &v.optionsOpen, ui.PopoverSpec{Align: ui.End, Width: 300}, func() {
 		option := func(label, action string, value *bool) {
 			before := *value
 			ui.Checkbox(c, value, label)

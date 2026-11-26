@@ -378,7 +378,7 @@ func (a *App) remotePortsConfirm(c ui.C, p *project) {
 	language := a.language()
 	pending := *ports.confirm
 	target := net.JoinHostPort(pending.host, strconv.Itoa(int(pending.key.port)))
-	closed := ui.Modal(c.Part("ports-confirm"), &ports.confirmOpen, i18n.Shared(language, "desktop.remote.ports.confirmTitle"), func() {
+	closed := ui.Modal(c.Part("ports-confirm"), &ports.confirmOpen, i18n.Shared(language, "desktop.remote.ports.confirmTitle"), ui.ModalSpec{}, func() {
 		ui.Paragraph(c, i18n.SharedFormat(language, "desktop.remote.ports.confirmBody",
 			map[string]string{"target": target, "name": p.remote.name}), 5).Color(a.colors.Warning)
 	}, func() {
@@ -408,7 +408,7 @@ func (a *App) remotePortsLocal(c ui.C, p *project) {
 	language := a.language()
 	row, _ := ports.row(*ports.local)
 	remote, _ := remotePortsRemote(language, row)
-	closed := ui.Modal(c.Part("ports-local"), &ports.localOpen, i18n.Shared(language, "desktop.remote.ports.localTitle"), func() {
+	closed := ui.Modal(c.Part("ports-local"), &ports.localOpen, i18n.Shared(language, "desktop.remote.ports.localTitle"), ui.ModalSpec{}, func() {
 		ui.Paragraph(c, i18n.SharedFormat(language, "desktop.remote.ports.localBody",
 			map[string]string{"remote": remote, "name": p.remote.name}), 5).Color(a.colors.Text)
 		submitted := ui.TextField(c.Part("ports-local-field"), &ports.localField, i18n.Shared(language, "desktop.remote.ports.localLabel"),
@@ -456,7 +456,7 @@ func (a *App) remotePortsLabel(c ui.C, p *project) {
 		return
 	}
 	language := a.language()
-	closed := ui.Modal(c.Part("ports-label"), &ports.labelOpen, i18n.Shared(language, "desktop.remote.ports.labelTitle"), func() {
+	closed := ui.Modal(c.Part("ports-label"), &ports.labelOpen, i18n.Shared(language, "desktop.remote.ports.labelTitle"), ui.ModalSpec{}, func() {
 		ui.Paragraph(c, i18n.Shared(language, "desktop.remote.ports.labelBody"), 5).Color(a.colors.Text)
 		submitted := ui.TextField(c.Part("ports-label-field"), &ports.labelField, i18n.Shared(language, "desktop.remote.ports.labelField"),
 			i18n.Shared(language, "desktop.remote.ports.labelField")).FillWidth().Submitted()

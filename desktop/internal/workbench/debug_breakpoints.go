@@ -128,7 +128,7 @@ func (a *App) debugBreakpointEditor(c ui.C, p *project) {
 	t := a.text.Debug.Breakpoint
 	open := true
 	title := t.Title(debugFileName(edit.path), strconv.FormatInt(edit.line, 10))
-	closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Width: 460}, func() {
+	closed := ui.Modal(c, &open, title, ui.ModalSpec{Width: 460}, func() {
 		ui.Column(c.Part("breakpoint-editor")).FillWidth().Gap(10).Children(func() {
 			ui.TextField(c.Part("condition"), &edit.condition, t.Condition, t.ConditionPlaceholder).FillWidth()
 			ui.TextField(c.Part("hit-condition"), &edit.hitCondition, t.HitCondition, t.HitConditionPlaceholder).FillWidth()

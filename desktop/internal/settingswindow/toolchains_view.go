@@ -534,7 +534,11 @@ func (w *window) toolchainToolContent(c ui.C, language i18n.Language, scope *too
 		ui.Row(c).FillWidth().MinWidth(0).Items(ui.Center).Children(func() {
 			plugin := toolchainPluginName(scope, tool.PluginID, tool.PluginName)
 			if current.ok {
-				ui.Text(c, plugin+" · "+midTrim(current.home, 44)).FontSize(11).Color(b.faint).Shrink(1).Ellipsis()
+				short := midTrim(current.home, 44)
+				box := ui.Text(c, plugin+" · "+short).FontSize(11).Color(b.faint).Shrink(1).Ellipsis()
+				if short != current.home {
+					box.OverflowTooltip(plugin + " · " + current.home)
+				}
 				return
 			}
 			detail := w.toolchainReasonDetail(language, scope, entry, tool)
@@ -874,7 +878,11 @@ func (w *window) toolchainEffective(c ui.C, language i18n.Language, scope *toolc
 						}
 						ui.Text(c, next.version).FontSize(buildSmall).Mono().Weight(gfx.WeightBold).Color(words).Shrink(0)
 						ui.Text(c, " · ").FontSize(buildSmall).Color(words).Shrink(0)
-						ui.Text(c, midTrim(next.home, 60)).FontSize(buildSmall).Mono().Color(words).Shrink(1).Ellipsis()
+						short := midTrim(next.home, 60)
+						path := ui.Text(c, short).FontSize(buildSmall).Mono().Color(words).Shrink(1).Ellipsis()
+						if short != next.home {
+							path.OverflowTooltip(next.home)
+						}
 						ui.Text(c, i18n.SharedFormat(language, "desktop.buildSettings.parenthesized", map[string]string{"text": ToolchainLayerLabel(language, next.layer)})).
 							FontSize(buildSmall).Color(words).Shrink(0)
 					})
@@ -1134,7 +1142,11 @@ func (w *window) toolchainOption(c ui.C, language i18n.Language, scope *toolchai
 			version = "—"
 		}
 		ui.Text(c, version).FontSize(buildMono).Mono().Color(b.text).Width(92).Shrink(0).Ellipsis()
-		ui.Text(c, midTrim(option.home, 58)).FontSize(buildMono).Mono().Color(b.sub).Grow(1).Shrink(1).MinWidth(0).Ellipsis()
+		short := midTrim(option.home, 58)
+		path := ui.Text(c, short).FontSize(buildMono).Mono().Color(b.sub).Grow(1).Shrink(1).MinWidth(0).Ellipsis()
+		if short != option.home {
+			path.OverflowTooltip(option.home)
+		}
 		ui.Row(c).Shrink(0).Gap(4).Items(ui.Center).Children(func() {
 			if option.why != "" {
 				kind := tagErr

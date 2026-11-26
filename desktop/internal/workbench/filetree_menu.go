@@ -318,7 +318,7 @@ func (a *App) treePromptDialog(c ui.C, p *project) {
 		pr.open = false
 		return
 	}
-	closed := ui.Modal(c, &pr.open, title, func() {
+	closed := ui.Modal(c, &pr.open, title, ui.ModalSpec{}, func() {
 		submitted := ui.TextField(c, &pr.name, i18n.Shared(language, "desktop.files.name"), i18n.Shared(language, "desktop.files.name")).FillWidth().Submitted()
 		if pr.err != "" {
 			ui.Text(c, pr.err).FontSize(12).Color(a.colors.Deleted)

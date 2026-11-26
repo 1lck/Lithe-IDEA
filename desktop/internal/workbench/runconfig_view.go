@@ -466,7 +466,7 @@ func (a *App) drawRunConfigDelete(c ui.C, p *project) {
 	language := a.language()
 	open := true
 	title := i18n.Shared(language, "desktop.runConfig.deleteTitle")
-	closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Width: 420}, func() {
+	closed := ui.Modal(c, &open, title, ui.ModalSpec{Width: 420}, func() {
 		ui.Paragraph(c, i18n.SharedFormat(language, "desktop.runConfig.deleteBody", map[string]string{"name": d.name}), 4).Color(a.colors.Text)
 	}, func() {
 		ui.Row(c.Part("run-config-delete-footer")).FillWidth().Items(ui.Center).Gap(8).Children(func() {

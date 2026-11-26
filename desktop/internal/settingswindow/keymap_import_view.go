@@ -77,7 +77,7 @@ func (w *window) keymapImportDialog(c ui.C) {
 		return
 	}
 	language := w.marketLanguage()
-	ui.ModalWith(c.Part("keymap-import-dialog"), &s.open, i18n.Shared(language, "desktop.keymapImport.title"), ui.ModalSpec{Width: 620}, func() {
+	ui.Modal(c.Part("keymap-import-dialog"), &s.open, i18n.Shared(language, "desktop.keymapImport.title"), ui.ModalSpec{Width: 620}, func() {
 		ui.Column(c).FillWidth().Gap(10).Children(func() {
 			ui.Row(c).FillWidth().Gap(8).Items(ui.Center).Children(func() {
 				source := s.format

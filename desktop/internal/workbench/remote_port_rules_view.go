@@ -241,7 +241,7 @@ func (a *App) remotePortRuleDialog(c ui.C, p *project) {
 		title = i18n.Shared(language, "desktop.remote.ports.ruleConfirmReverseTitle")
 	}
 	unavailable := p.remote.session == "" || draft.starting
-	closed := ui.Modal(c.Part("ports-rule"), &ports.ruleOpen, title, func() {
+	closed := ui.Modal(c.Part("ports-rule"), &ports.ruleOpen, title, ui.ModalSpec{}, func() {
 		if draft.confirm != remotePortRuleNoConfirm {
 			ui.Paragraph(c, a.remotePortRuleQuestion(p, draft), 6).Color(a.colors.Warning)
 			return

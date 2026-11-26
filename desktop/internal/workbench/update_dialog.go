@@ -302,7 +302,7 @@ func (a *App) updateDialog(c ui.C) {
 		}
 	}
 	open := true
-	if ui.ModalWith(c, &open, title, ui.ModalSpec{Description: description, Width: width}, body, footer) {
+	if ui.Modal(c, &open, title, ui.ModalSpec{Description: description, Width: width}, body, footer) {
 		action = "later"
 	}
 	switch action {

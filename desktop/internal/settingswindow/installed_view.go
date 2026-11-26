@@ -632,7 +632,7 @@ func (w *window) uninstallModal(c ui.C, language i18n.Language) {
 		return
 	}
 	title := i18n.SharedFormat(language, "native.uninstall", map[string]string{"arg1": s.uninstallName})
-	ui.ModalWith(c.Part("uninstall"), &s.uninstallOpen, title, ui.ModalSpec{Width: 400}, nil, func() {
+	ui.Modal(c.Part("uninstall"), &s.uninstallOpen, title, ui.ModalSpec{Width: 400}, nil, func() {
 		if ui.Button(c, i18n.Shared(language, "ui.cancel")).Outline().Clicked() {
 			s.uninstallOpen = false
 		}

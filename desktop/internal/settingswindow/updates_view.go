@@ -341,7 +341,7 @@ func (w *window) updateChannelDialog(c ui.C, language i18n.Language, status Upda
 			})
 		}
 	}
-	closed := ui.ModalWith(c.Part("update-channel"), &open, title, ui.ModalSpec{Description: body, Width: 480}, content, func() {
+	closed := ui.Modal(c.Part("update-channel"), &open, title, ui.ModalSpec{Description: body, Width: 480}, content, func() {
 		if ui.Button(c.Part("cancel"), w.text.Settings.Cancel).Outline().Clicked() {
 			choice = "cancel"
 		}

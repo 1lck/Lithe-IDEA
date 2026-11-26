@@ -589,7 +589,7 @@ func (a *App) backgroundPopover(c ui.C, anchor ui.Box) {
 	picked := strength
 	spec := ui.PopoverSpec{Side: components.PopoverLeft, Align: ui.End, Width: 320, ConsumeOutsidePress: true}
 	open := true
-	ui.PopoverWith(c.Key("workbenchBackground"), anchor, &open, spec, func() {
+	ui.Popover(c.Key("workbenchBackground"), anchor, &open, spec, func() {
 		ui.Column(c).Gap(8).FillWidth().Children(func() {
 			ui.Row(c).FillWidth().Items(ui.Center).Gap(6).Children(func() {
 				ui.Icon(c, icons.Image).Size(14, 14).Color(a.colors.Subtle)

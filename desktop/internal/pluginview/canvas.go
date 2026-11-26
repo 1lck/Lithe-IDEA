@@ -4,6 +4,7 @@ import (
 	"math"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -368,7 +369,12 @@ func (s *canvasState) paint(d *ui.DrawContext) {
 	at := place{ox: float64(d.Rect.X) - s.x*k, oy: float64(d.Rect.Y) - s.y*k, k: k}
 	pt.shapes(n.Nodes, at, d.Opacity)
 	if s.tip != "" && s.hover >= 0 && d.Canvas.Now()-s.since >= canvasTooltipDelay {
-		pt.tooltip(s.tip, s.anchor)
+		// Full text takes priority over the group's description while the pointer
+		// rests on an ellipsized label. The page owns that shared tooltip.
+		page := d.Frame.GetPage()
+		if page == nil || page.HoveredText().Text == "" {
+			pt.tooltip(s.tip, s.anchor)
+		}
 	}
 }
 
@@ -551,6 +557,7 @@ func (pt *painter) text(sh *Shape, at place, opacity float32) {
 	}
 	height := float32(math.Ceil(float64(size) * 1.5))
 	left := room
+	first := len(canvas.Texts())
 	for _, run := range runs {
 		if left <= 0 {
 			break
@@ -570,6 +577,24 @@ func (pt *painter) text(sh *Shape, at place, opacity float32) {
 		canvas.LabelAlignedOnBaseline(value, gfx.Rect{X: x, Width: width + 1, Height: height}, baseline, style, gfx.AlignLeft)
 		x += width
 		left -= width
+	}
+	if cut && len(canvas.Texts()) > first {
+		full := sh.Text
+		if len(sh.Runs) > 0 {
+			if sh.fullText == "" {
+				var text strings.Builder
+				for _, run := range sh.Runs {
+					text.WriteString(run.Text)
+				}
+				sh.fullText = text.String()
+			}
+			full = sh.fullText
+		}
+		// The canvas resolves the font's real baseline; use the line box it
+		// painted so the hover region follows proportional and mono text alike.
+		bounds := canvas.Texts()[first].Bounds
+		bounds.Width = room
+		canvas.HoverHint(0, bounds, full)
 	}
 }
 

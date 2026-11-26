@@ -324,7 +324,7 @@ func (a *App) drawBeforeLaunchConfirmation(c ui.C, p *project) {
 	language := a.language()
 	open := true
 	title := i18n.Shared(language, "desktop.runConfig.beforeLaunch.confirmTitle")
-	closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Width: 520}, func() {
+	closed := ui.Modal(c, &open, title, ui.ModalSpec{Width: 520}, func() {
 		k := c.Part("run-before-launch-confirm")
 		ui.Column(k).FillWidth().Gap(8).Children(func() {
 			ui.Paragraph(c, i18n.SharedFormat(language, "desktop.runConfig.beforeLaunch.confirmBody", map[string]string{"name": ask.name}), 4).Color(a.colors.Text)

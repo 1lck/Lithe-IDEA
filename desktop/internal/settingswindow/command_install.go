@@ -368,7 +368,7 @@ func (w *window) commandInstallModal(c ui.C) {
 	installFailed := dialog.output != nil && !installing && dialog.installErr != nil
 	var cancelled, confirmed, retried bool
 	title := i18n.SharedFormat(language, "desktop.plugins.commandInstallTitle", map[string]string{"commands": commandList(dialog.missing.Commands)})
-	closed := ui.ModalWith(c, &dialog.open, title, ui.ModalSpec{Width: 620, Description: dialog.pluginName}, func() {
+	closed := ui.Modal(c, &dialog.open, title, ui.ModalSpec{Width: 620, Description: dialog.pluginName}, func() {
 		ui.Column(c).FillWidth().Gap(8).Children(func() {
 			switch {
 			case installing:

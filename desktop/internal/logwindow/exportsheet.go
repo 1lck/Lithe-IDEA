@@ -49,7 +49,7 @@ func (w *window) exportSheet(c ui.C) {
 	logs := &w.text.Logs
 	m := &logs.ExportDialog
 	open := true
-	ui.ModalWith(c, &open, logs.ExportLabel, ui.ModalSpec{Description: m.Subtitle, Width: exportSheetWidth}, func() {
+	ui.Modal(c, &open, logs.ExportLabel, ui.ModalSpec{Description: m.Subtitle, Width: exportSheetWidth}, func() {
 		ui.Column(c).FillWidth().Items(ui.Start).Gap(exportGap).Children(func() {
 			w.exportBody(c)
 		})

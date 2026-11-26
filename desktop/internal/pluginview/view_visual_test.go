@@ -6,9 +6,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/uistyle"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/headless"
@@ -126,5 +129,81 @@ func TestVisualPluginView(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+// This synthetic view exercises the host canvas without installing a plugin.
+func TestVisualCanvasEllipsis(t *testing.T) {
+	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
+	if out == "" {
+		t.Skip("set LITHE_VISUAL_OUTPUT_DIR")
+	}
+	if err := os.MkdirAll(out, 0755); err != nil {
+		t.Fatal(err)
+	}
+	const full = "完整文件名称-with-a-long-extension.txt · additional information"
+	const view = `[{"type":"canvas","id":"graph","label":"Graph","height":180,"viewBox":[0,0,440,180],"nodes":[
+		{"type":"group","id":"item","x":20,"y":20,"w":200,"h":80,"on":["click"],"label":"Open item","tooltip":"Group details","children":[
+			{"type":"rect","x":0,"y":0,"w":200,"h":80,"radius":6,"fill":"$surface","stroke":"$line"},
+			{"type":"text","x":10,"y":30,"maxWidth":110,"runs":[
+				{"text":"完整文件名称-with-a-long-extension.txt"},{"text":" · additional information"}]}]}]}]`
+	for _, language := range []i18n.Language{i18n.Chinese, i18n.English} {
+		for _, dark := range []bool{true, false} {
+			look := map[bool]string{true: "dark", false: "light"}[dark] + "-" + language.Code()
+			t.Run(look, func(t *testing.T) {
+				b := newBackend(t)
+				b.answer = func(map[string]any) (json.RawMessage, bool, error) { return json.RawMessage(view), true, nil }
+				s := b.session()
+				show(s)
+				b.answered(s)
+				theme := ui.LightTheme()
+				if dark {
+					theme = ui.DarkTheme()
+				}
+				// Every client window sets this tip on its theme; the plugin view inherits it there.
+				theme.Tooltip = uistyle.Tooltip(dark)
+				background := theme.Background
+				host := &Host{Palette: visualPalette(theme, dark), Language: language, Icon: HostIcon}
+				page := ui.NewPage(ui.PageConfig{View: func(c ui.C) { Draw(c, s, host, true) }, Theme: &theme, Background: &background})
+				session, err := headless.Open(ui.Configure(page, app.Config{Width: 480, Height: 300}), nil, headless.Options{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(session.Close)
+				shot := func(scene string) {
+					t.Helper()
+					if err := session.Screenshot(filepath.Join(out, "ellipsis-canvas-"+scene+"-"+look+".png")); err != nil {
+						t.Fatal(err)
+					}
+				}
+				shot("before-hover")
+				found := false
+				for _, label := range session.Snapshot().Labels {
+					if strings.HasSuffix(label.Value, "…") {
+						if err := session.Driver().Move(label.Bounds.X+5, label.Bounds.Y+label.Bounds.Height/2); err != nil {
+							t.Fatal(err)
+						}
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Fatal("the canvas did not shorten its label")
+				}
+				if err := session.Advance(time.Second); err != nil {
+					t.Fatal(err)
+				}
+				var tip strings.Builder
+				for _, label := range session.Snapshot().Labels {
+					if label.Layer == ui.TooltipLayer {
+						tip.WriteString(label.Value)
+					}
+				}
+				if strings.Join(strings.Fields(tip.String()), "") != strings.Join(strings.Fields(full), "") {
+					t.Fatalf("canvas tooltip %q, want %q", tip.String(), full)
+				}
+				shot("text-hover")
+			})
+		}
 	}
 }

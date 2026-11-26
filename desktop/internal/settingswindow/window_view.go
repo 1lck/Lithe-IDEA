@@ -90,7 +90,7 @@ func (w *window) sidebar(c ui.C) {
 	settings := &w.text.Settings
 	ui.Column(c).Width(sidebarWidth).FillHeight().Shrink(0).Background(p.sidebar).Clip().Children(func() {
 		ui.Row(c).FillWidth().Shrink(0).PadSides(10, 10, 8, 10).Children(func() {
-			search := ui.TextFieldID(c, searchID, &w.searchField, settings.Search, settings.Search).Icon(icons.Search).FillWidth().Height(searchHeight)
+			search := ui.TextField(c, &w.searchField, settings.Search, settings.Search, ui.WithID(searchID)).Icon(icons.Search).FillWidth().Height(searchHeight)
 			if w.searchField.Text() != "" {
 				search = search.Action(icons.X, i18n.Shared(w.marketLanguage(), "desktop.logs.clearSearch"))
 				if search.ActionClicked() {

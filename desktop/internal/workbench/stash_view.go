@@ -177,7 +177,7 @@ func (a *App) drawStashPushDialog(c ui.C, p *project) {
 	title := i18n.Shared(lang, "desktop.gitReview.stashPush")
 	open, submitted := true, false
 	spec := ui.ModalSpec{Width: 440, Description: i18n.Shared(lang, "native.storeTemporaryChangesInGitSStashList")}
-	closed := ui.ModalWith(c, &open, title, spec, func() {
+	closed := ui.Modal(c, &open, title, spec, func() {
 		ui.Column(c).FillWidth().Gap(10).Children(func() {
 			label := i18n.Shared(lang, "git.stashMessage")
 			submitted = ui.TextField(c, &s.message, label, label).FillWidth().Submitted()
@@ -206,7 +206,7 @@ func (a *App) drawStashDropDialog(c ui.C, p *project) {
 	stash := *s.dropping
 	open, drop := true, false
 	spec := ui.ModalSpec{Width: 420, Description: i18n.Shared(lang, "native.thisRemovesTheStashFromGitAndCannotBeUndone")}
-	closed := ui.ModalWith(c, &open, i18n.Shared(lang, "native.dropStash"), spec, func() {
+	closed := ui.Modal(c, &open, i18n.Shared(lang, "native.dropStash"), spec, func() {
 		ui.Column(c).FillWidth().Gap(4).Children(func() {
 			ui.Text(c, stash.Message).Color(a.colors.Text).Ellipsis()
 			ui.Text(c, stash.Reference).Muted()

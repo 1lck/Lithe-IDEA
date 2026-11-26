@@ -23,11 +23,11 @@ func (a *App) navigationPopup(c ui.C) {
 	language := a.language()
 	label := i18n.Shared(language, "desktop.navigation.label")
 	cancelled, confirmed, submitted := false, false, false
-	closed := ui.ModalWith(c, &v.open, i18n.Shared(language, "desktop.navigation.title"),
+	closed := ui.Modal(c, &v.open, i18n.Shared(language, "desktop.navigation.title"),
 		ui.ModalSpec{Width: 360, InitialFocus: navigationField, NoClose: true}, func() {
 			ui.Row(c).FillWidth().Items(ui.Center).Gap(8).Children(func() {
 				ui.Text(c, label)
-				submitted = ui.TextFieldID(c, navigationField, &v.input, label, "").Grow(1).MinWidth(0).Submitted()
+				submitted = ui.TextField(c, &v.input, label, "", ui.WithID(navigationField)).Grow(1).MinWidth(0).Submitted()
 			})
 		}, func() {
 			cancelled = ui.Button(c, a.text.Settings.Cancel).Outline().Clicked()
