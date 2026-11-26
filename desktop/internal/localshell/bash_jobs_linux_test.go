@@ -37,3 +37,37 @@ func TestClosingAtRecentLinuxPromptGivesJobsTimeToExec(t *testing.T) {
 		})
 	}
 }
+
+func TestQueuedCommandDuringCloseWaitsForItsOwnPrompt(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		signals := make(chan struct{}, 2)
+		shell := resizeTestShell(backend{
+			promptToken: "test",
+			hangup:      func() { signals <- struct{}{} },
+		})
+		shell.space = sync.NewCond(&shell.mu)
+		liveShells.Acquire()
+		defer close(shell.done)
+		shell.sawMark('B')
+		shell.Close()
+		synctest.Wait()
+		time.Sleep(20 * time.Millisecond)
+		shell.sawMark('C')
+		time.Sleep(300 * time.Millisecond)
+		synctest.Wait()
+		if len(signals) != 0 {
+			t.Fatal("sent a hangup while the next prompt hook was running")
+		}
+		shell.sawMark('B')
+		time.Sleep(jobExecGrace - time.Millisecond)
+		synctest.Wait()
+		if len(signals) != 0 {
+			t.Fatal("sent a hangup before the latest prompt's grace expired")
+		}
+		time.Sleep(time.Millisecond)
+		synctest.Wait()
+		if len(signals) != 1 {
+			t.Fatalf("sent %d hangups after the latest prompt settled, want one", len(signals))
+		}
+	})
+}

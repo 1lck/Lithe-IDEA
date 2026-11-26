@@ -422,48 +422,50 @@ func (shell *Shell) Close() {
 	if shell.resizeWake != nil {
 		close(shell.resizeWake)
 	}
-	var shown chan struct{}
-	if shell.prompted && shell.lastMark != 'B' && !shell.finished {
-		shown = make(chan struct{})
-		shell.promptShown = shown
-	}
+	now := time.Now()
+	waitForPrompt := shell.prompted && !shell.finished && (shell.lastMark != 'B' || shell.hangupAfter.After(now))
 	shell.finished = true
 	shell.mu.Unlock()
 	// A reader waiting for room drops what it holds and reads on.
 	shell.space.Broadcast()
-	if shown != nil {
-		go shell.hangUpAtPrompt(shown)
+	if waitForPrompt {
+		go shell.hangUpAtPrompt(now.Add(promptGrace))
 	} else {
 		shell.hangUp()
 	}
 }
 
-// hangUpAtPrompt hangs up a closed shell once it shows its prompt, ends, or has had
-// promptGrace to get there.
-func (shell *Shell) hangUpAtPrompt(shown <-chan struct{}) {
-	timer := time.NewTimer(promptGrace)
-	defer timer.Stop()
-	select {
-	case <-shown:
-	case <-shell.done:
-		return
-	case <-timer.C:
+// Recheck the reader's latest mark after each wait: input already in the PTY
+// can start another command, or even reach another prompt, after Close.
+func (shell *Shell) hangUpAtPrompt(deadline time.Time) {
+	for {
+		shell.mu.Lock()
+		now := time.Now()
+		delay := deadline.Sub(now)
+		var shown chan struct{}
+		if shell.lastMark == 'B' {
+			// A prompt at the end of promptGrace still gets its exec grace,
+			// but repeated prompts must not postpone closing indefinitely.
+			delay = min(shell.hangupAfter.Sub(now), deadline.Add(jobExecGrace).Sub(now))
+		} else if delay > 0 {
+			shown = make(chan struct{})
+			shell.promptShown = shown
+		}
+		shell.mu.Unlock()
+		if delay <= 0 {
+			break
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-shown:
+		case <-timer.C:
+		case <-shell.done:
+			timer.Stop()
+			return
+		}
+		timer.Stop()
 	}
 	shell.hangUp()
-}
-
-// hangUp asks the shell to end and kills it if it outlives killGrace. The
-// waiter releases the terminal after the process exits and output is drained.
-func (shell *Shell) hangUp() {
-	shell.mu.Lock()
-	delay := time.Until(shell.hangupAfter)
-	atPrompt := shell.lastMark == 'B'
-	shell.mu.Unlock()
-	if atPrompt && delay > 0 {
-		time.AfterFunc(delay, shell.signalHangup)
-		return
-	}
-	shell.signalHangup()
 }
 
 func (shell *Shell) atPrompt() bool {
@@ -472,7 +474,7 @@ func (shell *Shell) atPrompt() bool {
 	return shell.lastMark == 'B'
 }
 
-func (shell *Shell) signalHangup() {
+func (shell *Shell) hangUp() {
 	select {
 	case <-shell.done:
 		return
