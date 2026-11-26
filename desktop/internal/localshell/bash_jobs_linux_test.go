@@ -39,35 +39,46 @@ func TestClosingAtRecentLinuxPromptGivesJobsTimeToExec(t *testing.T) {
 }
 
 func TestQueuedCommandDuringCloseWaitsForItsOwnPrompt(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		signals := make(chan struct{}, 2)
-		shell := resizeTestShell(backend{
-			promptToken: "test",
-			hangup:      func() { signals <- struct{}{} },
+	const ms = time.Millisecond
+	for _, tc := range []struct {
+		name    string
+		prompts []time.Duration // measured from Close
+		want    time.Duration
+	}{
+		{"command returns to prompt", []time.Duration{320 * ms}, 420 * ms},
+		{"command never returns to prompt", nil, time.Second},
+		{"successive prompts near deadline", []time.Duration{950 * ms, 1040 * ms}, 1100 * ms},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				signals := make(chan time.Time, 2)
+				shell := resizeTestShell(backend{
+					promptToken: "test",
+					hangup:      func() { signals <- time.Now() },
+					kill:        func() {},
+				})
+				shell.space = sync.NewCond(&shell.mu)
+				liveShells.Acquire()
+				defer close(shell.done)
+
+				shell.sawMark('B')
+				start := time.Now()
+				shell.Close()
+				time.Sleep(20 * ms)
+				shell.sawMark('C')
+				for _, at := range tc.prompts {
+					time.Sleep(time.Until(start.Add(at)))
+					shell.sawMark('B')
+				}
+				time.Sleep(time.Until(start.Add(tc.want)))
+				synctest.Wait()
+				if len(signals) != 1 {
+					t.Fatalf("got %d hangups by %v, want one", len(signals), tc.want)
+				}
+				if got := (<-signals).Sub(start); got != tc.want {
+					t.Fatalf("hangup after %v, want %v", got, tc.want)
+				}
+			})
 		})
-		shell.space = sync.NewCond(&shell.mu)
-		liveShells.Acquire()
-		defer close(shell.done)
-		shell.sawMark('B')
-		shell.Close()
-		synctest.Wait()
-		time.Sleep(20 * time.Millisecond)
-		shell.sawMark('C')
-		time.Sleep(300 * time.Millisecond)
-		synctest.Wait()
-		if len(signals) != 0 {
-			t.Fatal("sent a hangup while the next prompt hook was running")
-		}
-		shell.sawMark('B')
-		time.Sleep(jobExecGrace - time.Millisecond)
-		synctest.Wait()
-		if len(signals) != 0 {
-			t.Fatal("sent a hangup before the latest prompt's grace expired")
-		}
-		time.Sleep(time.Millisecond)
-		synctest.Wait()
-		if len(signals) != 1 {
-			t.Fatalf("sent %d hangups after the latest prompt settled, want one", len(signals))
-		}
-	})
+	}
 }
