@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strconv"
 	"strings"
@@ -37,7 +38,7 @@ const (
 	remoteContainerHeading = "\x00containers"
 	// remoteContainerTimeout bounds listing the containers of both engines. Core bounds each
 	// engine's CLI at 15 seconds, the time a first call may take to start the engine's service.
-	remoteContainerTimeout = 40 * time.Second
+	remoteContainerTimeout = 110 * time.Second
 )
 
 // remoteContainerEngines are the engines the window lists, in the list's order.
@@ -45,12 +46,16 @@ var remoteContainerEngines = []string{core.ContainerEngineDocker, core.Container
 
 // remoteListedContainer is a running container of engine on this computer.
 type remoteListedContainer struct {
-	engine string
+	runtime *core.ContainerRuntimeTarget
+	engine  string
 	core.RemoteContainer
 }
 
 // key tells the containers apart in the list: their engine and full id.
 func (c remoteListedContainer) key() string {
+	if c.runtime != nil {
+		return c.engine + ":" + c.runtime.WSL + ":" + c.runtime.Context + ":" + c.ID
+	}
 	return c.engine + ":" + c.ID
 }
 
@@ -58,8 +63,13 @@ func (c remoteListedContainer) key() string {
 type remoteContainers struct {
 	// loaded is set once Core answered for every engine; list is what it found, Docker's
 	// containers before Podman's.
-	loaded bool
-	list   []remoteListedContainer
+	loaded      bool
+	discovering bool
+	discovered  bool
+	cancel      context.CancelFunc
+	loads       uint64
+	runtimes    core.ContainerRuntimes
+	list        []remoteListedContainer
 	// selected is the container the page shows, nil while it shows anything else.
 	selected *remoteListedContainer
 	// user is the page's user inside the container; empty is the image's default user.
@@ -70,7 +80,11 @@ type remoteContainers struct {
 // created again under the same name is entered again. The user is passed as typed, and Core trims
 // it.
 func (c *remoteContainers) connection() core.ContainerConnection {
-	return core.ContainerConnection{Engine: c.selected.engine, Container: c.selected.Name, User: c.user.Text()}
+	connection := core.ContainerConnection{Engine: c.selected.engine, Container: c.selected.Name, User: c.user.Text()}
+	if c.selected.runtime != nil {
+		connection.Context = c.selected.runtime.Context
+	}
+	return connection
 }
 
 // remoteContainerEngineName is engine as the window names it: Docker or Podman.
@@ -91,28 +105,82 @@ func (r *remoteState) containersShown() bool {
 // lists them. An engine without its CLI, or whose service does not answer, adds none.
 func (a *App) loadRemoteContainers() {
 	r := &a.remote
+	if r.containers.cancel != nil {
+		r.containers.cancel()
+	}
+	r.containers.loads++
+	load := r.containers.loads
+	r.containers.discovering = true
 	generation, kernel := r.generation, a.kernel
-	a.background(nil, remoteContainerTimeout, func(ctx context.Context) func(*App) {
+	cancel := a.background(nil, remoteContainerTimeout, func(ctx context.Context) func(*App) {
 		var listed []remoteListedContainer
-		var failure error
-		for _, engine := range remoteContainerEngines {
-			list, err := kernel.RemoteListContainers(ctx, engine, "")
-			if err != nil {
-				failure = err
-				continue
+		var failures []error
+		runtimes, discoveryErr := kernel.RemoteContainerRuntimes(ctx)
+		if discoveryErr != nil {
+			failures = append(failures, discoveryErr)
+		}
+		a.post(func(a *App) {
+			r := &a.remote
+			if !r.open || r.generation != generation || r.containers.loads != load {
+				// log-exempt: 用户取消：刷新或关闭窗口已取代本次发现。
+				return
 			}
-			for _, container := range list.Containers {
-				listed = append(listed, remoteListedContainer{engine: engine, RemoteContainer: container})
+			r.containers.runtimes, r.containers.discovering, r.containers.discovered = runtimes, false, true
+			a.recordRemoteContainerRuntimes(runtimes)
+			if d := r.devcontainer; d != nil && d.detecting && d.detectCancel == nil {
+				d.detecting = false
+				a.applyRemoteDevcontainerRuntimes(d, runtimes)
+				if discoveryErr != nil {
+					d.err = i18n.SharedFormat(a.language(), "desktop.remote.devcontainer.detectFailed", map[string]string{"reason": remoteLogError(discoveryErr).Error()})
+				}
+			}
+		})
+		if len(runtimes.Runtimes) > 0 {
+			for _, runtime := range runtimes.Runtimes {
+				if ctx.Err() != nil {
+					failures = append(failures, ctx.Err())
+					break
+				}
+				if !runtime.Available {
+					continue
+				}
+				list, err := kernel.RemoteRuntimeContainers(ctx, runtime.ContainerRuntimeTarget)
+				if err != nil {
+					failures = append(failures, err)
+					continue
+				}
+				if list.Diagnostics != "" {
+					failures = append(failures, errors.New("container engine did not list running containers"))
+				}
+				for _, container := range list.Containers {
+					target := runtime.ContainerRuntimeTarget
+					listed = append(listed, remoteListedContainer{engine: target.Engine, runtime: &target, RemoteContainer: container})
+				}
+			}
+		} else {
+			for _, engine := range remoteContainerEngines {
+				list, err := kernel.RemoteListContainers(ctx, engine, "")
+				if err != nil {
+					failures = append(failures, err)
+					continue
+				}
+				if list.Diagnostics != "" {
+					failures = append(failures, errors.New("container engine did not list running containers"))
+				}
+				for _, container := range list.Containers {
+					listed = append(listed, remoteListedContainer{engine: engine, RemoteContainer: container})
+				}
 			}
 		}
 		return func(a *App) {
 			r := &a.remote
-			if !r.open || r.generation != generation {
+			if !r.open || r.generation != generation || r.containers.loads != load {
 				// log-exempt: 用户取消：窗口关闭后不再应用容器列表。
 				return
 			}
 			r.containers.loaded = true
-			if failure != nil {
+			r.containers.runtimes = runtimes
+			for _, failure := range failures {
 				// The list only lacks that engine's containers; nothing else depends on them.
 				a.backgroundFailed("remote_containers_list", remoteLogError(failure))
 			}
@@ -129,6 +197,10 @@ func (a *App) loadRemoteContainers() {
 			r.syncListSelection()
 		}
 	})
+	r.containers.cancel = cancel
+	if r.hostsOnly {
+		r.hostReads = append(r.hostReads, cancel)
+	}
 }
 
 // containerRows are the list's rows of the containers: their heading, and the containers unless
@@ -164,9 +236,19 @@ func (r *remoteState) selectRemoteContainer(container remoteListedContainer) {
 }
 
 // remoteContainerWindows counts the workspaces open in the container name of engine, as any user.
-func (a *App) remoteContainerWindows(engine, name string) int {
+func (a *App) remoteContainerWindows(engine, name string, targets ...*core.ContainerRuntimeTarget) int {
+	prefix := engine
+	if len(targets) > 0 && targets[0] != nil {
+		target := targets[0]
+		if target.Context != "" {
+			prefix += "[" + target.Context + "]"
+		}
+		if target.WSL != "" {
+			prefix = (core.WSLConnection{Distribution: target.WSL}).Identity() + "/" + prefix
+		}
+	}
 	return a.remoteWindowsWhere(func(id string) bool {
-		rest, ok := strings.CutPrefix(id, engine+":")
+		rest, ok := strings.CutPrefix(id, prefix+":")
 		if !ok {
 			return false
 		}
@@ -185,6 +267,18 @@ func remoteContainerRefusalText(language i18n.Language, refusal remoteFieldRefus
 	return i18n.Shared(language, "desktop.remote.container.nameInvalid")
 }
 
+// remoteContainerEnvironment shows the upstream environment label beside the engine's containers.
+func (a *App) remoteContainerEnvironment(language i18n.Language, container remoteListedContainer) string {
+	if container.runtime != nil {
+		for _, runtime := range a.remote.containers.runtimes.Runtimes {
+			if runtime.ContainerRuntimeTarget == *container.runtime {
+				return remoteDevcontainerRuntimeLabel(language, runtime)
+			}
+		}
+	}
+	return remoteContainerEngineName(language, container.engine)
+}
+
 // remoteContainerRow declares a container in the list: its mark, its name over its engine and
 // image, and on the right whether a window has it open.
 func (a *App) remoteContainerRow(row ui.ListRow, language i18n.Language, container remoteListedContainer) {
@@ -201,11 +295,11 @@ func (a *App) remoteContainerRow(row ui.ListRow, language i18n.Language, contain
 	ui.Column(rc).Grow(1).Basis(0).MinWidth(0).Gap(2).Children(func() {
 		ui.Text(rc, container.Name).Weight(gfx.WeightMedium).Ellipsis().MinWidth(0)
 		line := i18n.SharedFormat(language, "desktop.remote.container.row", map[string]string{
-			"engine": remoteContainerEngineName(language, container.engine), "image": container.Image,
+			"engine": a.remoteContainerEnvironment(language, container), "image": container.Image,
 		})
 		ui.Text(rc, line).FontSize(small).Color(a.colors.Subtle).Ellipsis().MinWidth(0)
 	})
-	if a.remoteContainerWindows(container.engine, container.Name) > 0 {
+	if a.remoteContainerWindows(container.engine, container.Name, container.runtime) > 0 {
 		ui.Row(rc.Part("live")).Shrink(0).Items(ui.Center).Gap(5).Children(func() {
 			a.remoteDot(rc.Part("dot"), a.colors.Success, 6)
 			ui.Text(rc, i18n.Shared(language, "desktop.remote.connectedNow")).FontSize(small).Color(a.colors.Success)
@@ -221,7 +315,7 @@ func (a *App) remoteContainerPage(c ui.C, language i18n.Language) {
 	container := *r.containers.selected
 	engine := remoteContainerEngineName(language, container.engine)
 	small := a.theme.Metrics.FontSizeS
-	ui.Scroll(c.Part("container")).Fill().Children(func() {
+	ui.Scroll(c.Part("container")).Scrollbars().Fill().Children(func() {
 		ui.Column(c).FillWidth().Gap(22).PadSides(20, 24, 24, 24).Children(func() {
 			a.remoteNotices(c)
 			h := c.Part("hero")
@@ -231,7 +325,7 @@ func (a *App) remoteContainerPage(c ui.C, language i18n.Language) {
 					ui.Row(h).FillWidth().Items(ui.Center).Gap(8).Children(func() {
 						ui.Text(h, container.Name).FontSize(16).Weight(gfx.WeightSemibold).Ellipsis().Shrink(1).MinWidth(0)
 						a.remotePill(h.Part("kind"), engine, a.colors.Subtle)
-						if windows := a.remoteContainerWindows(container.engine, container.Name); windows > 0 {
+						if windows := a.remoteContainerWindows(container.engine, container.Name, container.runtime); windows > 0 {
 							a.remoteStatusPill(h.Part("live"), i18n.SharedFormat(language, "desktop.remote.connectedWindows", map[string]string{"count": strconv.Itoa(windows)}), a.colors.Success)
 						}
 					})

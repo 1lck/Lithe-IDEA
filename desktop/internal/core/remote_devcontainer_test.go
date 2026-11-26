@@ -7,7 +7,57 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
+
+func TestRemoteDevcontainerPrepareUsesTheLinkedCoreFixture(t *testing.T) {
+	data, err := os.ReadFile(contractfixture.CoreFixture("remote/devcontainer-configuration-v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Cases []struct {
+			ID            string
+			Form          DevcontainerForm
+			Path          string
+			Configuration map[string]any
+			InvalidField  string
+		}
+		Connection ContainerConnection
+		Identity   string
+	}
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	for _, example := range fixture.Cases {
+		t.Run(example.ID, func(t *testing.T) {
+			prepared, err := NewClient().RemoteDevcontainerPrepare(testContext(t), example.Form)
+			if example.InvalidField != "" {
+				var coreErr *Error
+				var detail struct{ Field string }
+				if !errors.As(err, &coreErr) || coreErr.Code != CodeInvalidRequest || json.Unmarshal([]byte(coreErr.Details), &detail) != nil || detail.Field != example.InvalidField {
+					t.Fatalf("prepare = %v; want invalid field %s", err, example.InvalidField)
+				}
+				return
+			}
+			if err != nil || prepared.Path != example.Path {
+				t.Fatalf("prepare = %+v, %v", prepared, err)
+			}
+			var configuration map[string]any
+			if err := json.Unmarshal([]byte(prepared.Content), &configuration); err != nil || !reflect.DeepEqual(configuration, example.Configuration) {
+				t.Fatalf("configuration = %s, %v", prepared.Content, err)
+			}
+		})
+	}
+	if got := fixture.Connection.Identity(); got != fixture.Identity {
+		t.Fatalf("connection identity = %s, want %s", got, fixture.Identity)
+	}
+	target := RemoteWorkspaceTrustTarget{Target: json.RawMessage(`{"hops":[{"container":{"engine":"docker","context":"orbstack","container":"api"}}]}`)}
+	if got := target.Place(); got != "docker[orbstack]:api" {
+		t.Fatalf("trust place = %s", got)
+	}
+}
 
 // Core lists a folder's devcontainer.json files with their names in the specification's order, and
 // refuses a relative folder before reading anything.

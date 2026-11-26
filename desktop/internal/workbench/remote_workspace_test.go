@@ -442,7 +442,7 @@ func (h *harness) openBrowsedProject(t *testing.T, b *remoteBrowser) *project {
 
 // Connect lists the host account's home folder, its folders and links to folders with hidden ones
 // last, and Open opens the selected one as a remote workspace: its root is a placeholder of the
-// cache directory, its title names the connection, the status bar shows the connection, and the
+// cache directory, its title names the connection, the title bar shows the connection, and the
 // folder is remembered with the connection. Neither the host nor its paths are logged.
 func TestRemoteWorkspaceOpensTheChosenFolder(t *testing.T) {
 	h, k, _, logger := remoteWorkspaceHarness(t)
@@ -478,7 +478,7 @@ func TestRemoteWorkspaceOpensTheChosenFolder(t *testing.T) {
 	if got, want := h.app.projectDisplayName(p), "project [SSH: "+remoteTestHost+"]"; got != want {
 		t.Fatalf("title %q, want %q", got, want)
 	}
-	if !h.shows("README.md") || !h.shows(remoteStatusText(lang, r)) || !h.showsWrapped(i18n.Shared(lang, "desktop.remote.workspace.safeBanner")) {
+	if !h.shows("README.md") || !h.remoteHostHasStatus(r) || !h.showsWrapped(i18n.Shared(lang, "desktop.remote.workspace.safeBanner")) {
 		t.Fatal("the workspace does not show its tree, its connection and that it is in safe mode")
 	}
 	if got := k.listings; len(got) == 0 || slices.Contains(got, "") {
@@ -565,7 +565,7 @@ func TestRemoteWorkspaceReconnectsAfterMissedHeartbeats(t *testing.T) {
 		if d := h.fire(t, timers); d != remoteHeartbeatInterval {
 			t.Fatalf("heartbeat after %v, want %v", d, remoteHeartbeatInterval)
 		}
-		if r.link != remoteUnresponsive || r.session != "session-1" || !h.shows(remoteStatusText(lang, r)) {
+		if r.link != remoteUnresponsive || r.session != "session-1" || !h.remoteHostHasStatus(r) {
 			t.Fatalf("after %d misses: link %v, session %q", miss, r.link, r.session)
 		}
 	}
@@ -591,7 +591,7 @@ func TestRemoteWorkspaceReconnectsAfterMissedHeartbeats(t *testing.T) {
 	if got := k.count(func(k *remoteHostKernel) int { return k.connects }); got != 1+len(want) {
 		t.Fatalf("connected %d times, want the first and %d attempts", got, len(want))
 	}
-	if r.link != remoteDisconnected || !h.shows(remoteStatusText(lang, r)) {
+	if r.link != remoteDisconnected || !h.remoteHostHasStatus(r) {
 		t.Fatalf("link %v after the last attempt, want disconnected", r.link)
 	}
 
@@ -625,8 +625,8 @@ func TestRemoteWorkspaceReconnectsAfterMissedHeartbeats(t *testing.T) {
 			t.Fatalf("%s logged %d times, want once", operation, got)
 		}
 	}
-	actions := []string{"remote.workspace.reconnect", "remote.workspace.disconnect"}
-	if got := remoteActions(logger); !slices.Equal(got[len(got)-2:], actions) {
+	actions := []string{"remote.hosts.open", "remote.workspace.reconnect", "remote.hosts.open", "remote.workspace.disconnect"}
+	if got := remoteActions(logger); !slices.Equal(got[len(got)-len(actions):], actions) {
 		t.Fatalf("performed %q, want it to end with %q", got, actions)
 	}
 	if event := loggedAny(t, logger, remoteTestHost, remoteTestHome); event != "" {

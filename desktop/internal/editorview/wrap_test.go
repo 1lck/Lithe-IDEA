@@ -228,3 +228,58 @@ func TestTogglingWrapKeepsTheTopLine(t *testing.T) {
 		t.Fatalf("after unwrapping the view is scrolled to %v, want %v", v.scroll, want)
 	}
 }
+
+// A viewport thousands of wrapped rows down draws the same text and selection as the
+// same suffix at the top, including a partially clipped row and the following logical line.
+func TestDeepWrappedViewportMatchesShortSuffix(t *testing.T) {
+	for _, fraction := range []float32{0, 0.25, 0.75} {
+		t.Run(fmt.Sprint(fraction), func(t *testing.T) {
+			area := gfx.Rect{X: 19, Y: 37, Width: 320, Height: 180}
+			suffix := strings.Repeat("abcdefgh", 200) + "\nAFTER"
+			short := newTestView(t, suffix)
+			_, cols := paintWrapped(t, short, area)
+			prefix := strings.Repeat("x", cols*8192)
+			deep := newTestView(t, prefix+suffix)
+			paintWrapped(t, deep, area)
+			if deep.wrapCols != cols {
+				t.Fatal("matching views have different wrap widths")
+			}
+			for _, nearEnd := range []bool{false, true} {
+				row := 0
+				if nearEnd {
+					row = len(wrapLine(nil, suffix[:len(suffix)-len("\nAFTER")], cols)) - 2
+				}
+				short.scroll = (float32(row) + fraction) * short.lineH
+				deep.scroll = (float32(row+8192) + fraction) * deep.lineH
+				short.anchor, short.caret = row*cols, min((row+3)*cols, len(suffix))
+				deep.anchor, deep.caret = len(prefix)+short.anchor, len(prefix)+short.caret
+				short.reveal, deep.reveal = false, false
+				var shortCanvas, deepCanvas gfx.Canvas
+				look := Look{Selection: gfx.RGB(0x12, 0x34, 0x56)}
+				short.Paint(&shortCanvas, area, look)
+				deep.Paint(&deepCanvas, area, look)
+				want, got := lineLabels(&shortCanvas, short), lineLabels(&deepCanvas, deep)
+				if len(got) == 0 || len(got) != len(want) {
+					t.Fatalf("nearEnd=%v: text labels=%d, want %d", nearEnd, len(got), len(want))
+				}
+				for i := range want {
+					if got[i].Value != want[i].Value || got[i].Bounds != want[i].Bounds || got[i].ClipOf != want[i].ClipOf {
+						t.Fatalf("nearEnd=%v: text row %d differs after deep scrolling: got %+v, want %+v", nearEnd, i, got[i], want[i])
+					}
+				}
+				selectionRects := func(canvas *gfx.Canvas) []gfx.Rectangle {
+					var result []gfx.Rectangle
+					for _, rect := range canvas.Rectangles() {
+						if rect.Color == look.Selection {
+							result = append(result, rect)
+						}
+					}
+					return result
+				}
+				if got, want := selectionRects(&deepCanvas), selectionRects(&shortCanvas); len(got) == 0 || !slices.Equal(got, want) {
+					t.Fatalf("nearEnd=%v: deep scrolling changed the visible selection: got %+v, want %+v", nearEnd, got, want)
+				}
+			}
+		})
+	}
+}

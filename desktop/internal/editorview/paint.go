@@ -139,7 +139,14 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 			v.decor.colorLine, v.decor.colorBase = v.lineColors(l.start, l.start+l.size), l.start
 		}
 		lineHints := v.lineInlayHints(line)
-		for k, row := range wraps {
+		// rowLine already located the first visible row. Walking its preceding rows
+		// makes repainting a deeply scrolled long line depend on its entire prefix.
+		first := 0
+		if line == firstLine {
+			first = firstSub
+		}
+		for k := first; k < len(wraps); k++ {
+			row := wraps[k]
 			y := top + float32(k)*v.lineH
 			if y+v.lineH <= area.Y {
 				continue

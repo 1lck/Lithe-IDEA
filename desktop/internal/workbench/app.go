@@ -222,6 +222,10 @@ type Kernel interface {
 	RemoteProbe(ctx context.Context, connection core.SSHConnection, preferences *string) (core.RemoteProbeResult, error)
 	RemoteListWSLDistributions(ctx context.Context) (core.RemoteWSLDistributions, error)
 	RemoteListContainers(ctx context.Context, engine, sessionID string) (core.RemoteContainers, error)
+	RemoteContainerRuntimes(ctx context.Context) (core.ContainerRuntimes, error)
+	RemoteDevcontainerPrepare(ctx context.Context, form core.DevcontainerForm) (core.PreparedDevcontainer, error)
+	RemoteDevcontainerRuntimeConfigs(ctx context.Context, folder string, runtime *core.ContainerRuntimeTarget) (core.DevcontainerFolder, error)
+	RemoteRuntimeContainers(ctx context.Context, runtime core.ContainerRuntimeTarget) (core.RemoteContainers, error)
 	RemoteDevcontainerConfigs(ctx context.Context, folder string) ([]core.DevcontainerConfig, error)
 	RemoteDevcontainerUp(ctx context.Context, request core.DevcontainerUpRequest, output func(core.DevcontainerOutput)) (core.DevcontainerUp, error)
 	RemoteAuthRespond(ctx context.Context, requestID string, answer *string) (bool, error)
@@ -405,6 +409,12 @@ type settings struct {
 	Language         string      `json:"language,omitempty"`
 	Theme            themeChoice `json:"theme,omitempty"`
 	MarketplaceWidth float32     `json:"marketplaceWidth,omitempty"`
+	// WindowWidth, WindowHeight and WindowMaximized are the size and maximized state the user
+	// last gave the workbench window, which the next one opens at; zero width or height opens
+	// at the default size.
+	WindowWidth     int  `json:"windowWidth,omitempty"`
+	WindowHeight    int  `json:"windowHeight,omitempty"`
+	WindowMaximized bool `json:"windowMaximized,omitempty"`
 	// SettingsWindowWidth and SettingsWindowHeight are the size the user last gave the settings
 	// window, which the next one opens at; zero opens it at its default size.
 	SettingsWindowWidth  int `json:"settingsWindowWidth,omitempty"`
@@ -1563,6 +1573,7 @@ func (a *App) saveSettings() {
 	// The background is the window's, which another tab may have changed since this one loaded.
 	a.settings.WorkbenchBackground = a.savedBackgroundState()
 	a.updates.store(&a.settings)
+	geo, appliedGeo := a.sessions.applyWindowGeometry(&a.settings)
 	backup, err := a.store.SaveWithBackup(settingsFile, a.settings)
 	if backup != "" {
 		a.noticeSettingsBackup(backup)
@@ -1570,6 +1581,10 @@ func (a *App) saveSettings() {
 	if err != nil {
 		a.operationFailed("settings_save", documentLogError(err))
 		a.notifyError(a.text.Errors.SaveFailed(err.Error()))
+		return
+	}
+	if appliedGeo {
+		a.sessions.noteSavedWindowGeometry(geo)
 	}
 }
 
