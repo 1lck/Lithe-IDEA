@@ -13,6 +13,33 @@ export const packageTargets = [
   { os: 'linux', arch: 'arm64', runner: 'ubuntu-22.04-arm', 'rust-target': 'aarch64-unknown-linux-gnu' },
 ];
 
+// Group targets that share the same OS and GitHub Actions runner (e.g. darwin arm64 + amd64 on
+// macos-26) into one workflow matrix job so releases request only one macOS runner instead of two.
+export function packageMatrix() {
+  const grouped = new Map();
+  for (const entry of packageTargets) {
+    const key = `${entry.os}:${entry.runner}`;
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        os: entry.os,
+        runner: entry.runner,
+        arches: [],
+        rustTargets: [],
+      });
+    }
+    const group = grouped.get(key);
+    group.arches.push(entry.arch);
+    group.rustTargets.push(entry['rust-target']);
+  }
+  return Array.from(grouped.values(), (group) => ({
+    os: group.os,
+    arch: group.arches.join('-'),
+    arches: group.arches.join(' '),
+    runner: group.runner,
+    'rust-target': group.rustTargets.join(','),
+  }));
+}
+
 function target(os, arch) {
   const found = packageTargets.find((entry) => entry.os === os && entry.arch === arch);
   if (!found) throw new Error(`Unsupported desktop package target ${os}/${arch}`);
@@ -65,7 +92,7 @@ export async function verifyPackages(version, directory) {
 
 async function main([command, ...args]) {
   switch (command) {
-    case 'matrix': console.log(JSON.stringify({ include: packageTargets })); break;
+    case 'matrix': console.log(JSON.stringify({ include: packageMatrix() })); break;
     case 'formats': console.log(packageFormats(...args)); break;
     case 'names': console.log(packageNames(...args).join('\n')); break;
     case 'verify': await verifyPackages(...args); console.log('Verified all 12 desktop packages and 12 checksums.'); break;
