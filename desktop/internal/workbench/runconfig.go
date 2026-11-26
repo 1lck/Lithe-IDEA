@@ -390,6 +390,7 @@ func (a *App) startRunConfigurationWith(p *project, id string, debug *connection
 		}
 		a.runConfiguration(p, id)
 	})
+	setRunGroupFromInstance(p, op.session, &p.build.instances[index])
 	op.debug = debug
 	// The run starts a process on the files on disk, so unsaved documents are saved first,
 	// as a rerun does; a failed save keeps the run from starting. The save reports its own
