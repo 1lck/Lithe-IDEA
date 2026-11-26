@@ -23,6 +23,11 @@ type runPanels struct {
 	// execution keeps its own console (runEntry.console).
 	choices  ui.ListState
 	runSplit ui.SplitterState
+	// runExpanded records which execution nodes in the Run tree the user explicitly expanded
+	// or collapsed, by runEntry.id. Absent entries default to collapsed unless running with
+	// live listening ports. runGroupLast remembers the last viewed session per plugin group.
+	runExpanded  map[string]bool
+	runGroupLast map[string]string
 	// testResults is the grouped result list, testOutput the console of a run that
 	// failed before reporting results.
 	testResults ui.ListState

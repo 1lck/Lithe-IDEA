@@ -1887,7 +1887,8 @@ func (a *App) disposeProject(p *project) {
 	a.focus = focusTarget{}
 	a.dnd.tool.Cancel()
 	a.dnd.tab.Cancel()
-	a.drag, a.term.drag = dragState{}, tabDrag{}
+	a.dnd.run.Cancel()
+	a.drag, a.term.drag, a.dnd.runDrag = dragState{}, tabDrag{}, runDragState{}
 	a.title = titleState{}
 	a.branch.branchSession = branchSession{}
 }

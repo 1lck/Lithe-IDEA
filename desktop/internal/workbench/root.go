@@ -188,6 +188,7 @@ func (a *App) workbench(c ui.C) {
 		HitWith(ui.ID(root), a.text.App.Name, gfx.HitOptions{SkipFocus: true}).
 		DropTarget(&a.dnd.tool, a.toolAccept, a.toolDrop).
 		DropTarget(&a.dnd.tab, a.tabAccept, a.tabDrop).
+		DropTarget(&a.dnd.run, a.runDragAccept, a.runDragDrop).
 		Children(func() {
 
 			a.titleBar(c)
@@ -352,11 +353,12 @@ func (a *App) overlays(c ui.C) {
 // previews a dragged button or tab would land in, and its ghost. It paints without a hit, so
 // it takes no input from what it lies over.
 func (a *App) dragLayer(c ui.C) {
-	if !a.dnd.tool.Dragging() && !a.dnd.tab.Dragging() {
+	if !a.dnd.tool.Dragging() && !a.dnd.tab.Dragging() && !a.dnd.run.Dragging() {
 		return
 	}
 	ui.Row(c).Absolute().Left(0).Top(0).Fill().Draw(func(d *ui.DrawContext) {
 		a.paintDrag(d.Canvas)
 		a.paintTabDrag(d.Canvas)
+		a.paintRunDrag(d.Canvas)
 	})
 }

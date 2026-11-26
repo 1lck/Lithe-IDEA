@@ -127,6 +127,10 @@ type outputBuffer struct {
 	start, sequence    int
 	maxLines, maxBytes int
 	revision           uint64
+	// maxCells caches the widest finished line's display cell count for horizontal scrolling
+	// in O(1) per frame; maxCellsDirty triggers a one-time recompute if the widest line is trimmed.
+	maxCells      int
+	maxCellsDirty bool
 }
 
 func newOutputBuffer(maxLines, maxBytes int) outputBuffer {
@@ -140,9 +144,17 @@ func (b *outputBuffer) apply(chunk outputChunk) {
 		b.lines = append(b.lines, line)
 		b.bytes += len(line.text) + 1
 		b.sequence++
+		if !b.maxCellsDirty {
+			if cells := outputLineCells(line.text); cells > b.maxCells {
+				b.maxCells = cells
+			}
+		}
 	}
 	b.open = chunk.open
 	for len(b.lines) > 0 && (len(b.lines) > b.maxLines || b.bytes > b.maxBytes) {
+		if !b.maxCellsDirty && outputLineCells(b.lines[0].text) >= b.maxCells {
+			b.maxCellsDirty = true
+		}
 		b.bytes -= len(b.lines[0].text) + 1
 		b.lines[0] = styledLine{}
 		b.lines = b.lines[1:]
@@ -162,7 +174,47 @@ func (b *outputBuffer) seal() {
 // it; the sequence keeps counting.
 func (b *outputBuffer) clear() {
 	b.lines, b.bytes, b.start = nil, 0, b.sequence
+	b.maxCells, b.maxCellsDirty = 0, false
 	b.revision++
+}
+
+// widestCells returns the display cell width of the widest line currently in the buffer.
+func (b *outputBuffer) widestCells() int {
+	if b.maxCellsDirty {
+		widest := 0
+		for _, line := range b.lines {
+			if cells := outputLineCells(line.text); cells > widest {
+				widest = cells
+			}
+		}
+		b.maxCells, b.maxCellsDirty = widest, false
+	}
+	return max(b.maxCells, outputLineCells(b.open.text))
+}
+
+// outputLineCells approximates the fixed-pitch cell width of one output line, accounting for
+// tabs and wide CJK/fullwidth runes so horizontal scrolling covers the full line.
+func outputLineCells(s string) int {
+	cells := 0
+	for _, r := range s {
+		switch {
+		case r == '\t':
+			cells += 4 - cells%4
+		case r >= 0x1100 && (r <= 0x115f || r == 0x2329 || r == 0x232a ||
+			(r >= 0x2e80 && r <= 0xa4cf && r != 0x303f) ||
+			(r >= 0xac00 && r <= 0xd7a3) ||
+			(r >= 0xf900 && r <= 0xfaff) ||
+			(r >= 0xfe10 && r <= 0xfe19) ||
+			(r >= 0xfe30 && r <= 0xfe6f) ||
+			(r >= 0xff00 && r <= 0xff60) ||
+			(r >= 0xffe0 && r <= 0xffe6) ||
+			r >= 0x1f300):
+			cells += 2
+		default:
+			cells++
+		}
+	}
+	return cells
 }
 
 // count is the number of rows the console shows: the finished lines and an open line with text.

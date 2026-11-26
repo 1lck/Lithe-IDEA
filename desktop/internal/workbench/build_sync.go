@@ -52,6 +52,7 @@ func (a *App) beginBuildSync(p *project, instance *buildInstance) *buildSyncFeed
 		restart: reloadBuildInstance(instance.ID), sync: sync,
 		running: true, started: a.now(), output: newOutputBuffer(buildOutputMaxLines, buildOutputBytes),
 	}
+	setRunGroupFromInstance(p, session, instance)
 	shown := p.activeRun()
 	a.addRunSession(p, session)
 	if shown != nil && shown.running && p.runEntry(shown.id) == shown {
