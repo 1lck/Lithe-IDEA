@@ -90,6 +90,8 @@ type remoteHostKernel struct {
 	devcontainers remoteHostDevcontainers
 	// close is what the host sessions run and keep (remote_close_test.go).
 	close remoteHostClose
+	// fsOps records host file management mutations (remote_files_test.go).
+	fsOps remoteHostFileOps
 }
 
 // remoteHostClose is what the host's sessions run and keep. Each SSH session N has the key "key-N"

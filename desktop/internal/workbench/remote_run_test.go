@@ -150,13 +150,26 @@ func (k *remoteHostKernel) RemoteTempDirectory(_ context.Context, _, prefix stri
 	return remoteTestRunScratch, nil
 }
 
-func (k *remoteHostKernel) RemoteRemove(_ context.Context, _, path string, recursive bool) error {
+func (k *remoteHostKernel) RemoteRemove(_ context.Context, session, path string, recursive bool) error {
 	k.mu.Lock()
+	if err := k.takeFileError(session); err != nil {
+		k.mu.Unlock()
+		return err
+	}
+	delete(k.files, path)
+	delete(k.fsOps.dirs, path)
 	for name := range k.files {
 		if strings.HasPrefix(name, path+"/") {
 			delete(k.files, name)
 		}
 	}
+	for dir := range k.fsOps.dirs {
+		if strings.HasPrefix(dir, path+"/") {
+			delete(k.fsOps.dirs, dir)
+		}
+	}
+	k.fsOps.removed = append(k.fsOps.removed, path)
+	k.syncRemoteTreeLocked()
 	k.mu.Unlock()
 	r := &k.runs
 	r.mu.Lock()
