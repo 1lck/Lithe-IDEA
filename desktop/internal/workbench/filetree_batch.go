@@ -36,6 +36,81 @@ type treeRemoval struct {
 // of the machine running them is not theirs to fill.
 var treeMoveToTrash = moveToTrash
 
+// treePathWithin reports whether at is the ancestor path itself or inside it. The empty path is
+// the project root.
+func treePathWithin(ancestor, at string) bool {
+	return ancestor == "" || at == ancestor || strings.HasPrefix(at, ancestor+"/")
+}
+
+func treePathsOverlap(first, second string) bool {
+	return treePathWithin(first, second) || treePathWithin(second, first)
+}
+
+// removalConflicts reports whether any project-relative write path is a root being removed, sits
+// inside one, or contains one. The window thread alone reads and changes this state.
+func (t *fileTree) removalConflicts(paths ...string) bool {
+	for root := range t.removing {
+		for _, at := range paths {
+			if treePathsOverlap(root, at) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (t *fileTree) beginRemoval(paths []string) {
+	if t.removing == nil {
+		t.removing = make(map[string]int, len(paths))
+	}
+	for _, at := range paths {
+		t.removing[at]++
+	}
+}
+
+// endRemoval releases the confirmed roots. When the last removal ends, close callbacks queued
+// while it ran continue in the order they arrived.
+func (t *fileTree) endRemoval(paths []string) {
+	for _, at := range paths {
+		count := t.removing[at]
+		if count <= 1 {
+			delete(t.removing, at)
+		} else {
+			t.removing[at] = count - 1
+		}
+	}
+	if len(t.removing) != 0 || len(t.removalWaiters) == 0 {
+		return
+	}
+	waiters := t.removalWaiters
+	t.removalWaiters = nil
+	for _, done := range waiters {
+		done()
+	}
+}
+
+// afterTreeRemovals runs done at once when no local removal is active, or after the last active
+// one reports its result.
+func (t *fileTree) afterTreeRemovals(done func()) {
+	if len(t.removing) == 0 {
+		done()
+		return
+	}
+	t.removalWaiters = append(t.removalWaiters, done)
+}
+
+// rejectRemovalWrite refuses a project-tree write that overlaps a removal already confirmed.
+// Keeping the write out of that subtree is what prevents files added after confirmation from
+// being deleted with it.
+func (a *App) rejectRemovalWrite(p *project, operation string, paths ...string) bool {
+	if !p.tree.removalConflicts(paths...) {
+		return false
+	}
+	a.operationRejected(operation, "removal_in_progress")
+	a.notifyError(i18n.Shared(a.language(), "desktop.files.removalInProgress"))
+	return true
+}
+
 // treeModifiedClick applies a Ctrl, Cmd or Shift click on the row of n to the marked set, as
 // Core says (filetree_rows.go).
 func (a *App) treeModifiedClick(p *project, n *treeNode, mods gfx.Modifiers) {
@@ -146,6 +221,9 @@ func (a *App) removeTreeItems(p *project, paths []string, permanent bool) {
 		a.remoteRemoveTreeItems(p, paths, permanent)
 		return
 	}
+	if a.rejectRemovalWrite(p, "project_tree_remove", paths...) {
+		return
+	}
 	full, docs := a.removalPaths(p, paths)
 	parents := treeParents(paths)
 	remove, performed, failure := treeMoveToTrash, "workspace.file.trash", trashFailedText
@@ -155,7 +233,10 @@ func (a *App) removeTreeItems(p *project, paths []string, permanent bool) {
 	if len(paths) > 1 {
 		performed += "Batch"
 	}
-	a.saveDocumentsThen(p, docs, func() {
+	// The deletion is confirmed before its documents are saved. Guard the roots for the whole
+	// preparation too; otherwise a file moved into one while saving would be deleted moments later.
+	p.tree.beginRemoval(paths)
+	a.saveDocumentsThenOrAbort(p, docs, func() {
 		a.closeOpenDocuments(p, docs)
 		// The confirmed batch is consumed before the write starts. Ending it here, rather
 		// than when the write returns, cannot erase a selection the user makes while it runs.
@@ -170,9 +251,11 @@ func (a *App) removeTreeItems(p *project, paths []string, permanent bool) {
 				}
 			}
 			return func(a *App) {
-				a.finishRemoval(p, parents, performed, failed, reason, failure)
+				a.finishRemoval(p, paths, parents, performed, failed, reason, failure)
 			}
 		})
+	}, func() {
+		p.tree.endRemoval(paths)
 	})
 }
 
@@ -200,7 +283,7 @@ func treeParents(paths []string) []string {
 
 // finishRemoval lists the directories again and reads the status. A failure is reported once,
 // with the last reason, since the rest of a batch still ran; failure words it.
-func (a *App) finishRemoval(p *project, parents []string, performed string, failed int, reason error, failure func(i18n.Language, string) string) {
+func (a *App) finishRemoval(p *project, paths, parents []string, performed string, failed int, reason error, failure func(i18n.Language, string) string) {
 	a.performed(performed, surfaceButton)
 	if failed > 0 && reason != nil {
 		a.operationFailed("project_tree_remove", documentLogError(reason))
@@ -210,6 +293,7 @@ func (a *App) finishRemoval(p *project, parents []string, performed string, fail
 		a.listTree(p, dir)
 	}
 	a.loadGit(p)
+	p.tree.endRemoval(paths)
 }
 
 // treeRemovalDialog declares the open Delete dialog: what it removes, Cancel, Delete Permanently,
