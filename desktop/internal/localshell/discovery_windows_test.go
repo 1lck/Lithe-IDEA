@@ -98,6 +98,8 @@ func TestWindowsDefaultShellPrefersTheStorePowerShell(t *testing.T) {
 // TestWindowsShellDiscoveryFindsCygwin covers the setup program's default
 // roots beside the system drive, which PATH does not carry (issue #435).
 func TestWindowsShellDiscoveryFindsCygwin(t *testing.T) {
+	// This test covers default roots, independently of the machine's recorded install.
+	stubCygwinRegistry(t, nil)
 	root := t.TempDir()
 	path := filepath.Join(root, "cygwin64", "bin", "bash.exe")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
