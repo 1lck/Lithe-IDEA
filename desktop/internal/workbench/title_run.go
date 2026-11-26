@@ -79,6 +79,7 @@ func (a *App) loadTitleRunConfigs(p *project) {
 // openRunConfigMenu opens the run configuration menu, closes the other menus of the title bar
 // and starts reading the configurations the menu lists.
 func (a *App) openRunConfigMenu() {
+	a.closeRemoteHostMenu()
 	a.title.runConfigOpen = true
 	a.title.projectOpen, a.title.gearOpen = false, false
 	a.closeBranches()

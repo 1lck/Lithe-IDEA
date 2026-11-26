@@ -59,7 +59,10 @@ func (a *App) compactMenuButton(c ui.C) {
 		ui.Icon(c, icons.Ellipsis).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Text)
 	})
 	if button.Clicked() {
-		c.After(func() { a.title.menuOpen = !a.title.menuOpen })
+		c.After(func() {
+			a.closeRemoteHostMenu()
+			a.title.menuOpen = !a.title.menuOpen
+		})
 	}
 	if open {
 		a.compactMenu(c, button)

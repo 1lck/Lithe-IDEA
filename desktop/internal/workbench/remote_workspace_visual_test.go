@@ -3,13 +3,16 @@
 package workbench
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteconn"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteplaceholder"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteserver"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
@@ -19,7 +22,7 @@ import (
 
 // TestVisualRemoteWorkspace captures a remote workspace being opened: the host's home folder in
 // the Remote Development window with a folder chosen, the question whether to trust it, the
-// workspace it opened in safe mode with its notice and status bar item, the status bar's menu of
+// workspace it opened in safe mode with its notice and title bar host selector, the host menu,
 // the connection, a host file open in the editor, the conflict a save over a change made on the
 // host shows, a terminal running on the host, the host's search, and, once trusted, the Commit
 // tool window of a folder inside a repository that starts above it.
@@ -81,6 +84,23 @@ func TestVisualRemoteWorkspace(t *testing.T) {
 			if r.err != "" || r.fieldErr.field != "" {
 				t.Fatalf("saving the connection: %q %+v", r.err, r.fieldErr)
 			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			source, err := remoteconn.Read(ctx, kernel, prefs.Dir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, _, _, err := source.Edit(ctx, kernel, core.RemoteConnectionEdit{Save: &core.RemoteConnectionSave{
+				Name: "CI box", Connection: core.SSHConnection{Host: "ci.example", User: "runner", Port: 2222},
+			}}); err != nil {
+				t.Fatal(err)
+			}
+			kernel.set(func(k *remoteHostKernel) {
+				k.wsl.list = core.RemoteWSLDistributions{Available: true, Distributions: []string{remoteTestWSL}}
+				k.containers.running = map[string][]core.RemoteContainer{
+					core.ContainerEngineDocker: {{ID: strings.Repeat("a", 64), Name: remoteTestContainer, Image: remoteTestImage}},
+				}
+			})
 
 			b := h.connectAndBrowse(t)
 			h.clickFront("project")
@@ -101,18 +121,33 @@ func TestVisualRemoteWorkspace(t *testing.T) {
 			})
 			shot("opened")
 
-			h.clickFront(i18n.Shared(h.app.language(), "desktop.remote.status.label"))
-			h.settleChain()
+			h.openRemoteHostChoices(t)
 			if !h.app.project.remote.menuOpen {
 				t.Fatal("the connection's menu did not open")
 			}
 			shot("menu")
-			h.app.project.remote.menuOpen = false
+			h.app.closeRemoteHostMenu()
+			h.settleChain()
+			p := h.app.project
+			for _, state := range []struct {
+				link remoteLink
+				name string
+			}{{remoteUnresponsive, "unresponsive"}, {remoteReconnecting, "reconnecting"}, {remoteDisconnected, "disconnected"}} {
+				p.remote.link = state.link
+				shot(state.name)
+			}
+			p.remote.link = remoteConnected
+			h.openRemoteHostChoices(t)
+			h.clickFront(remoteTestContainer)
+			h.await("the chosen container's folders", func() bool {
+				return h.app.remote.browser != nil && !h.app.remote.browser.loading
+			})
+			shot("switch-folder")
+			h.app.closeRemote()
 			h.settleChain()
 
 			// The host's README opens in the editor, and a save over a change made on the host
 			// meanwhile is refused and shows the conflict.
-			p := h.app.project
 			kernel.put(remoteTestReadme, "# Project\n\nBuilt and run on the host.\n")
 			d := h.openRemoteFile(t, p, "README.md")
 			if d == nil {

@@ -916,14 +916,14 @@
     },
     {
       "id": "desktop.remote.status.label",
-      "description": "Status bar item of a remote workspace: accessible label of the button that opens the connection's menu",
+      "description": "Title bar host selector of a remote workspace: accessible label of the button that opens the connection's menu",
       "platforms": [
         "desktop"
       ]
     },
     {
       "id": "desktop.remote.status.connected",
-      "description": "Status bar item of a remote workspace: text while connected, before the first round trip is known; {kind} is how it is reached, SSH or WSL",
+      "description": "Title bar host selector of a remote workspace: text while connected, before the first round trip is known; {kind} is how it is reached, SSH or WSL",
       "platforms": [
         "desktop"
       ],
@@ -934,7 +934,7 @@
     },
     {
       "id": "desktop.remote.status.latency",
-      "description": "Status bar item of a remote workspace: text while connected with the round trip of the last heartbeat in milliseconds; {kind} is how it is reached, SSH or WSL",
+      "description": "Title bar host selector of a remote workspace: text while connected with the round trip of the last heartbeat in milliseconds; {kind} is how it is reached, SSH or WSL",
       "platforms": [
         "desktop"
       ],
@@ -946,7 +946,7 @@
     },
     {
       "id": "desktop.remote.status.unresponsive",
-      "description": "Status bar item of a remote workspace: text when the last heartbeat went unanswered; {kind} is how it is reached, SSH or WSL",
+      "description": "Title bar host selector of a remote workspace: text when the last heartbeat went unanswered; {kind} is how it is reached, SSH or WSL",
       "platforms": [
         "desktop"
       ],
@@ -957,7 +957,7 @@
     },
     {
       "id": "desktop.remote.status.reconnecting",
-      "description": "Status bar item of a remote workspace: text while connecting again after the connection was lost; {kind} is how it is reached, SSH or WSL",
+      "description": "Title bar host selector of a remote workspace: text while connecting again after the connection was lost; {kind} is how it is reached, SSH or WSL",
       "platforms": [
         "desktop"
       ],
@@ -968,7 +968,7 @@
     },
     {
       "id": "desktop.remote.status.disconnected",
-      "description": "Status bar item of a remote workspace: text when the connection was lost and connecting again failed; {kind} is how it is reached, SSH or WSL",
+      "description": "Title bar host selector of a remote workspace: text when the connection was lost and connecting again failed; {kind} is how it is reached, SSH or WSL",
       "platforms": [
         "desktop"
       ],
@@ -979,21 +979,21 @@
     },
     {
       "id": "desktop.remote.status.reconnect",
-      "description": "Status bar item of a remote workspace: menu item that connects again",
+      "description": "Title bar host selector of a remote workspace: menu item that connects again",
       "platforms": [
         "desktop"
       ]
     },
     {
       "id": "desktop.remote.status.disconnect",
-      "description": "Status bar item of a remote workspace: menu item that ends the session and closes the workspace",
+      "description": "Title bar host selector of a remote workspace: menu item that ends the session and closes the workspace",
       "platforms": [
         "desktop"
       ]
     },
     {
       "id": "desktop.remote.status.openHostFile",
-      "description": "Status bar item of a remote workspace: menu item that opens a file of the host by its path",
+      "description": "Title bar host selector of a remote workspace: menu item that opens a file of the host by its path",
       "platforms": [
         "desktop"
       ]
