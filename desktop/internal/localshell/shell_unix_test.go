@@ -291,14 +291,19 @@ func TestHangupRetriesAtTheBashPromptBeforeForcingExit(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		signals := make(chan string, 3)
 		shell := resizeTestShell(backend{
-			hangup:              func() { signals <- "hangup" },
 			retryHangupAtPrompt: true,
 		})
+		shell.b.hangup = func() {
+			signals <- "hangup"
+			// A prompt can arrive as the first signal is delivered, after
+			// the close path has stopped waiting for the prompt hook.
+			shell.sawMark('B')
+		}
 		shell.b.kill = func() {
 			signals <- "kill"
 			close(shell.done)
 		}
-		shell.lastMark = 'B'
+		shell.lastMark = 'C'
 		shell.hangUp()
 		synctest.Wait()
 		if len(signals) != 1 {

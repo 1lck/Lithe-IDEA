@@ -453,23 +453,25 @@ func (shell *Shell) hangUpAtPrompt(shown <-chan struct{}) {
 // hangUp asks the shell to end and kills it if it outlives killGrace. The
 // waiter releases the terminal after the process exits and output is drained.
 func (shell *Shell) hangUp() {
-	shell.mu.Lock()
-	atPrompt := shell.lastMark == 'B'
-	shell.mu.Unlock()
-	retry := atPrompt && shell.b.retryHangupAtPrompt
-	if atPrompt && shell.b.waitForJobs != nil {
+	if shell.b.waitForJobs != nil && shell.atPrompt() {
 		// Close may run on the window thread. Keep procfs and the bounded
 		// wait for exec off it, even when the prompt was already visible.
 		go func() {
 			shell.b.waitForJobs()
-			shell.signalHangup(retry)
+			shell.signalHangup()
 		}()
 		return
 	}
-	shell.signalHangup(retry)
+	shell.signalHangup()
 }
 
-func (shell *Shell) signalHangup(retryAtPrompt bool) {
+func (shell *Shell) atPrompt() bool {
+	shell.mu.Lock()
+	defer shell.mu.Unlock()
+	return shell.lastMark == 'B'
+}
+
+func (shell *Shell) signalHangup() {
 	select {
 	case <-shell.done:
 		return
@@ -478,7 +480,7 @@ func (shell *Shell) signalHangup(retryAtPrompt bool) {
 	shell.b.hangup()
 	kill := time.AfterFunc(killGrace, shell.b.kill)
 	var retry *time.Timer
-	if retryAtPrompt {
+	if shell.b.retryHangupAtPrompt && shell.atPrompt() {
 		// Bash can print the prompt before Readline is ready to handle
 		// SIGHUP. Give the shell another chance to forward it to its jobs.
 		retry = time.AfterFunc(hangupRetryDelay, shell.b.hangup)
