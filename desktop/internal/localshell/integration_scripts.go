@@ -242,24 +242,22 @@ const commandFinishedFunction = `__motty_command_finished() {
 // closeFunction forwards a terminal close to the jobs Bash still tracks and
 // then asks Bash to end. Disowned jobs are absent from jobs -p, so the user's
 // disown contract stays with the shell rather than a terminal-wide process
-// group kill. The first close key sequence synchronously forwards the jobs and
-// replaces the input line through Readline; the second accepts exactly the
-// resulting successful exit command, so closing does not rely on a signal reaching Bash's
-// interactive input loop.
+// group kill. The close key sequence is a Readline macro rather than a Bash
+// bind -x command, so Bash 3.2 (still macOS's /bin/bash) handles it too. In vi
+// command mode the macro first enters insertion mode; the other keymaps are
+// already reading command text. Closing therefore does not rely on a signal
+// reaching Bash's interactive input loop.
 const closeFunction = `__motty_close() {
     local _motty_job
     for _motty_job in $(jobs -p); do
         builtin kill -HUP -- "-$_motty_job" 2>/dev/null
         builtin kill -CONT -- "-$_motty_job" 2>/dev/null
     done
-    READLINE_LINE='builtin exit 0'
-    READLINE_POINT=${#READLINE_LINE}
+    builtin exit 0
 }
-for _motty_keymap in emacs vi-insert vi-command; do
-    bind -m "$_motty_keymap" -x '"\e[9020~":__motty_close' 2>/dev/null || :
-    bind -m "$_motty_keymap" '"\e[9021~":accept-line' 2>/dev/null || :
-done
-unset _motty_keymap
+bind -m emacs '"\e[9020~":"__motty_close\n"' 2>/dev/null || :
+bind -m vi-insert '"\e[9020~":"__motty_close\n"' 2>/dev/null || :
+bind -m vi-command '"\e[9020~":"i__motty_close\n"' 2>/dev/null || :
 `
 
 const bashIntegrationTail = `

@@ -83,10 +83,10 @@ func startBackend(config Config) (backend, error) {
 			_, _ = master.Write([]byte{3})
 		}
 		closeAtInput = func() {
-			// Invoke the close function and accept the line it leaves through the shell's
-			// own Readline bindings. Unlike written command text, the key sequences cannot
-			// become part of the user's unfinished input.
-			_, _ = master.Write([]byte("\x1b[9020~\x1b[9021~"))
+			// Invoke the close function through the shell's own Readline macro.
+			// Unlike written command text, the key sequence cannot become part
+			// of the user's unfinished input.
+			_, _ = master.Write([]byte("\x1b[9020~"))
 		}
 	}
 	var inputReady func() bool

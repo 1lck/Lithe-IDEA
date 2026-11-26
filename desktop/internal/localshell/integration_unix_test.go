@@ -320,7 +320,7 @@ func TestClosingAnIntegratedBashHangsUpTheWholeJob(t *testing.T) {
 // hangup instead of remaining stopped forever.
 func TestClosingAnIntegratedBashHangsUpAStoppedJob(t *testing.T) {
 	s := startHangupShell(t, "bash", nil)
-	s.run("sleep 300 & echo job=$!; kill -STOP $!\r", 1, "\r\njob=")
+	s.run("sleep 300 & job=$(jobs -p); echo job=$job; kill -STOP $job\r", 1, "\r\njob=")
 	job := jobOf(t, s)
 
 	closeAndAwaitEnd(t, s.shell)
@@ -377,7 +377,7 @@ func TestClosingAnIntegratedBashAfterAFailedCommandExitsSuccessfully(t *testing.
 // controlled close must keep that contract rather than killing the process group.
 func TestClosingAnIntegratedBashLeavesDisownedJobs(t *testing.T) {
 	s := startHangupShell(t, "bash", nil)
-	s.run("sleep 300 & echo job=$!; disown\r", 1, "\r\njob=")
+	s.run("sleep 300 & job=$(jobs -p); echo job=$job; disown\r", 1, "\r\njob=")
 	job := jobOf(t, s)
 
 	closeAndAwaitEnd(t, s.shell)
