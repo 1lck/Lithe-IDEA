@@ -15,6 +15,7 @@
       "desktop/internal/workbench/startup_sweep_unix_test.go",
       "desktop/internal/processledger/processledger.go",
       "desktop/internal/processledger/processledger_unix.go",
+      "desktop/internal/processledger/processledger_test.go",
       "desktop/internal/processledger/processledger_unix_test.go",
       "desktop/internal/pluginservice/leftovers.go"
     ]
@@ -30,6 +31,7 @@
       "desktop/internal/workbench/startup_sweep.go",
       "desktop/internal/processledger/processledger.go",
       "desktop/internal/processledger/processledger_windows.go",
+      "desktop/internal/processledger/processledger_test.go",
       "desktop/internal/processledger/processledger_windows_test.go",
       "desktop/internal/pluginservice/leftovers.go",
       "desktop/internal/localshell/backend_windows.go",

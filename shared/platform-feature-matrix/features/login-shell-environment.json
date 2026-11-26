@@ -10,6 +10,7 @@
       "docs/viva-migration.md",
       "desktop/internal/loginenv/loginenv.go",
       "desktop/internal/loginenv/loginenv_unix.go",
+      "desktop/internal/loginenv/loginenv_unix_test.go",
       "desktop/cmd/lithe/main.go",
       "desktop/internal/workbench/toolchains.go"
     ]

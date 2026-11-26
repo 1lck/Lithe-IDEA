@@ -17,6 +17,8 @@ import (
 	"slices"
 	"sync"
 	"time"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/atomicfile"
 )
 
 // LedgerFile is the name of the ledger in the application's preferences directory.
@@ -217,18 +219,11 @@ func (l *Ledger) read() ([]Record, error) {
 
 // write replaces the ledger atomically, so a crash never leaves half a file.
 func (l *Ledger) write(records []Record) error {
-	if err := os.MkdirAll(filepath.Dir(l.path), 0o700); err != nil {
-		return err
-	}
 	data, err := json.Marshal(records)
 	if err != nil {
 		return err
 	}
-	temporary := l.path + ".tmp"
-	if err := os.WriteFile(temporary, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(temporary, l.path)
+	return atomicfile.Write(l.path, data, 0o600)
 }
 
 // current reports that record's PID is still the process that was recorded.
