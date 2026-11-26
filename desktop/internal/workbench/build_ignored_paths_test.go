@@ -96,17 +96,14 @@ func openIgnoredPathsProject(t *testing.T, team string, kernel Kernel) (*harness
 	return h, p
 }
 
-// settleUntil settles the window until condition holds, a step at a time: each settle waits for the
-// background work queued so far and paints its results, so a chain of steps ends within a few.
+// settleUntil observes the requested state, without waiting for unrelated work or
+// imposing a fixed number of background turns on a valid chain.
 func (h *harness) settleUntil(what string, condition func() bool) {
 	h.t.Helper()
-	for range 12 {
-		h.settle()
-		if condition() {
-			return
-		}
+	if err := h.driver.Pump(); err != nil {
+		h.t.Fatal(err)
 	}
-	h.t.Fatalf("%s did not happen", what)
+	h.await(what, condition)
 }
 
 // awaitBuildDetection waits until the Build tool window has detected the instances of p.

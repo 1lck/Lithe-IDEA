@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -157,7 +158,11 @@ func newHarnessWithDriver(t testing.TB, options Options, open func(app.Config) (
 			h.app.closeTerminals(p)
 			h.app.project = nil
 		}
-		h.app.wait()
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		if err := h.app.tasks.running.WaitContext(ctx); err != nil {
+			t.Errorf("cleanup: %v (%s)", err, h.taskState())
+		}
 		closeDriver()
 	})
 	return h
@@ -166,17 +171,55 @@ func newHarnessWithDriver(t testing.TB, options Options, open func(app.Config) (
 // settle lets every background task finish and paints their results.
 func (h *harness) settle() {
 	h.t.Helper()
-	h.app.wait()
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	h.settleWithin(ctx)
+}
+
+func (h *harness) settleWithin(ctx context.Context) {
+	h.t.Helper()
+	if err := h.app.tasks.running.WaitContext(ctx); err != nil {
+		h.t.Fatalf("settling background tasks: %v (%s)", err, h.taskState())
+	}
 	if err := h.driver.Pump(); err != nil {
 		h.t.Fatalf("Pump: %v", err)
 	}
+}
+
+func (h *harness) taskState() string {
+	h.app.tasks.mu.Lock()
+	queued := len(h.app.tasks.pending)
+	h.app.tasks.mu.Unlock()
+	return fmt.Sprintf("running=%d queued=%d closing=%v branchBusy=%v", h.app.tasks.running.Count(), queued, h.app.closingProject, h.app.branch.busy)
+}
+
+// sendClick paints the immediate input result without waiting for unrelated background work.
+// Its caller must await the specific asynchronous state it asserts, when there is one.
+func (h *harness) sendClick(point gfx.Point) {
+	h.t.Helper()
+	if err := h.driver.Click(point.X, point.Y); err != nil {
+		h.t.Fatal(err)
+	}
+	if err := h.driver.Pump(); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
+func (h *harness) sendNamed(name string) {
+	h.t.Helper()
+	h.sendClick(center(h.pageHit(name).Bounds))
 }
 
 // await pumps frames until condition is true, or fails at the deadline. It
 // observes the driver's wake channel rather than sleeping.
 func (h *harness) await(what string, condition func() bool) {
 	h.t.Helper()
-	deadline := time.NewTimer(8 * time.Second)
+	h.awaitWithin(8*time.Second, what, condition)
+}
+
+func (h *harness) awaitWithin(limit time.Duration, what string, condition func() bool) {
+	h.t.Helper()
+	deadline := time.NewTimer(limit)
 	defer deadline.Stop()
 	for {
 		if condition() {
@@ -188,7 +231,7 @@ func (h *harness) await(what string, condition func() bool) {
 				h.t.Fatalf("pump while waiting for %s: %v", what, err)
 			}
 		case <-deadline.C:
-			h.t.Fatalf("timed out waiting for %s", what)
+			h.t.Fatalf("timed out waiting for %s (%s)", what, h.taskState())
 		}
 	}
 }

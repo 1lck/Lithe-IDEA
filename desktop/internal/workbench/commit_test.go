@@ -103,12 +103,8 @@ const gitChainSteps = 6
 // chained. Each settle waits for the running work, so the count is a bound, not a timer.
 func (h *harness) click(point gfx.Point) {
 	h.t.Helper()
-	if err := h.driver.Click(point.X, point.Y); err != nil {
-		h.t.Fatal(err)
-	}
-	for range gitChainSteps {
-		h.settle()
-	}
+	h.sendClick(point)
+	h.settleChain()
 }
 
 // topHit is the smallest rectangle the hit id was laid out in: a dialog's scrim shares its

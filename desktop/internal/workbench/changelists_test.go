@@ -1,10 +1,12 @@
 package workbench
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -14,8 +16,10 @@ import (
 // placement of its changes in the lists.
 func (h *harness) settleChain() {
 	h.t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
 	for range gitChainSteps {
-		h.settle()
+		h.settleWithin(ctx)
 	}
 }
 
