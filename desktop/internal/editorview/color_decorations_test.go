@@ -25,6 +25,37 @@ func textInColor(canvas *gfx.Canvas, color gfx.Color) string {
 	return out.String()
 }
 
+func TestRainbowBracketColorsShareTheEditorOverlay(t *testing.T) {
+	view := newTestView(t, "😀([])")
+	text := view.TextSnapshot()
+	rangeColor := ColorDecoration{
+		StartLine: 0, StartCharacter: 3, EndLine: 0, EndCharacter: 4,
+		Light: "#123456", Dark: "#654321",
+	}
+	prepared := PrepareColorDecorations(text, []ColorDecoration{rangeColor}).WithRainbowColors(
+		[]RainbowColor{{Start: 4, End: 5}, {Start: 5, End: 6, Color: 1}, {Start: 6, End: 7, Color: 1}, {Start: 7, End: 8}},
+		[]string{"#AB0000", "#00AB00"}, []string{"#EF0000", "#00EF00"},
+	)
+	if !view.SetPreparedColorDecorations(prepared) {
+		t.Fatal("colors were rejected for the current text")
+	}
+	for _, appearance := range []struct {
+		dark                   bool
+		outer, inner, provider uint32
+	}{
+		{false, 0xAB0000, 0x00AB00, 0x123456},
+		{true, 0xEF0000, 0x00EF00, 0x654321},
+	} {
+		canvas := new(gfx.Canvas)
+		view.Paint(canvas, gfx.Rect{Width: 600, Height: 100}, Look{Dark: appearance.dark})
+		for color, want := range map[uint32]string{appearance.outer: "()", appearance.inner: "]", appearance.provider: "["} {
+			if got := textInColor(canvas, gfx.RGB24(color)); got != want {
+				t.Errorf("dark=%t color #%06x = %q, want %q", appearance.dark, color, got, want)
+			}
+		}
+	}
+}
+
 // Color ranges override foreground only. LSP token identity, style, selection backgrounds,
 // another line's colors, and theme changes keep their independent rendering behavior.
 func TestColorDecorationsComposeWithSemanticTokensAndThemes(t *testing.T) {

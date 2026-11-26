@@ -383,7 +383,9 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # Lithe-core-rust main at 38c60be (#202): discovers local Docker
 # contexts, Podman and Windows WSL engines, prepares standard devcontainer configurations,
 # and preserves the selected context and distribution through build, connection and trust.
-PINNED_CORE_REVISION="38c60be716207fa99cd2f8827f81e7e7c75c4eb1"
+# Lithe-core-rust main at c269c411 (#201): built-in rainbow bracket/variable colors,
+# indent guide preferences, and Unicode whole-identifier document highlights.
+PINNED_CORE_REVISION="c269c41153c8da2f2e8d064c68550a8f23260e2c"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

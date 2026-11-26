@@ -34,6 +34,8 @@ type Token struct {
 
 // HighlighterOptions configure a Highlighter.
 type HighlighterOptions struct {
+	// CollectCandidates reuses worker tokens for bounded editor bracket/identifier indexing.
+	CollectCandidates bool
 	// OnChange is called when the tokens of lines from first to last may have changed after
 	// they were last read, from the background goroutine or from SetSemantic's caller, never
 	// with the highlighter's lock held. A view repaints those of them it shows.
@@ -77,7 +79,9 @@ type Highlighter struct {
 	// guess is scratch for guessing start states.
 	guess []int
 
-	worker lineTokenizer
+	worker            lineTokenizer
+	candidates        candidateIndex
+	collectCandidates bool
 }
 
 // memoState is the state a line starts in and the one it ends in, each nil when not known.
@@ -88,14 +92,20 @@ type memoState struct {
 	ok         bool
 }
 
+// lineTokenSource provides lexical tokens and reports whether a line reached its time limit.
+type lineTokenSource interface {
+	TokenizeLine([]textmate.Token, []byte, *textmate.StateStack, time.Duration) ([]textmate.Token, *textmate.StateStack, bool)
+}
+
 // lineTokenizer tokenizes lines into token pairs. Each goroutine needs its own.
 type lineTokenizer struct {
-	tz     *textmate.Tokenizer
+	tz     lineTokenSource
 	names  *classifier
 	limit  time.Duration
 	line   []byte
 	tokens []textmate.Token
 	out    []uint32
+	reason string
 }
 
 // tokenize appends the tokens of line, starting in state, to t.out as start and Name pairs,
@@ -104,7 +114,9 @@ type lineTokenizer struct {
 // A line longer than maxLineBytes is measured, not read, so neither its copy nor a buffer the
 // size of it outlives the call.
 func (t *lineTokenizer) tokenize(text rope.Rope, line int, state *textmate.StateStack) *textmate.StateStack {
+	t.reason = ""
 	if text.LineEnd(line)-text.LineStart(line) > maxLineBytes {
+		t.reason = "line_too_long"
 		t.out = append(t.out, 0, 0)
 		return state
 	}
@@ -112,6 +124,7 @@ func (t *lineTokenizer) tokenize(text rope.Rope, line int, state *textmate.State
 	tokens, end, stopped := t.tz.TokenizeLine(t.tokens[:0], t.line, state, t.limit)
 	t.tokens = tokens
 	if stopped {
+		t.reason = "tokenization_timeout"
 		end = state
 	}
 	first := len(t.out)
@@ -158,6 +171,8 @@ func newHighlighter(syntax *Syntax, text rope.Rope, options HighlighterOptions, 
 		h.worker = lineTokenizer{tz: syntax.grammar.NewTokenizer(), names: syntax.names, limit: limit}
 	}
 	h.cp.reset()
+	h.collectCandidates = options.CollectCandidates
+	h.candidates.reset(options.CollectCandidates && syntax != nil && text.Len() <= RainbowBracketMaxBytes)
 	h.mu.Lock()
 	h.kickLocked()
 	h.mu.Unlock()
@@ -171,6 +186,7 @@ func (h *Highlighter) Syntax() *Syntax { return h.syntax }
 func (h *Highlighter) Close() {
 	h.mu.Lock()
 	h.closed = true
+	h.candidates.notify()
 	h.mu.Unlock()
 }
 
@@ -181,6 +197,7 @@ func (h *Highlighter) SetText(text rope.Rope) {
 	h.gen++
 	h.memo = memoState{}
 	h.cp.reset()
+	h.candidates.reset(h.collectCandidates && h.syntax != nil && text.Len() <= RainbowBracketMaxBytes)
 	h.cache.clear()
 	h.semantic = nil
 	h.kickLocked()
@@ -221,7 +238,25 @@ func (h *Highlighter) Edit(text rope.Rope, start, oldEnd, newEnd int) {
 	default:
 		h.memo.gen = h.gen
 	}
-	h.cp.edit(startLine, endLine, delta)
+	enabled := h.collectCandidates && h.syntax != nil && text.Len() <= RainbowBracketMaxBytes
+	if enabled != h.candidates.enabled {
+		if enabled {
+			// Rebuild candidates that were not collected while over the size limit.
+			h.cp.reset()
+		} else {
+			// Disabling collection leaves the surviving lexical checkpoints valid.
+			h.cp.edit(startLine, endLine, delta)
+		}
+		h.candidates.reset(enabled)
+	} else {
+		lo := h.cp.find(startLine) + 1
+		hi := lo
+		for hi < len(h.cp.lines) && int(h.cp.lines[hi]) <= endLine {
+			hi++
+		}
+		h.candidates.remove(lo, hi)
+		h.cp.edit(startLine, endLine, delta)
+	}
 	h.cache.remove(startLine, endLine)
 	h.cache.shift(endLine, delta)
 	if len(h.semantic) > 0 {
@@ -457,6 +492,20 @@ func (h *Highlighter) step() bool {
 	from, state := int(h.cp.lines[i]), h.cp.states[i]
 	to := h.cp.end(i, count)
 	limit := min(to, from+segmentLines)
+	collect := h.candidates.enabled
+	var part candidatePart
+	variables := variableCandidates{}
+	bracketRoom := 0
+	if collect {
+		bracketRoom, variables.limit = h.candidates.room(i)
+		part.bracketStart, part.variableStart = h.candidates.parts[i].bracketStart, h.candidates.parts[i].variableStart
+		part.base = text.LineStart(from)
+		variables.rules = h.syntax.language.Candidates
+		if i > 0 {
+			variables.state = h.candidates.parts[i-1].end
+		}
+		part.start = variables.state
+	}
 	h.mu.Unlock()
 
 	w := &h.worker
@@ -465,6 +514,18 @@ func (h *Highlighter) step() bool {
 	for line := from; line < limit; line++ {
 		offsets[line-from] = len(w.out)
 		state = w.tokenize(text, line, state)
+		if collect && part.reason == "" {
+			if w.reason != "" {
+				part.reason = w.reason
+			} else {
+				var complete bool
+				part.brackets, complete = appendRainbowBrackets(part.brackets, w.line, w.tokens, text.LineStart(line), bracketRoom)
+				part.bracketsOmitted = part.bracketsOmitted || !complete
+				if !variables.appendLine(w.line, w.tokens, text.LineStart(line)) {
+					part.variablesOmitted = true
+				}
+			}
+		}
 	}
 	offsets[limit-from] = len(w.out)
 
@@ -473,19 +534,32 @@ func (h *Highlighter) step() bool {
 		h.mu.Unlock()
 		return true
 	}
+	candidateChanged := false
+	if collect {
+		part.end = variables.state
+		part.variables, part.roles = variables.ranges, variables.roles
+		// Deleting checkpoints can change which predecessor a surviving segment had.
+		// Its stored input, rather than this segment's old output, determines convergence.
+		candidateChanged = i+1 < len(h.candidates.parts) && h.candidates.parts[i+1].start != part.end
+		h.candidates.parts[i] = part
+	}
 	switch {
 	case limit < to:
 		// The segment is longer than a segment should be: it is split here.
 		h.cp.insert(i, limit, state, true)
+		h.candidates.insert(i)
 		h.cp.clean(i)
 	case i+1 < len(h.cp.lines):
-		if !state.Equal(h.cp.states[i+1]) {
+		if !state.Equal(h.cp.states[i+1]) || candidateChanged {
 			h.cp.states[i+1] = state
 			h.cp.dirty[i+1] = true
 		}
 		h.cp.clean(i)
 	default:
 		h.cp.clean(i)
+	}
+	if collect {
+		h.candidates.bound(&h.cp, i)
 	}
 	if h.memo.line >= from {
 		// The memo may have been computed from a state this step just corrected.
@@ -505,6 +579,7 @@ func (h *Highlighter) step() bool {
 	}
 	more := h.cp.firstDirty < len(h.cp.lines)
 	if !more {
+		h.candidates.notify()
 		h.running = false
 	}
 	onChange := h.onChange

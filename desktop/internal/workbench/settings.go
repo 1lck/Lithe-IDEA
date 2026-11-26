@@ -333,14 +333,7 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		LocalHistory: a.localHistorySettingsSource(),
 		SetEditorPreferences: func(stored core.EditorStoredPreferences, resolved core.EditorPreferences) {
 			a.post(func(a *App) {
-				a.settings.EditorPreferences = stored
-				inlayChanged := a.editorPreferences.InlayHints != resolved.InlayHints
-				a.editorPreferences = resolved
-				if inlayChanged {
-					a.applyInlayHintsPreference(resolved.InlayHints)
-				}
-				a.saveSettings()
-				a.invalidator.Invalidate()
+				a.setEditorPreferences(stored, resolved)
 			})
 		},
 		SetKeymapSchemes: func(value core.KeymapSchemeResult) {

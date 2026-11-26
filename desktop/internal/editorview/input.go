@@ -495,13 +495,19 @@ func (v *View) Pointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
 			v.dragFrom, v.dragTo = v.unitAt(offset)
 		}
 		v.dragSelect(offset)
+		v.moved()
+		if v.dragUnit == 1 && mods == 0 {
+			v.rememberBracketClick(event.X, event.Y, offset)
+		}
 		return gfx.EventResult{Handled: true, Repaint: true, Focus: v.cfg.HitID}, true
 	case gfx.PointerMove:
 		if v.columnDrag {
 			v.columnSelect(v.columnStart[0], v.columnStart[1], event.X, event.Y)
 			return handled, true
 		}
-		v.dragSelect(offset)
+		if v.dragSelect(offset) {
+			v.moved()
+		}
 		return handled, true
 	}
 	v.dragging, v.columnDrag = false, false
@@ -512,23 +518,26 @@ func (v *View) Pointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
 func (v *View) unitAt(offset int) (int, int) {
 	switch v.dragUnit {
 	case 2:
-		return v.wordAt(offset)
+		return v.clickedWordAt(offset)
 	case 3:
 		return v.lineRange(v.text.LineOf(offset))
 	}
 	return offset, offset
 }
 
-// dragSelect selects from the unit the drag started on to the unit at offset.
-func (v *View) dragSelect(offset int) {
+// dragSelect selects from the unit the drag started on to the unit at offset
+// and reports whether the selection changed.
+func (v *View) dragSelect(offset int) bool {
 	from, to := v.unitAt(offset)
 	if from < v.dragFrom {
-		v.anchor, v.caret = v.dragTo, from
+		from, to = v.dragTo, from
 	} else {
-		v.anchor, v.caret = v.dragFrom, max(to, v.dragTo)
+		from, to = v.dragFrom, max(to, v.dragTo)
 	}
+	changed := v.anchor != from || v.caret != to
+	v.anchor, v.caret = from, to
 	v.lastKind = editOther
-	v.moved()
+	return changed
 }
 
 // offsetAt is the offset of the character edge nearest the point (x, y).

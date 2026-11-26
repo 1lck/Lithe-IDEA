@@ -188,6 +188,12 @@
       }
     },
     {
+      "pattern": "^BenchmarkEditorSyntaxCandidates/",
+      "why": "The background candidate snapshot reuses dirty 32-line segments and stores at most 10000 brackets and 10000 variables. One iteration includes inserting/deleting one character and both snapshots; the 1 MiB case must remain within 10 ms and 3 MiB of transient allocation without repeating whole-document tokenization.",
+      "nsMax": 10000000,
+      "bytesMax": 3145728
+    },
+    {
       "pattern": "^BenchmarkEditorSyntaxFirstUse/",
       "why": "The first use of a language, including loading its grammar, must finish within 20 ms.",
       "nsMax": 20000000

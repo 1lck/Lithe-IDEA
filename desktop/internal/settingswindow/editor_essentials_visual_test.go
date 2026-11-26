@@ -3,13 +3,15 @@
 package settingswindow
 
 import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 	"github.com/vivaui/viva/headless"
-	"os"
-	"path/filepath"
-	"testing"
 )
 
 func TestVisualEditorEssentialsSettings(t *testing.T) {
@@ -59,6 +61,52 @@ func TestVisualEditorEssentialsSettings(t *testing.T) {
 				}
 				if err = session.Screenshot(filepath.Join(out, scene+"-"+look.theme+".png")); err != nil {
 					t.Fatal(err)
+				}
+				if scene == "editor-settings" {
+					d := &windowDriver{t: t, w: w, driver: session.Driver()}
+					indentGuideLabel := i18n.Shared(look.language, "desktop.editorPrefs.indentGuides")
+					rainbowGuideLabel := i18n.Shared(look.language, "desktop.editorPrefs.rainbowIndentGuides")
+					d.click(rainbowGuideLabel)
+					if err = session.Advance(300 * time.Millisecond); err != nil {
+						t.Fatal(err)
+					}
+					if err = session.Screenshot(filepath.Join(out, "editor-settings-rainbow-guides-"+look.theme+".png")); err != nil {
+						t.Fatal(err)
+					}
+					d.click(indentGuideLabel)
+					if err = session.Advance(300 * time.Millisecond); err != nil {
+						t.Fatal(err)
+					}
+					if err = session.Screenshot(filepath.Join(out, "editor-settings-guides-disabled-"+look.theme+".png")); err != nil {
+						t.Fatal(err)
+					}
+					switchLabel := i18n.Shared(look.language, "desktop.editorPrefs.rainbowBrackets")
+					variablesLabel := i18n.Shared(look.language, "desktop.editorPrefs.rainbowVariables")
+					d.click(switchLabel)
+					d.pump()
+					d.click(variablesLabel)
+					d.pump()
+					if !d.hit(switchLabel).Checked || !d.hit(variablesLabel).Checked {
+						t.Fatal("both rainbow switches should be enabled")
+					}
+					if err = session.Advance(300 * time.Millisecond); err != nil {
+						t.Fatal(err)
+					}
+					if err = session.Screenshot(filepath.Join(out, "editor-settings-rainbow-"+look.theme+".png")); err != nil {
+						t.Fatal(err)
+					}
+					palette := i18n.Shared(look.language, "desktop.editorPrefs.rainbowLightColors")
+					if look.theme == "dark" {
+						palette = i18n.Shared(look.language, "desktop.editorPrefs.rainbowDarkColors")
+					}
+					swatch := i18n.SharedFormat(look.language, "desktop.editorPrefs.rainbowPaletteColor", map[string]string{"palette": palette, "number": "1"})
+					d.click(swatch)
+					if err = session.Advance(300 * time.Millisecond); err != nil {
+						t.Fatal(err)
+					}
+					if err = session.Screenshot(filepath.Join(out, "editor-settings-rainbow-picker-"+look.theme+".png")); err != nil {
+						t.Fatal(err)
+					}
 				}
 			})
 		}

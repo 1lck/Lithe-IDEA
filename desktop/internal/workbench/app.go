@@ -1573,8 +1573,11 @@ func (a *App) saveSettings() {
 	// The background is the window's, which another tab may have changed since this one loaded.
 	a.settings.WorkbenchBackground = a.savedBackgroundState()
 	a.updates.store(&a.settings)
-	geo, appliedGeo := a.sessions.applyWindowGeometry(&a.settings)
-	backup, err := a.store.SaveWithBackup(settingsFile, a.settings)
+	backup, err := a.saveSettingsSnapshot()
+	a.reportSettingsSave(backup, err)
+}
+
+func (a *App) reportSettingsSave(backup string, err error) {
 	if backup != "" {
 		a.noticeSettingsBackup(backup)
 	}
@@ -1582,9 +1585,6 @@ func (a *App) saveSettings() {
 		a.operationFailed("settings_save", documentLogError(err))
 		a.notifyError(a.text.Errors.SaveFailed(err.Error()))
 		return
-	}
-	if appliedGeo {
-		a.sessions.noteSavedWindowGeometry(geo)
 	}
 }
 

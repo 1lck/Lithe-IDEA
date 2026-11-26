@@ -56,6 +56,12 @@ func TestEditorSemanticHighlightSwitchAppliesAndRestores(t *testing.T) {
 	d := openWindow(t, w)
 	settings := w.text.Settings
 
+	if !d.has(settings.SemanticHighlight) {
+		if err := d.driver.Scroll(gfx.ScrollEvent{X: 700, Y: 400, DeltaY: 180, Precise: true}); err != nil {
+			t.Fatal(err)
+		}
+		d.pump()
+	}
 	if hit := d.hit(settings.SemanticHighlight); hit.Role != gfx.RoleSwitch || !hit.Checked {
 		t.Fatalf("semantic highlighting starts on: %+v", hit)
 	}

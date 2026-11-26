@@ -39,6 +39,55 @@ type PreparedColorDecorations struct {
 	palette []colorPair
 }
 
+// RainbowColor identifies an ordered UTF-8 byte range and its selector in the theme palette.
+type RainbowColor struct {
+	Start uint32
+	End   uint32
+	Color uint32
+}
+
+// WithRainbowColors combines the built-in colors with sorted provider colors on the worker.
+// Provider ranges retain precedence wherever they cover the same byte.
+func (p PreparedColorDecorations) WithRainbowColors(colors []RainbowColor, light, dark []string) PreparedColorDecorations {
+	if len(colors) == 0 || len(light) == 0 || len(dark) == 0 || p.text.Len() > math.MaxUint32 {
+		return p
+	}
+	palette := make([]colorPair, 0, len(p.palette)+len(light)*len(dark))
+	palette = append(palette, p.palette...)
+	base := uint32(len(palette))
+	for _, lightColor := range light {
+		l, lightOK := syntax.ParseColor(lightColor)
+		for _, darkColor := range dark {
+			d, darkOK := syntax.ParseColor(darkColor)
+			if !lightOK || !darkOK {
+				return p
+			}
+			palette = append(palette, colorPair{light: uiColor(l), dark: uiColor(d)})
+		}
+	}
+	spans := make([]colorDecorationSpan, 0, len(p.spans)+len(colors))
+	nLight, nDark := uint32(len(light)), uint32(len(dark))
+	provider := 0
+	for _, builtin := range colors {
+		if builtin.End <= builtin.Start || int64(builtin.End) > int64(p.text.Len()) ||
+			(len(spans) > 0 && spans[len(spans)-1].end > builtin.Start) {
+			continue
+		}
+		for provider < len(p.spans) && p.spans[provider].end <= builtin.Start {
+			spans = append(spans, p.spans[provider])
+			provider++
+		}
+		if provider < len(p.spans) && p.spans[provider].start < builtin.End {
+			continue
+		}
+		color := base + (builtin.Color%nLight)*nDark + builtin.Color%nDark
+		spans = append(spans, colorDecorationSpan{start: builtin.Start, end: builtin.End, color: color})
+	}
+	p.spans = append(spans, p.spans[provider:]...)
+	p.palette = palette
+	return p
+}
+
 // PrepareColorDecorations converts UTF-16 ranges to byte offsets and parses each distinct pair of
 // colors once, away from the window thread. Core sorts the ranges and makes them disjoint; ranges
 // that break that order, malformed colors and stale coordinates are ignored defensively, so the
@@ -152,7 +201,7 @@ func (v *View) clearColors() {
 // text: a span before the edit stays, a span after it moves by the edit's length, and a span the
 // edit cuts or replaces goes, because what it colored changed. Typing in front of a bracket thus
 // carries the bracket's color along instead of showing every bracket uncolored until the answer.
-// It costs the spans after the edit, which Core bounds at 10,000.
+// It costs the spans after the edit. Each input color source is bounded before preparation.
 func (v *View) shiftColors(start, oldEnd, newEnd int) {
 	colors := v.decor.colors
 	if len(colors) == 0 {
