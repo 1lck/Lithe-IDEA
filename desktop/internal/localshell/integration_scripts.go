@@ -252,8 +252,8 @@ const closeFunction = `__motty_close() {
         builtin kill -HUP -- "-$_motty_job" 2>/dev/null
         builtin kill -CONT -- "-$_motty_job" 2>/dev/null
     done
-    READLINE_LINE=exit 0
-    READLINE_POINT=6
+    READLINE_LINE='builtin exit 0'
+    READLINE_POINT=${#READLINE_LINE}
 }
 for _motty_keymap in emacs vi-insert vi-command; do
     bind -m "$_motty_keymap" -x '"\e[9020~":__motty_close' 2>/dev/null || :
