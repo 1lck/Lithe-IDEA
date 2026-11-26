@@ -87,7 +87,7 @@ func TestBracketPairHighlightsEitherEndWithRainbowOff(t *testing.T) {
 	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	options := DesktopOptions(core.NewClient(), store.At(t.TempDir()), "test")
+	options := DesktopOptions(core.NewClient(), lightThemeStore(t), "test")
 	options.OpenFile = path
 	h := newHarnessWithOptions(t, options)
 	h.app.openStandaloneFile(path)
@@ -212,7 +212,7 @@ func TestBuiltInRainbowVariablesShareColorByNameWithoutPluginServices(t *testing
 	}
 	enabled := true
 	prefs := store.At(t.TempDir())
-	if err := prefs.Save(settingsFile, settings{EditorPreferences: core.EditorStoredPreferences{
+	if err := prefs.Save(settingsFile, settings{Theme: themeLight, EditorPreferences: core.EditorStoredPreferences{
 		RainbowVariables:   &enabled,
 		RainbowLightColors: []string{"#ABCDEF", "#654321", "#4729AD", "#DD7831", "#2879BD", "#D23878"},
 	}}); err != nil {
@@ -265,7 +265,7 @@ func TestBuiltInRainbowBracketsWithoutPluginServices(t *testing.T) {
 	}
 	enabled := true
 	prefs := store.At(t.TempDir())
-	if err := prefs.Save(settingsFile, settings{EditorPreferences: core.EditorStoredPreferences{
+	if err := prefs.Save(settingsFile, settings{Theme: themeLight, EditorPreferences: core.EditorStoredPreferences{
 		RainbowBrackets:    &enabled,
 		RainbowLightColors: []string{"#ABCDEF", "#123456"},
 	}}); err != nil {
@@ -524,7 +524,7 @@ func TestRainbowDegradationLogsOnlyWhenReasonsChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := &faultLog{}
-	options := DesktopOptions(core.NewClient(), store.At(t.TempDir()), "test")
+	options := DesktopOptions(core.NewClient(), lightThemeStore(t), "test")
 	options.Logs = log
 	h := newHarnessWithOptions(t, options)
 	h.app.openStandaloneFile(path)
@@ -587,4 +587,15 @@ func TestRainbowDegradationTracksReasonSet(t *testing.T) {
 			t.Fatalf("reasons %v: got %d logs, want %d", step.reasons, len(log.events), step.want)
 		}
 	}
+}
+
+// lightThemeStore is an empty settings store with an explicit theme, which keeps New from
+// asking the system for its appearance; that blocks when no application is running.
+func lightThemeStore(t *testing.T) *store.Store {
+	t.Helper()
+	prefs := store.At(t.TempDir())
+	if err := prefs.Save(settingsFile, settings{Theme: themeLight}); err != nil {
+		t.Fatal(err)
+	}
+	return prefs
 }

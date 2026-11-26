@@ -22,7 +22,7 @@ func rainbowPreviewFixture(t *testing.T) (*harness, *document, *sourcePreview) {
 	}
 	on := true
 	prefs := store.At(t.TempDir())
-	if err := prefs.Save(settingsFile, settings{EditorPreferences: core.EditorStoredPreferences{
+	if err := prefs.Save(settingsFile, settings{Theme: themeLight, EditorPreferences: core.EditorStoredPreferences{
 		RainbowBrackets: &on, RainbowVariables: &on, IndentGuides: &on, RainbowIndentGuides: &on,
 		RainbowLightColors: []string{"#ABCDEF", "#654321", "#4729AD", "#DD7831", "#2879BD", "#D23878"},
 		RainbowDarkColors:  []string{"#DCBAFE", "#123456", "#DA9274", "#1387DD"},
