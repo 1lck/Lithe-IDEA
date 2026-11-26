@@ -23,7 +23,7 @@ const remoteListFooterHeight = 30
 // like Close.
 func (a *App) remoteView(c ui.C) {
 	r := &a.remote
-	if !r.open {
+	if !r.open || r.hostsOnly {
 		return
 	}
 	language := a.language()

@@ -112,7 +112,7 @@ func (a *App) loadRemoteContainers() {
 	load := r.containers.loads
 	r.containers.discovering = true
 	generation, kernel := r.generation, a.kernel
-	r.containers.cancel = a.background(nil, remoteContainerTimeout, func(ctx context.Context) func(*App) {
+	cancel := a.background(nil, remoteContainerTimeout, func(ctx context.Context) func(*App) {
 		var listed []remoteListedContainer
 		var failures []error
 		runtimes, discoveryErr := kernel.RemoteContainerRuntimes(ctx)
@@ -197,6 +197,10 @@ func (a *App) loadRemoteContainers() {
 			r.syncListSelection()
 		}
 	})
+	r.containers.cancel = cancel
+	if r.hostsOnly {
+		r.hostReads = append(r.hostReads, cancel)
+	}
 }
 
 // containerRows are the list's rows of the containers: their heading, and the containers unless

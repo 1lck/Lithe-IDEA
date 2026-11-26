@@ -25,14 +25,14 @@ import (
 // sibling too, which Core maps to the host for the creation. Nothing of a worktree's path or of the
 // host is logged.
 
-// remoteReopen is a host folder the connection window connects to and opens once it has read its
-// saved list: a worktree of a remote workspace, over the connection the workspace was opened over.
+// remoteReopen is a host the connection window connects to once it has read its saved list:
+// a worktree to open, or a host chosen in the title bar whose folder is chosen in the window.
 type remoteReopen struct {
 	// connectionID names the workspace, including the container when there is one.
 	connectionID string
 	host         remoteHost
 	name         string
-	// folder is the host folder, an absolute POSIX path.
+	// folder is the host folder, an absolute POSIX path, or empty to choose a folder.
 	folder string
 }
 
@@ -87,9 +87,16 @@ func (a *App) connectRemoteReopen(reopen *remoteReopen) {
 		r.selectEntry(reopen.connectionID)
 	default:
 		r.selectFirst()
-		a.operationRejected("git_worktree_open", "connection_removed")
-		if r.readErr == "" {
-			r.err = i18n.Shared(a.language(), "desktop.remote.worktree.connectionRemoved")
+		if reopen.folder == "" {
+			a.operationRejected("remote_connect", "connection_removed")
+			if r.readErr == "" {
+				r.err = i18n.Shared(a.language(), "desktop.remote.hostSwitcher.connectionRemoved")
+			}
+		} else {
+			a.operationRejected("git_worktree_open", "connection_removed")
+			if r.readErr == "" {
+				r.err = i18n.Shared(a.language(), "desktop.remote.worktree.connectionRemoved")
+			}
 		}
 		return
 	}

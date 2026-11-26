@@ -148,6 +148,10 @@ var paintCases = []paintCase{
 		// The visible columns are in the middle of the line, where neither end of it helps.
 		v.scrollX = v.maxScrollX() / 2
 	}},
+	{name: "longline-wrap", kind: editorperf.JSON, highlight: true, layout: func(v *View) { v.SetWrap(true) }, arrange: func(v *View) {
+		// Repainting near the end must not walk the wrapped rows above the viewport.
+		v.moveTo(v.text.Len(), false)
+	}},
 	{name: "cjk", kind: editorperf.Markdown, highlight: true},
 	{name: "mixed", kind: editorperf.Mixed},
 	{name: "selection", kind: editorperf.Go, highlight: true, arrange: func(v *View) {
