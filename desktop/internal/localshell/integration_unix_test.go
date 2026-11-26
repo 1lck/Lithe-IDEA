@@ -330,11 +330,19 @@ func TestClosingBashLeavesDisownedJobsRunning(t *testing.T) {
 	for _, command := range []string{"disown", "disown -h"} {
 		t.Run(command, func(t *testing.T) {
 			s := startHangupShell(t, "bash", nil)
-			s.run("sleep 300 & "+command+" && echo job=$!\r", 1, "\r\njob=")
+			s.run("sleep 300 & echo job=$!\r", 1, "\r\njob=")
 			job := jobOf(t, s)
+			s.run(command+"\r", 1, "")
+			if s.lastExit() != 0 {
+				t.Fatalf("%s failed: %q", command, s.output)
+			}
 			closeAndAwaitEnd(t, s.shell)
-			if err := syscall.Kill(job, 0); err != nil {
-				t.Fatalf("disowned job %d did not survive closing Bash: %v", job, err)
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			out, err := exec.CommandContext(ctx, "ps", "-p", strconv.Itoa(job), "-o", "stat=").Output()
+			state := strings.TrimSpace(string(out))
+			if err != nil || state == "" || state[0] == 'Z' || state[0] == 'X' {
+				t.Fatalf("disowned job %d did not survive closing Bash: state %q, err %v", job, state, err)
 			}
 		})
 	}
