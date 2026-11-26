@@ -202,6 +202,14 @@ test('an amd64 macOS package on an arm64 host embeds the amd64 helper', async ()
   });
 });
 
+test('skipping the file associations check avoids a second host-arch release Core build when cross-packaging', async () => {
+  await withFixture({ goos: 'darwin', goarch: 'arm64', rustHost: 'aarch64-apple-darwin' }, async ({ root, run, coreBuilds }) => {
+    await run('bash', ['scripts/desktop/package-desktop.sh', '--arch', 'amd64', '--no-sign', '--skip-file-associations-check']);
+    assert.deepEqual(new Set(await coreBuilds()), new Set(['x86_64-apple-darwin --release']));
+    assert.equal(await readFile(path.join(root, 'embedded-helper.txt'), 'utf8'), 'lithe-mcp for x86_64-apple-darwin\n');
+  });
+});
+
 test('Linux packaging retains cgo and embeds its native core helper', { timeout: 90000 }, async () => {
   await withFixture({ goos: 'linux', goarch: 'arm64', rustHost: 'aarch64-unknown-linux-gnu' }, async ({ root, run, coreBuilds }) => {
     await run('bash', ['scripts/desktop/package-desktop.sh', '--no-sign']);
