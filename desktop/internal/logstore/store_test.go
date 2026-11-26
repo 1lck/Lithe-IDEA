@@ -698,6 +698,32 @@ func TestStartupRetentionRemovesExpiredSessionsOnly(t *testing.T) {
 	}
 }
 
+func TestPartialStartupInventoryDoesNotRepeatPluginCleanup(t *testing.T) {
+	root := t.TempDir()
+	makeUnreadableDir(t, filepath.Join(root, "application"))
+	s, clock, _ := openStore(t, func(o *Options) { o.Dir = root })
+	flush(t, s)
+
+	// Another process starts a session after this store's initial maintenance.
+	dir := filepath.Join(root, "sessions", "2026-11-08T09-30-01_cafebabe", "plugins", "example", "files")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	active := filepath.Join(dir, "output.log")
+	if err := os.WriteFile(active, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(active, 21<<20); err != nil {
+		t.Fatal(err)
+	}
+	clock.Advance(maintenanceInterval)
+	action(s, "after_startup")
+	flush(t, s)
+	if _, err := os.Stat(active); err != nil {
+		t.Fatalf("runtime maintenance removed another session's plugin file: %v", err)
+	}
+}
+
 func TestClearLogsRemovesFilesAndWritingContinues(t *testing.T) {
 	s, _, dir := openStore(t, nil)
 	action(s, "before_clear")

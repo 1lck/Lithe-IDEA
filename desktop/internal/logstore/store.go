@@ -1649,8 +1649,7 @@ func (scan *fileScan) categoryFiles(root, category string) {
 }
 
 // maintain asks the kernel which files to delete to stay within the retention budget and
-// deletes them. A failed run is retried at the next interval, and the startup cleanup flag
-// stays set until one run succeeds.
+// deletes them. Later intervals retry incomplete scans using normal runtime retention.
 func (s *Store) maintain(ctx context.Context, at time.Time) {
 	if err := s.runRetention(ctx, s.directory, at); err != nil {
 		s.fail()
@@ -1697,6 +1696,9 @@ func (s *Store) runRetention(ctx context.Context, root string, at time.Time) err
 	if err != nil {
 		return err
 	}
+	// Core has planned the startup cleanup for the visible sessions. A later scan may
+	// discover sessions from newly started processes, whose plugin files must stay live.
+	s.startupDone = true
 	currentPrefix := "sessions/" + current
 	for _, deletion := range plan.Deletions {
 		if err := ctx.Err(); err != nil {
@@ -1721,9 +1723,6 @@ func (s *Store) runRetention(ctx context.Context, root string, at time.Time) err
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			s.fail()
 		}
-	}
-	if scan.firstErr == nil {
-		s.startupDone = true
 	}
 	return scan.firstErr
 }
