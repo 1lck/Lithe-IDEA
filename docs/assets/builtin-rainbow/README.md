@@ -1,11 +1,11 @@
 # 内置彩虹配色与上下文高亮验证
 
-本目录截图更新至评审修复提交 `293d01fd4`（独立设置区块提交 `25e6ee51f`）。使用隔离合成源码与诊断，不依赖具体插件；已检查实际 PNG。
+工作台截图来自评审修复提交 `293d01fd4`；设置截图已在本次彩虹参考线分组调整后重新生成。使用隔离合成源码与诊断，不依赖具体插件；已检查实际 PNG。
 
 - 平台：物理 Windows amd64，本机 Intel Core Ultra 5 125H；Go 1.27.4、GNU Rust 1.100.0、MinGW x64。不是 Parallels 来宾或 ARM64 仿真验证。
 - 本地依赖：Core 功能提交 `6eccef4467d4b79f17b55fcd43f8d03e69d57ba1`（后续 CI 单测修复 `4f4cc06c` 不改生产行为）、Viva `d8c0a63`；Core #201 和 Viva #60 仍待合入。验证用覆盖只在忽略配置中，不证明默认固定版本可构建。
 - 工作台：`TestVisualEditorContextHighlights`（1000 × 640 逻辑像素，浅色英文、深色中文）和 `TestVisualProblemsSourcePreviewRainbow`（1440 × 1000，两主题、英文）。
-- 设置：`TestVisualEditorEssentialsSettings/editor-settings-*`（浅色英文、深色中文）。彩虹括号、变量和两套色板单独成区块；基础显示、参考线仍在原区块。包含关闭/启用、两主题色板和选色器。
+- 设置：`TestVisualEditorEssentialsSettings/editor-settings-*`（浅色英文、深色中文）。彩虹括号、变量、彩虹参考线和两套色板放在同一区块；普通缩进参考线保留在编辑器显示区块。包含关闭/启用、两主题色板和选色器。
 - 入口：`scripts/desktop/desktop-go.sh test -tags vivahead,lithevisual ./internal/workbench ./internal/settingswindow`，用 `-run` 选择上述场景，设置 `LITHE_VISUAL_OUTPUT_DIR`。
 
 `context-before-*` 与 `context-symbol-*` 是同一选区的前后对照，`context-brackets-*` 展示配对端。`editor-settings-rainbow-*` 展示独立设置区块，`problems-source-preview-rainbow-*` 展示主编辑器与完整源码预览共享配色、配对和参考线。
@@ -33,3 +33,5 @@
 候选前后比较在编译结束后相邻运行，表中为 6 样本中位数。改动后候选场景每次迭代分配最多约 1.36 MiB，低于新增 3 MiB 预算；没有修改既有预算。Core 结果复用另有测试：关闭前景色仍保留配对/参考线，候选相同时返回同一结果，开关变化时重新调用 Core。
 
 完整报告：之前的 Rope LineOf 规模比 2.85（上限 2）和 longline-wrap 输入 2.53（上限 2）已超限；本轮分别为 2.55 和 2.58。新增 minimap 绘制 1.73（上限 1.5）。视图后段出现其他项目编译，原始报告带有负载干扰；已检查这些路径：本轮没有修改 Rope 查找、小地图绘制、长行输入或绘制循环，绘制和滚动仍为 0 B/op、0 allocs/op。不能据此将原始时间比直接归因为代码回归，后续固定 CPU 的复核单列。当前 CPU 不同于 Apple M4，绝对耗时上限不判定。
+
+本次分组调整：先确认中英文分区回归在移动前失败，移动后 8 项计时结果通过；保留普通参考线关闭时禁用彩虹开关、保存选择、重新开启后恢复和色板显隐。明暗主题设置场景已重拍并检查，不涉及编辑器绘制或 Core 行为变更。

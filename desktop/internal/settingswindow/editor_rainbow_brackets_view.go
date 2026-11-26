@@ -96,6 +96,13 @@ func (w *window) rainbowControls(c ui.C, current core.EditorPreferences) {
 			w.infoButton(c.Part("variables-info"), i18n.Shared(lang, "desktop.editorPrefs.rainbowVariablesHelp"))
 		})
 	})
+	ui.Row(c.Part("rainbow-indent-guides-row")).Items(ui.Center).Gap(6).Children(func() {
+		if ui.Switch(c.Part("rainbow-indent-guides"), &current.RainbowIndentGuides, i18n.Shared(lang, "desktop.editorPrefs.rainbowIndentGuides")).
+			Disabled(!current.IndentGuides).Changed() {
+			w.setEditorPresentation(current)
+		}
+		w.infoButton(c.Part("rainbow-indent-guides-info"), i18n.Shared(lang, "desktop.editorPrefs.rainbowIndentGuidesHelp"))
+	})
 	if !current.RainbowBrackets && !current.RainbowVariables && !current.RainbowIndentGuidesEffective {
 		return
 	}

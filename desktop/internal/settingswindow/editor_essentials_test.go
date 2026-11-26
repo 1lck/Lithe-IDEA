@@ -245,7 +245,7 @@ func TestEditorIndentGuidesPreserveRainbowPreference(t *testing.T) {
 	light := i18n.Shared(i18n.English, "desktop.editorPrefs.rainbowLightColors")
 	swatch := i18n.SharedFormat(i18n.English, "desktop.editorPrefs.rainbowPaletteColor", map[string]string{"palette": light, "number": "1"})
 	parent, child := d.hit(guides), d.hit(rainbow)
-	if !parent.Checked || child.Checked || child.Disabled || child.Bounds.X <= parent.Bounds.X || d.has(swatch) {
+	if !parent.Checked || child.Checked || child.Disabled || d.has(swatch) {
 		t.Fatalf("unexpected default guide controls: parent=%+v, child=%+v", parent, child)
 	}
 	d.click(rainbow)

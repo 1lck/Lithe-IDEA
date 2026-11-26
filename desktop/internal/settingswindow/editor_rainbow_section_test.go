@@ -32,9 +32,10 @@ func TestEditorRainbowSettingsHaveTheirOwnSection(t *testing.T) {
 				t.Fatal("rainbow settings have no separate section heading")
 			}
 			display := d.hit(i18n.Shared(language, "desktop.editorPrefs.cursorBlink"))
+			indent := d.hit(i18n.Shared(language, "desktop.editorPrefs.indentGuides"))
 			guides := d.hit(i18n.Shared(language, "desktop.editorPrefs.rainbowIndentGuides"))
 			variables := d.hit(i18n.Shared(language, "desktop.editorPrefs.rainbowVariables"))
-			if display.Bounds.Y+display.Bounds.Height >= heading.Y || guides.Bounds.Y+guides.Bounds.Height >= heading.Y || variables.Bounds.Y < heading.Y {
+			if display.Bounds.Y+display.Bounds.Height >= heading.Y || indent.Bounds.Y+indent.Bounds.Height >= heading.Y || guides.Bounds.Y < heading.Y || variables.Bounds.Y < heading.Y {
 				t.Fatal("display controls and rainbow controls are not in separate sections")
 			}
 			for _, key := range []string{"desktop.editorPrefs.rainbowLightColors", "desktop.editorPrefs.rainbowDarkColors"} {
