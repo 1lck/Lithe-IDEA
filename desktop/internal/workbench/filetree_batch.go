@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"context"
 	"os"
 	"path"
 	"path/filepath"
@@ -138,7 +139,8 @@ func (a *App) openTreeRemoval(p *project, paths []string) {
 
 // removeTreeItems moves the project-relative paths to the system trash or, when permanent,
 // deletes them from disk. The open files at or below them are saved and their tabs closed first,
-// so neither loses an edit.
+// so neither loses an edit. Removal then runs in the background: trash commands and large
+// permanent deletions must not block the window thread.
 func (a *App) removeTreeItems(p *project, paths []string, permanent bool) {
 	if p.remote != nil {
 		a.remoteRemoveTreeItems(p, paths, permanent)
@@ -155,15 +157,22 @@ func (a *App) removeTreeItems(p *project, paths []string, permanent bool) {
 	}
 	a.saveDocumentsThen(p, docs, func() {
 		a.closeOpenDocuments(p, docs)
-		failed := 0
-		var reason error
-		for _, f := range full {
-			if err := remove(f); err != nil {
-				failed++
-				reason = err
+		// The confirmed batch is consumed before the write starts. Ending it here, rather
+		// than when the write returns, cannot erase a selection the user makes while it runs.
+		a.reduceTreeSelection(p, core.ClearRows())
+		a.background(p, 0, func(context.Context) func(*App) {
+			failed := 0
+			var reason error
+			for _, f := range full {
+				if err := remove(f); err != nil {
+					failed++
+					reason = err
+				}
 			}
-		}
-		a.finishRemoval(p, parents, performed, failed, reason, failure)
+			return func(a *App) {
+				a.finishRemoval(p, parents, performed, failed, reason, failure)
+			}
+		})
 	})
 }
 
@@ -189,11 +198,9 @@ func treeParents(paths []string) []string {
 	return out
 }
 
-// finishRemoval clears the marks, which may name removed rows, lists the directories again and
-// reads the status. A failure is reported once, with the last reason, since the rest of a batch
-// still ran; failure words it.
+// finishRemoval lists the directories again and reads the status. A failure is reported once,
+// with the last reason, since the rest of a batch still ran; failure words it.
 func (a *App) finishRemoval(p *project, parents []string, performed string, failed int, reason error, failure func(i18n.Language, string) string) {
-	p.tree.marked, p.tree.anchor, p.tree.targets = nil, "", nil
 	a.performed(performed, surfaceButton)
 	if failed > 0 && reason != nil {
 		a.operationFailed("project_tree_remove", documentLogError(reason))

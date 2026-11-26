@@ -59,6 +59,102 @@ func TestProjectTreeDeleteMovesToTheTrashByDefault(t *testing.T) {
 	}
 }
 
+// A slow trash operation must not keep the delete click on the window thread, where it freezes
+// input and paint. The gated trash double controls the order: the operation starts, the click
+// returns while it is still blocked, then the test releases it and checks the final state.
+func TestProjectTreeRemovalReturnsBeforeSlowTrashFinishes(t *testing.T) {
+	root := t.TempDir()
+	writeTreeFiles(t, root, "slow.txt", "keep.txt")
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	p := h.openTree(t, root)
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var startOnce, releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	previous := treeMoveToTrash
+	treeMoveToTrash = func(full string) error {
+		startOnce.Do(func() { close(started) })
+		<-release
+		return os.RemoveAll(full)
+	}
+	t.Cleanup(func() { treeMoveToTrash = previous })
+
+	h.app.openTreeRemoval(p, []string{"slow.txt"})
+	h.app.invalidator.Invalidate()
+	h.settle()
+	moveToTrash := h.shared("desktop.files.moveToTrash")
+	h.await("the Delete dialog", func() bool {
+		_, ok := h.findPageHit(moveToTrash)
+		return ok
+	})
+	point := center(h.pageHit(moveToTrash).Bounds)
+	result := make(chan error, 1)
+	resultRead := false
+	go func() {
+		if err := h.driver.Click(point.X, point.Y); err != nil {
+			result <- err
+			return
+		}
+		result <- h.driver.Pump()
+	}()
+	defer func() {
+		unblock()
+		if resultRead {
+			return
+		}
+		select {
+		case err := <-result:
+			if err != nil {
+				t.Errorf("the delete click: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Error("the delete click did not finish during cleanup")
+		}
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		unblock()
+		t.Fatal("the trash operation did not start")
+	}
+	select {
+	case err := <-result:
+		resultRead = true
+		if err != nil {
+			t.Fatalf("the delete click: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the delete click waited for the blocked trash operation")
+	}
+	if p.tree.removal.open {
+		t.Fatal("the Delete dialog stayed open")
+	}
+
+	key := gfx.KeyControlLeft
+	if primaryModifier() == gfx.ModifierMeta {
+		key = gfx.KeyMetaLeft
+	}
+	if err := h.driver.KeyDown(key, ""); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = h.driver.KeyUp(key, "") }()
+	h.sendClick(center(h.treeRowHit("keep.txt").Bounds))
+	if !p.tree.marked["keep.txt"] {
+		t.Fatal("the workbench did not accept a new marked row while removal was blocked")
+	}
+	unblock()
+	h.settleChain()
+	if !p.tree.marked["keep.txt"] {
+		t.Fatal("finishing the removal erased a selection made while it was running")
+	}
+	if _, err := os.Stat(filepath.Join(root, "slow.txt")); !os.IsNotExist(err) {
+		t.Fatalf("slow.txt still exists after removal: %v", err)
+	}
+	h.await("the removed row", func() bool { return p.tree.find("slow.txt") == nil })
+}
+
 // Copy Path and Copy Relative Path sit in one submenu of the tree row, as in the tab menu.
 func TestProjectTreeCopyPathSubmenu(t *testing.T) {
 	root := t.TempDir()

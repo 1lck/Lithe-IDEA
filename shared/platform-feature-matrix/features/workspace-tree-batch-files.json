@@ -12,6 +12,7 @@
       "desktop/internal/workbench/filetree_batch.go",
       "desktop/internal/workbench/filetree_view.go",
       "desktop/internal/workbench/filetree_test.go",
+      "desktop/internal/workbench/filetree_menu_test.go",
       "desktop/internal/workbench/filetree_actions_test.go",
       "desktop/internal/workbench/filetree_focus_visual_test.go",
       "desktop/internal/workbench/branch_delete_visual_test.go"
@@ -29,13 +30,14 @@
       "desktop/internal/workbench/filetree_trash_windows_test.go",
       "desktop/internal/workbench/filetree_view.go",
       "desktop/internal/workbench/filetree_test.go",
+      "desktop/internal/workbench/filetree_menu_test.go",
       "desktop/internal/workbench/filetree_actions_test.go",
       "desktop/internal/workbench/filetree_focus_visual_test.go",
       "desktop/internal/workbench/branch_delete_visual_test.go"
     ]
   },
   "owner": "Workspace",
-  "verification": "macOS：单击目录名称只选中本行，箭头展开/折叠，子项不继承高亮；⌘ 点击增减独立选择，Shift 正反向选择，Control 点击右键、右键未选中子项只作用于该行；⌘A 仍选择焦点项同级。拖动已选项携带整组，拖动未选项只携带该项，目录整体移动，父子去重；同窗口项目目录接收拖放，项目根不能移动，同目录无操作，同名整批拒绝，目录移入自身/后代和符号链接越界拒绝；中途失败报告已完成数量、保留剩余源项，切换工作区停止后续项。确认未保存文件保护、成功移动后打开文档路径/历史/目录标记更新；外部拖放仍提供文件 URL。大目录分别测量选择、展开和滚动，懒加载行应能滚动到末尾，折叠与定位保持正确。保留复制/粘贴/副本/废纸篓、快捷键焦点和双击可执行文件回归。Windows 尚无该多选入口；macOS 实机事件、性能及 Swift 测试需在目标平台验证。 Windows：TestTrashCommandStartsWithoutAConsoleAndKeepsItsDialogsVisible 检查回收站命令以 CREATE_NO_WINDOW 启动且不设 HideWindow；实机移到回收站不再闪出终端窗口，删除被其他程序占用的文件时系统错误框仍然可见（#2068）。 Viva 两端用平台主修饰键增减多选（macOS Command，Windows Control）：先普通点击 A，再修饰键点击 B，A/B 都保留选中底色；再次点击 A 只取消 A，普通点击 C 恢复单选，Shift 范围与键盘方向导航保持正确。Core fixture 和 macOS 真实鼠标无头测试覆盖，明暗主题截图可检查；项目树焦点清空且新行尚未绘制时保留当前选中项。打开项目中的文件，在外部删除后定位当前文件，祖先目录展开并保留原选中项。无头测试覆盖这两个场景。Windows 原生交互仍待验。",
+  "verification": "macOS：单击目录名称只选中本行，箭头展开/折叠，子项不继承高亮；⌘ 点击增减独立选择，Shift 正反向选择，Control 点击右键、右键未选中子项只作用于该行；⌘A 仍选择焦点项同级。拖动已选项携带整组，拖动未选项只携带该项，目录整体移动，父子去重；同窗口项目目录接收拖放，项目根不能移动，同目录无操作，同名整批拒绝，目录移入自身/后代和符号链接越界拒绝；中途失败报告已完成数量、保留剩余源项，切换工作区停止后续项。确认未保存文件保护、成功移动后打开文档路径/历史/目录标记更新；外部拖放仍提供文件 URL。大目录分别测量选择、展开和滚动，懒加载行应能滚动到末尾，折叠与定位保持正确。保留复制/粘贴/副本/废纸篓、删除后台执行、快捷键焦点和双击可执行文件回归。Windows 尚无该多选入口；macOS 实机事件、性能及 Swift 测试需在目标平台验证。 Windows：TestTrashCommandStartsWithoutAConsoleAndKeepsItsDialogsVisible 检查回收站命令以 CREATE_NO_WINDOW 启动且不设 HideWindow；实机移到回收站不再闪出终端窗口，删除被其他程序占用的文件时系统错误框仍然可见（#2068）。 Viva 两端用平台主修饰键增减多选（macOS Command，Windows Control）：先普通点击 A，再修饰键点击 B，A/B 都保留选中底色；再次点击 A 只取消 A，普通点击 C 恢复单选，Shift 范围与键盘方向导航保持正确。Core fixture 和 macOS 真实鼠标无头测试覆盖，明暗主题截图可检查；项目树焦点清空且新行尚未绘制时保留当前选中项。打开项目中的文件，在外部删除后定位当前文件，祖先目录展开并保留原选中项。无头测试覆盖这两个场景。Windows 原生交互仍待验。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
@@ -61,5 +63,5 @@
       ]
     }
   },
-  "notes": "Viva：项目树支持 Ctrl/Cmd 点击增减与 Shift 范围多选，选择由 Core 计算（filetree_batch.go、filetree_rows.go）；多选右键可“删除 {count} 项…”和把其中的变更移到变更列表。“删除…”对单项和多选共用一个对话框，默认按钮“移到废纸篓”，旁边是“永久删除”，Git 提交窗口的变更右键也打开同一对话框。拖动只移动被拖的那一项，批量拖动、批量复制和批量重复尚未实现。 Windows 移到回收站经 PowerShell 调用 Microsoft.VisualBasic 的 FileSystem，以 CREATE_NO_WINDOW 启动、不弹控制台；只去掉控制台，不隐藏它弹出的错误框（#2068）。"
+  "notes": "Viva：项目树支持 Ctrl/Cmd 点击增减与 Shift 范围多选，选择由 Core 计算（filetree_batch.go、filetree_rows.go）；多选右键可“删除 {count} 项…”和把其中的变更移到变更列表。“删除…”对单项和多选共用一个对话框，默认按钮“移到废纸篓”，旁边是“永久删除”，Git 提交窗口的变更右键也打开同一对话框；确认后保存并关闭受影响文档，实际删除在后台执行，完成后刷新项目树并报告失败。拖动只移动被拖的那一项，批量拖动、批量复制和批量重复尚未实现。 Windows 移到回收站经 PowerShell 调用 Microsoft.VisualBasic 的 FileSystem，以 CREATE_NO_WINDOW 启动、不弹控制台；只去掉控制台，不隐藏它弹出的错误框（#2068）。"
 }
