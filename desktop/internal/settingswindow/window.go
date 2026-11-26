@@ -327,7 +327,12 @@ func newWindow(c *Controller, current Values) *window {
 
 // config is the native window's configuration: the Page paints it and routes its input.
 func (w *window) config() app.Config {
-	w.page = ui.NewPage(ui.PageConfig{View: w.view, Theme: &w.theme, Background: &w.background, Invalidator: &w.inv, BarStyle: uistyle.Bars})
+	w.page = ui.NewPage(ui.PageConfig{
+		View: w.view, Theme: &w.theme, Background: &w.background, Invalidator: &w.inv, BarStyle: uistyle.Bars,
+		// Paths, values and sidebar entries cut short with an ellipsis show their whole value
+		// when the pointer rests on them.
+		EllipsisTooltips: true,
+	})
 	config := ui.Configure(w.page, app.Config{
 		Title:          w.ctrl.text().Settings.Title,
 		Icon:           appicon.Window(),

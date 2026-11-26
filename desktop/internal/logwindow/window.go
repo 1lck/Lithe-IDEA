@@ -257,6 +257,9 @@ func (w *window) config() app.Config {
 		Background:  &w.background,
 		Invalidator: &w.inv,
 		BarStyle:    uistyle.Bars,
+		// Messages, fields and sidebar entries cut short with an ellipsis show their whole
+		// value when the pointer rests on them.
+		EllipsisTooltips: true,
 	})
 	config := ui.Configure(w.page, app.Config{
 		Title:          w.ctrl.text().Logs.Logs,
@@ -446,11 +449,13 @@ func (w *window) loadError(c ui.C) {
 
 // body is the channel list beside the table, with the details under the table. ⌘C copies
 // the selected records while the keyboard focus is anywhere in it; in the toolbar it is the
-// filter field's.
+// filter field's. A channel name the list cuts short shows in full to its right, over the
+// table.
 func (w *window) body(c ui.C) {
 	body := ui.Row(c).FillWidth().Grow(1).Shrink(1).MinHeight(0)
 	body.Children(func() {
-		ui.Column(c).Width(sidebarWidth).FillHeight().Shrink(0).Background(w.pal.bg2).Clip().PadSides(8, 0, 0, 0).Children(func() {
+		ui.Column(c).Width(sidebarWidth).FillHeight().Shrink(0).Background(w.pal.bg2).Clip().PadSides(8, 0, 0, 0).
+			EllipsisTooltipOn(ui.TooltipRight).Children(func() {
 			w.sidebarPanel(c)
 		})
 		ui.Row(c).Width(1).FillHeight().Shrink(0).Background(w.pal.line)

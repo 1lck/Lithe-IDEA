@@ -103,6 +103,25 @@ func TestVisualGitLogEllipsis(t *testing.T) {
 	}
 }
 
+// TestVisualCommitEllipsisSides captures a path the Commit tool window cuts short with its full
+// text shown, with the window docked on the left, on the right and in the bottom area: each opens
+// it toward the editor.
+func TestVisualCommitEllipsisSides(t *testing.T) {
+	for _, dock := range commitDocks {
+		for _, look := range ellipsisLooks {
+			t.Run(dock.name+"-"+look.theme+"-"+look.language, func(t *testing.T) {
+				h, session, shot := ellipsisVisual(t, gitKernel{core.NewClient()}, look.theme, look.language, "ellipsis-commit-"+dock.name)
+				repo := deepChangeRepository(t, commitDockDir)
+				text := h.openCommitIn(repo, dock.zone, dock.in)
+				if got := hoverForTip(t, h, session, center(text)); got != commitDockDir {
+					t.Fatalf("path tooltip %q, want %q", got, commitDockDir)
+				}
+				shot("path-hover")
+			})
+		}
+	}
+}
+
 // TestVisualTrustEllipsis captures the trust question's "trust the parent folder" checkbox with a
 // location too long for its line, before the pointer rests on it and with the full location shown.
 func TestVisualTrustEllipsis(t *testing.T) {
