@@ -235,6 +235,15 @@ cgo 参数），其余包命中缓存，模块不重新下载。
 新工作树第一次编译前，按 `develop-lithe` Skill 的“检出与编译缓存复用”一节判断能否从已有工作树复制
 `.artifacts/desktop/`（前提和实验结果见上文）；其他目录按本节各段的说明处理，写明不复制的就在本工作树重新生成。
 
+Dev Container 的显式集成验证可以把官方 `@devcontainers/cli` 安装到本检出的
+`.artifacts/desktop/devcontainer-cli/`，通过仅该测试子进程的 `PATH` 使用，不修改全局 npm 安装。
+2026-11-26 的验证固定为 0.91.0，需要 Node.js 20 或更新版本；此目录是开发者拥有的可删除下载缓存，
+不是宿主打包资源，也不是运行时自动安装机制。只有 CLI 版本、Node 支持范围、平台和架构均匹配，且目录完整时
+才可复制到另一个空闲工作树；不同平台或有原生 npm 依赖时重新安装，不共享可写目录。
+真实集成测试的临时工作区、容器、日志和截图属于本次测试，不复制：按唯一工作区标签清理测试容器，
+断开服务并删除临时工作区。用户确认创建的 `.devcontainer/devcontainer.json` 属于用户工作区，随工作区保存，
+不作为编译缓存搬运；创建、探测及 CLI 状态均不得写入 app bundle 或 Windows 安装目录。
+
 Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono 2.304 的 16 个静态 TTF、OFL 和作者信息，
 以及 Nerd Fonts v3.5.1 的 JetBrains Mono Nerd Font Mono 四个完整 TTF（常规、粗体、斜体、粗斜体）及 OFL 许可，
 位于 Git 跟踪的 `desktop/internal/bundledfont/fonts`；来源、版本和每个字型的固定 SHA-256 记录于 `NOTICE.txt`，

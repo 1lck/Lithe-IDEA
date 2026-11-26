@@ -218,6 +218,9 @@ func (a *App) openRemote(surface actionSurface) {
 // folder was being chosen over. What was typed and not saved is dropped.
 func (a *App) closeRemote() {
 	r := &a.remote
+	if r.containers.cancel != nil {
+		r.containers.cancel()
+	}
 	for _, cancel := range r.hostReads {
 		cancel()
 	}

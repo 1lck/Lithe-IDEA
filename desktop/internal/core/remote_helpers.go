@@ -306,6 +306,7 @@ func (t RemoteWorkspaceTrustTarget) Place() string {
 			} `json:"ssh"`
 			Container *struct {
 				Engine    string `json:"engine"`
+				Context   string `json:"context"`
 				Container string `json:"container"`
 			} `json:"container"`
 			WSL *WSLConnection `json:"wsl"`
@@ -329,7 +330,7 @@ func (t RemoteWorkspaceTrustTarget) Place() string {
 			}
 			hops = append(hops, place)
 		case hop.Container != nil:
-			hops = append(hops, hop.Container.Engine+":"+hop.Container.Container)
+			hops = append(hops, (ContainerConnection{Engine: hop.Container.Engine, Context: hop.Container.Context, Container: hop.Container.Container}).Identity())
 		case hop.WSL != nil:
 			hops = append(hops, hop.WSL.Identity())
 		}

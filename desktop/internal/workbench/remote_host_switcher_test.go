@@ -262,3 +262,88 @@ func TestRemoteHostSwitcherPreservesAChoiceDuringLoading(t *testing.T) {
 	h.app.closeRemote()
 	h.settle()
 }
+
+// heldRemoteDiscovery keeps discovery in flight until its owner cancels it. The release
+// channel also lets teardown finish both calls after an assertion failure.
+type heldRemoteDiscovery struct {
+	Kernel
+	started, done       chan struct{}
+	wslStarted, wslDone chan struct{}
+	release             chan struct{}
+	holdWSL             bool
+}
+
+func (k *heldRemoteDiscovery) RemoteContainerRuntimes(ctx context.Context) (core.ContainerRuntimes, error) {
+	close(k.started)
+	defer close(k.done)
+	select {
+	case <-ctx.Done():
+		return core.ContainerRuntimes{}, ctx.Err()
+	case <-k.release:
+		return core.ContainerRuntimes{}, nil
+	}
+}
+
+func (k *heldRemoteDiscovery) RemoteListWSLDistributions(ctx context.Context) (core.RemoteWSLDistributions, error) {
+	if !k.holdWSL {
+		return k.Kernel.RemoteListWSLDistributions(ctx)
+	}
+	close(k.wslStarted)
+	defer close(k.wslDone)
+	select {
+	case <-ctx.Done():
+		return core.RemoteWSLDistributions{}, ctx.Err()
+	case <-k.release:
+		return core.RemoteWSLDistributions{}, nil
+	}
+}
+
+// Both the full window's container refresh and the host menu's discovery need an owner.
+// Closing either surface cancels its work without closing the existing remote workspace.
+func TestRemoteHostSwitcherCancelsRuntimeDiscovery(t *testing.T) {
+	for _, hostsOnly := range []bool{false, true} {
+		name := "window"
+		if hostsOnly {
+			name = "host-menu"
+		}
+		t.Run(name, func(t *testing.T) {
+			h, k, _, _ := remoteWorkspaceHarness(t)
+			p := h.openRemoteTestProject(t)
+			held := &heldRemoteDiscovery{
+				Kernel: k, started: make(chan struct{}), done: make(chan struct{}),
+				wslStarted: make(chan struct{}), wslDone: make(chan struct{}),
+				release: make(chan struct{}), holdWSL: hostsOnly,
+			}
+			t.Cleanup(func() { close(held.release) })
+			h.app.kernel = held
+			awaitSignal := func(signal <-chan struct{}, what string) {
+				t.Helper()
+				select {
+				case <-signal:
+				case <-time.After(2 * time.Second):
+					t.Fatalf("%s did not finish", what)
+				}
+			}
+			if hostsOnly {
+				h.app.openRemoteHostMenu()
+			} else {
+				h.app.openRemote(surfaceMenu)
+			}
+			awaitSignal(held.started, "starting runtime discovery")
+			if hostsOnly {
+				awaitSignal(held.wslStarted, "starting WSL discovery")
+				h.app.closeRemoteHostMenu()
+			} else {
+				h.app.closeRemote()
+			}
+			awaitSignal(held.done, "cancelling runtime discovery")
+			if hostsOnly {
+				awaitSignal(held.wslDone, "cancelling WSL discovery")
+			}
+			h.settle()
+			if h.app.remote.open || h.app.remote.containers.discovered || h.app.project != p || p.remote.closed {
+				t.Fatal("closing discovery applied a stale result or changed the existing workspace")
+			}
+		})
+	}
+}
