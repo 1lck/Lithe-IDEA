@@ -45,8 +45,8 @@ type Export struct {
 	// Files are the records of each log file read, under logs/, and collection-status.txt,
 	// which says how complete they are.
 	Files []ExportFile
-	// Truncated says evidence was left out: the kernel's budget cut a file, a file shrank or
-	// disappeared while it was read, or a line could not be decoded.
+	// Truncated says evidence was left out: part of the directory could not be listed, the
+	// kernel's budget cut a file, a file shrank or disappeared, or a line could not be decoded.
 	Truncated bool
 	// Directory is the log directory that was read.
 	Directory string
@@ -62,10 +62,11 @@ type Export struct {
 // goroutine. The macOS client's MacLogStore.collect is the reference.
 func (s *Store) Collect(ctx context.Context, q ExportQuery) (Export, error) {
 	var (
-		sources   []core.LogSource
-		directory string
-		plan      core.LogCollectionPlan
-		short     bool
+		sources             []core.LogSource
+		directory           string
+		plan                core.LogCollectionPlan
+		short               bool
+		incompleteInventory bool
 	)
 	err := s.do(ctx, func(job context.Context) error {
 		if err := s.drain(job); err != nil {
@@ -75,10 +76,12 @@ func (s *Store) Collect(ctx context.Context, q ExportQuery) (Export, error) {
 		if directory == "" {
 			return errNoDirectory
 		}
-		files, err := inventory(directory)
+		scan, err := inventory(directory)
 		if err != nil {
 			return err
 		}
+		incompleteInventory = scan.firstErr != nil
+		files := scan.files
 		known := make(map[string]string, len(files))
 		metadata := make([]core.LogFile, 0, len(files))
 		for _, file := range files {
@@ -139,7 +142,7 @@ func (s *Store) Collect(ctx context.Context, q ExportQuery) (Export, error) {
 			Data:         []byte(strings.Join(grouped[path], "\n") + "\n"),
 		})
 	}
-	truncated := plan.Truncated || short || result.Truncated || result.SkippedInvalidLines > 0
+	truncated := incompleteInventory || plan.Truncated || short || result.Truncated || result.SkippedInvalidLines > 0
 	dropped, failures := s.Stats()
 	rejected, rejections := s.Rejections()
 	var status strings.Builder

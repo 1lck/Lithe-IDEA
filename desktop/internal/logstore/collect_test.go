@@ -2,6 +2,10 @@ package logstore
 
 import (
 	"context"
+	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -53,6 +57,41 @@ func TestCollectGroupsTheRecordsByFile(t *testing.T) {
 	if status.RelativePath != "collection-status.txt" ||
 		string(status.Data) != "truncated=false dropped_events=0 write_failures=0 rejected_events=0 skipped_invalid_lines=0\n" {
 		t.Fatalf("status file = %q: %q", status.RelativePath, status.Data)
+	}
+}
+
+func TestCollectMarksUnreadableSubtreeAsIncomplete(t *testing.T) {
+	s, _, root := openStore(t, nil)
+	action(s, "still_readable")
+	flush(t, s)
+	blocked := filepath.Join(root, filepath.FromSlash(s.SessionPath()), "blocked")
+	if err := os.Mkdir(blocked, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(blocked, 0o700); err != nil {
+			t.Error(err)
+		}
+	})
+	if err := os.Chmod(blocked, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.ReadDir(blocked); err == nil {
+		t.Skip("filesystem permissions allow reading the test directory")
+	} else if !errors.Is(err, fs.ErrPermission) {
+		t.Fatal(err)
+	}
+
+	export := collect(t, s, ExportQuery{Session: "current"})
+	if len(export.Files) != 2 || !strings.Contains(string(export.Files[0].Data), "action=still_readable") {
+		t.Fatalf("export lost the readable channel: %+v", export.Files)
+	}
+	if !export.Truncated || !strings.Contains(string(export.Files[1].Data), "truncated=true") {
+		t.Fatalf("incomplete walk reported truncated=%t, status %q", export.Truncated, export.Files[1].Data)
+	}
+	result := window(t, s, Query{Session: "current"})
+	if !result.Truncated || eventCounts(result.Records)["app.action.performed"] != 1 {
+		t.Fatalf("query lost the readable event or the incomplete status: %+v", result)
 	}
 }
 

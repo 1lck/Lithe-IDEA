@@ -571,8 +571,8 @@ func (s *Store) Close() {
 
 // Flush writes everything queued so far to disk before returning. It gives up after the
 // control timeout if the writer is stuck.
-func (s *Store) Flush() {
-	_ = s.do(context.Background(), s.drain)
+func (s *Store) Flush() error {
+	return s.do(context.Background(), s.drain)
 }
 
 // Directory is the log directory in use.
@@ -637,8 +637,8 @@ func (s *Store) Rejections() (total int, recent []Rejection) {
 	return s.rejected, slices.Clone(s.rejections)
 }
 
-// UsedBytes is the size of every log file in the directory, after writing what is queued. It is
-// zero when the directory cannot be read.
+// UsedBytes totals the log files that could be listed after writing what is queued. It is
+// zero when the root directory cannot be read.
 func (s *Store) UsedBytes() int64 {
 	var total int64
 	err := s.do(context.Background(), func(ctx context.Context) error {
@@ -648,11 +648,11 @@ func (s *Store) UsedBytes() int64 {
 		if s.directory == "" {
 			return errNoDirectory
 		}
-		files, err := inventory(s.directory)
+		scan, err := inventory(s.directory)
 		if err != nil {
 			return err
 		}
-		for _, file := range files {
+		for _, file := range scan.files {
 			total += file.size
 		}
 		return nil
@@ -707,7 +707,7 @@ func (s *Store) ConfigureDiagnostics(enabled bool) {
 
 // ChangeDirectory moves logging to dir after writing what is queued, and remembers the choice
 // in the settings. The old directory keeps its files. If the choice cannot be remembered the
-// previous directory is restored and the error returned.
+// previous directory is restored if possible. The caller receives both errors if rollback fails.
 func (s *Store) ChangeDirectory(dir string) error {
 	if dir == "" {
 		return errNoDirectory
@@ -750,7 +750,9 @@ func (s *Store) relocate(target, saved string) error {
 		}
 		if err := s.settings.Save(settingsName, directorySetting{Directory: saved}); err != nil {
 			if previous != "" {
-				_ = s.switchDirectory(previous)
+				if rollbackErr := s.switchDirectory(previous); rollbackErr != nil {
+					return errors.Join(err, fmt.Errorf("restore previous log directory: %w", rollbackErr))
+				}
 			}
 			return err
 		}
@@ -770,12 +772,12 @@ func (s *Store) ClearLogs() error {
 			return nil
 		}
 		s.closeHandles()
-		files, err := inventory(root)
+		scan, err := inventory(root)
 		if err != nil {
 			return err
 		}
-		var first error
-		for _, file := range files {
+		first := scan.firstErr
+		for _, file := range scan.files {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -1514,13 +1516,14 @@ func fileSize(target string) int64 {
 
 // inventory lists the log files under root that the kernel's plans know: session files, and
 // the older layouts' files directly in the root or in a category directory. It never follows
-// symbolic links, skips hidden entries and ignores directories it does not recognize.
-func inventory(root string) ([]diskFile, error) {
+// symbolic links, skips hidden entries and ignores directories it does not recognize. It
+// returns a partial scan if some files could be listed despite an error.
+func inventory(root string) (fileScan, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
-		return nil, err
+		return fileScan{}, err
 	}
-	var files []diskFile
+	var scan fileScan
 	for _, entry := range entries {
 		name := entry.Name()
 		if strings.HasPrefix(name, ".") || entry.Type()&(fs.ModeSymlink|fs.ModeIrregular) != 0 {
@@ -1528,39 +1531,52 @@ func inventory(root string) ([]diskFile, error) {
 		}
 		switch {
 		case entry.IsDir() && name == "sessions":
-			files = append(files, sessionFiles(root)...)
+			scan.sessionFiles(root)
 		case entry.IsDir() && slices.Contains(categories, name):
-			files = append(files, categoryFiles(root, name)...)
+			scan.categoryFiles(root, name)
 		case entry.Type().IsRegular() && isLegacyName(name):
-			if file, ok := describe(filepath.Join(root, name), "application/"+name, "", entry); ok {
-				files = append(files, file)
-			}
+			scan.add(filepath.Join(root, name), "application/"+name, "", entry)
 		}
 	}
-	return files, nil
+	if len(scan.files) == 0 {
+		return scan, scan.firstErr
+	}
+	return scan, nil
 }
 
 func isLegacyName(name string) bool {
 	return name == "lithe.log" || legacyNamePattern.MatchString(name)
 }
 
-// describe reads a directory entry's size and modification time.
-func describe(target, relative, session string, entry fs.DirEntry) (diskFile, bool) {
+type fileScan struct {
+	files    []diskFile
+	firstErr error
+}
+
+func (scan *fileScan) record(err error) {
+	// log-exempt: 预期的缺失：另一进程可在枚举和读取元数据之间清理旧日志。
+	if scan.firstErr == nil && !errors.Is(err, fs.ErrNotExist) {
+		scan.firstErr = err
+	}
+}
+
+func (scan *fileScan) add(target, relative, session string, entry fs.DirEntry) {
 	info, err := entry.Info()
 	if err != nil {
-		return diskFile{}, false
+		scan.record(err)
+		return
 	}
-	return diskFile{path: target, relative: relative, session: session, size: info.Size(), modified: info.ModTime()}, true
+	scan.files = append(scan.files, diskFile{path: target, relative: relative, session: session, size: info.Size(), modified: info.ModTime()})
 }
 
 // sessionFiles lists every regular file below each well-named session directory.
-func sessionFiles(root string) []diskFile {
+func (scan *fileScan) sessionFiles(root string) {
 	sessionsDir := filepath.Join(root, "sessions")
 	entries, err := os.ReadDir(sessionsDir)
 	if err != nil {
-		return nil
+		scan.record(err)
+		return
 	}
-	var files []diskFile
 	for _, entry := range entries {
 		name := entry.Name()
 		if !entry.IsDir() || !sessionNamePattern.MatchString(name) {
@@ -1568,8 +1584,12 @@ func sessionFiles(root string) []diskFile {
 		}
 		base := filepath.Join(sessionsDir, name)
 		// WalkDir does not follow links found below base, and base itself is a real directory.
-		_ = filepath.WalkDir(base, func(target string, d fs.DirEntry, walkErr error) error {
-			if walkErr != nil || target == base {
+		err := filepath.WalkDir(base, func(target string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				scan.record(walkErr)
+				return nil // Continue with readable siblings.
+			}
+			if target == base {
 				return nil
 			}
 			if strings.HasPrefix(d.Name(), ".") {
@@ -1583,34 +1603,29 @@ func sessionFiles(root string) []diskFile {
 			}
 			inside, err := filepath.Rel(base, target)
 			if err != nil {
-				return nil
+				return err
 			}
-			if file, ok := describe(target, "sessions/"+name+"/"+filepath.ToSlash(inside), name, d); ok {
-				files = append(files, file)
-			}
+			scan.add(target, "sessions/"+name+"/"+filepath.ToSlash(inside), name, d)
 			return nil
 		})
+		scan.record(err)
 	}
-	return files
 }
 
 // categoryFiles lists the older layouts' files directly inside a category directory.
-func categoryFiles(root, category string) []diskFile {
+func (scan *fileScan) categoryFiles(root, category string) {
 	entries, err := os.ReadDir(filepath.Join(root, category))
 	if err != nil {
-		return nil
+		scan.record(err)
+		return
 	}
-	var files []diskFile
 	for _, entry := range entries {
 		name := entry.Name()
 		if strings.HasPrefix(name, ".") || !entry.Type().IsRegular() || !isLegacyName(name) {
 			continue
 		}
-		if file, ok := describe(filepath.Join(root, category, name), category+"/"+name, "", entry); ok {
-			files = append(files, file)
-		}
+		scan.add(filepath.Join(root, category, name), category+"/"+name, "", entry)
 	}
-	return files
 }
 
 // maintain asks the kernel which files to delete to stay within the retention budget and
@@ -1624,14 +1639,18 @@ func (s *Store) maintain(ctx context.Context, at time.Time) {
 }
 
 func (s *Store) runRetention(ctx context.Context, root string, at time.Time) error {
-	files, err := inventory(root)
+	scan, err := inventory(root)
 	if err != nil {
 		return err
 	}
-	originals := make(map[string]string, len(files))
+	// Retention can remove whole sessions. Plan deletions only from a complete inventory.
+	if scan.firstErr != nil {
+		return scan.firstErr
+	}
+	originals := make(map[string]string, len(scan.files))
 	bySession := make(map[string][]core.LogFile)
 	var legacy []core.LogFile
-	for _, file := range files {
+	for _, file := range scan.files {
 		originals[file.relative] = file.path
 		entry := core.LogFile{RelativePath: file.relative, SizeBytes: uint64(max(0, file.size)), ModifiedAt: formatTime(file.modified)}
 		if file.session != "" {

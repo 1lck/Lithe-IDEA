@@ -81,9 +81,10 @@ type subscriber struct {
 // sees a consistent directory; the query itself runs on the caller's goroutine.
 func (s *Store) QueryWindow(ctx context.Context, q Query) (Collection, error) {
 	var (
-		sources   []core.LogSource
-		directory string
-		session   string
+		sources             []core.LogSource
+		directory           string
+		session             string
+		incompleteInventory bool
 	)
 	err := s.do(ctx, func(job context.Context) error {
 		if err := s.drain(job); err != nil {
@@ -94,10 +95,12 @@ func (s *Store) QueryWindow(ctx context.Context, q Query) (Collection, error) {
 		if directory == "" {
 			return errNoDirectory
 		}
-		files, err := inventory(directory)
+		scan, err := inventory(directory)
 		if err != nil {
 			return err
 		}
+		incompleteInventory = scan.firstErr != nil
+		files := scan.files
 		known := make(map[string]string, len(files))
 		metadata := make([]core.LogFile, 0, len(files))
 		for _, file := range files {
@@ -127,6 +130,7 @@ func (s *Store) QueryWindow(ctx context.Context, q Query) (Collection, error) {
 	if err != nil {
 		return Collection{}, err
 	}
+	result.Truncated = result.Truncated || incompleteInventory
 	dropped, failures := s.Stats()
 	rejected, rejections := s.Rejections()
 	category, remaining, _ := s.Diagnostics()
