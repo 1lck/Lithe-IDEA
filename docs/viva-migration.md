@@ -456,7 +456,7 @@ MCP 管理随 Agent 对话失去消费者后，本轮整块删除，后续重新
 
 保留 `ide-mcp-connection`：Lithe 对外提供的 IDE API MCP 服务端（`lithe-mcp`、`Lithe-core-rust/rust/fixtures/ide-api/mcp-protocol.json`）不依赖被删的配置管理能力。
 
-在 Core 仓库根目录运行 `cargo test --locked --manifest-path rust/Cargo.toml -p lithe-ide-host --features mcp --test mcp_protocol`。三个 stdio 会话分别验证旧版初始化、新版直接发现及新版初始化后发现，按连接公开的工具清单核对 `tools/list`，并检查 `ttlMs` 和 `cacheScope`。[Core 协议回归测试](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/c875bc6f8ad77f3e589044bd7d4b32bf11202ff4/rust/crates/ide-host/tests/mcp_protocol.rs)
+在独立的 Lithe-core-rust 检出中，选择测试修订 `c875bc6f8ad77f3e589044bd7d4b32bf11202ff4` 或包含该测试的后续版本，然后在 Core 根目录运行 `cargo test --locked --manifest-path rust/Cargo.toml -p lithe-ide-host --features mcp --test mcp_protocol`。三个 stdio 会话分别验证旧版初始化、新版直接发现及新版初始化后发现，按连接公开的工具清单核对 `tools/list`，并检查 `ttlMs` 和 `cacheScope`。[Core 协议回归测试](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/c875bc6f8ad77f3e589044bd7d4b32bf11202ff4/rust/crates/ide-host/tests/mcp_protocol.rs)
 
 ## 不做：社区论坛（2026-11-13 用户决定）
 
