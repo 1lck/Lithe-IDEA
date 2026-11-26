@@ -3,6 +3,7 @@ package syntax
 import (
 	"context"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/rope"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/textmate"
 	"math/rand/v2"
 	"slices"
 	"strings"
@@ -21,18 +22,29 @@ func candidateHighlighter(t *testing.T, source string) *Highlighter {
 func TestCandidatesTimeoutPreservesEarlierSegments(t *testing.T) {
 	source := "package main\n" + strings.Repeat("var value = (1)\n", 65)
 	h := candidateHighlighter(t, source)
+	prefix := slices.Clone(h.candidates.parts[0].brackets)
 	at := h.text.LineStart(40)
 	next := h.text.Insert(at, []byte(" "))
 	h.Edit(next, at, at, at+1)
-	h.worker.limit = time.Nanosecond
+	// The worker receives a stopped tokenizer result without depending on clock resolution.
+	h.worker.tz = stoppedLineTokenizer{h.worker.tz}
 	drain(t, h)
 	got, err := h.Candidates(t.Context(), next)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Brackets) == 0 || len(got.Brackets) >= 130 || !slices.Contains(got.Reasons, "tokenization_timeout") {
+	if len(prefix) == 0 || !slices.Equal(got.Brackets, prefix) || !slices.Contains(got.Reasons, "tokenization_timeout") {
 		t.Fatalf("timeout discarded trusted prefix or was not reported: brackets=%d reasons=%v", len(got.Brackets), got.Reasons)
 	}
+}
+
+type stoppedLineTokenizer struct {
+	lineTokenSource
+}
+
+func (s stoppedLineTokenizer) TokenizeLine(dst []textmate.Token, line []byte, prev *textmate.StateStack, _ time.Duration) ([]textmate.Token, *textmate.StateStack, bool) {
+	tokens, end, _ := s.lineTokenSource.TokenizeLine(dst, line, prev, 0)
+	return tokens, end, true
 }
 
 func TestCandidatesFollowCheckpointInsertionAndRemoval(t *testing.T) {

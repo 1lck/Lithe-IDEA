@@ -92,9 +92,14 @@ type memoState struct {
 	ok         bool
 }
 
+// lineTokenSource provides lexical tokens and reports whether a line reached its time limit.
+type lineTokenSource interface {
+	TokenizeLine([]textmate.Token, []byte, *textmate.StateStack, time.Duration) ([]textmate.Token, *textmate.StateStack, bool)
+}
+
 // lineTokenizer tokenizes lines into token pairs. Each goroutine needs its own.
 type lineTokenizer struct {
-	tz     *textmate.Tokenizer
+	tz     lineTokenSource
 	names  *classifier
 	limit  time.Duration
 	line   []byte
