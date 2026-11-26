@@ -240,7 +240,13 @@ func (h *Highlighter) Edit(text rope.Rope, start, oldEnd, newEnd int) {
 	}
 	enabled := h.collectCandidates && h.syntax != nil && text.Len() <= RainbowBracketMaxBytes
 	if enabled != h.candidates.enabled {
-		h.cp.reset()
+		if enabled {
+			// Rebuild candidates that were not collected while over the size limit.
+			h.cp.reset()
+		} else {
+			// Disabling collection leaves the surviving lexical checkpoints valid.
+			h.cp.edit(startLine, endLine, delta)
+		}
 		h.candidates.reset(enabled)
 	} else {
 		lo := h.cp.find(startLine) + 1

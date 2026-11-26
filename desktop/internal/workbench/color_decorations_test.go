@@ -469,3 +469,122 @@ func TestRainbowCandidatesReuseResolvedCoreResult(t *testing.T) {
 		t.Fatal("changed options reused an incompatible Core result")
 	}
 }
+
+func TestRainbowCandidatesReuseMovedCoreResult(t *testing.T) {
+	for _, colors := range []struct{ brackets, variables bool }{{}, {true, false}, {false, true}, {true, true}} {
+		original := syntax.CandidateSnapshot{
+			Brackets:  []syntax.Bracket{{Offset: 0, Bracket: "]"}, {Offset: 1, Bracket: "{"}, {Offset: 8, Bracket: "("}, {Offset: 10, Bracket: ")"}, {Offset: 20, Bracket: "}"}},
+			Variables: []syntax.Variable{{Start: 3, End: 7, Name: "same"}, {Start: 13, End: 17, Name: "same"}},
+		}
+		moved := syntax.CandidateSnapshot{
+			Brackets:  []syntax.Bracket{{Offset: 3, Bracket: "]"}, {Offset: 4, Bracket: "{"}, {Offset: 18, Bracket: "("}, {Offset: 20, Bracket: ")"}, {Offset: 42, Bracket: "}"}},
+			Variables: []syntax.Variable{{Start: 8, End: 12, Name: "same"}, {Start: 13, End: 17, Name: "same"}},
+		}
+		first, err := resolveRainbowCandidates(t.Context(), original, colors.brackets, colors.variables, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fresh, err := resolveRainbowCandidates(t.Context(), moved, colors.brackets, colors.variables, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		reused, err := resolveRainbowCandidates(ctx, moved, colors.brackets, colors.variables, first)
+		if err != nil {
+			t.Fatalf("offset-only edits called Core (brackets=%v variables=%v): %v", colors.brackets, colors.variables, err)
+		}
+		if !slices.Equal(reused.result.colors, fresh.result.colors) || !slices.Equal(reused.result.matches, fresh.result.matches) || !slices.Equal(reused.result.indentScopes, fresh.result.indentScopes) {
+			t.Fatalf("moved result differs from fresh Core: got %+v, want %+v", reused.result, fresh.result)
+		}
+		if first.brackets[1].Offset != 1 || first.result.matches[0].Offset != 1 {
+			t.Fatal("reprojection mutated the previous immutable result")
+		}
+		changed := moved
+		changed.Brackets = slices.Clone(moved.Brackets)
+		changed.Brackets[0].Bracket = "["
+		if _, err := resolveRainbowCandidates(ctx, changed, colors.brackets, colors.variables, reused); err == nil {
+			t.Fatal("changed bracket sequence reused old pairing")
+		}
+		if colors.variables {
+			changed = moved
+			changed.Variables = slices.Clone(moved.Variables)
+			changed.Variables[0].Name = "else"
+			if _, err := resolveRainbowCandidates(ctx, changed, colors.brackets, true, reused); err == nil {
+				t.Fatal("changed variable name reused old colors")
+			}
+		}
+	}
+}
+
+func TestRainbowDegradationLogsOnlyWhenReasonsChange(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "many.go")
+	source := "package sample\n" + strings.Repeat("var _ = []int{}\n", 5_001)
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	log := &faultLog{}
+	options := DesktopOptions(core.NewClient(), store.At(t.TempDir()), "test")
+	options.Logs = log
+	h := newHarnessWithOptions(t, options)
+	h.app.openStandaloneFile(path)
+	h.await("standalone editor opened", func() bool {
+		return h.app.project != nil && h.app.project.docs.byPath(path) != nil
+	})
+	h.settle()
+	p := h.app.project
+	d := p.docs.byPath(path)
+	count := func() int {
+		log.mu.Lock()
+		defer log.mu.Unlock()
+		n := 0
+		for _, event := range log.events {
+			if event.event == backgroundFailedEvent && event.fields["operation"] == "editor_rainbow_bracket_limit" {
+				n++
+			}
+		}
+		return n
+	}
+	if got := count(); got != 1 {
+		t.Fatalf("initial bracket degradation logs = %d, want 1", got)
+	}
+	for range 3 {
+		d.view.ApplyEdits([]editorview.TextEdit{{Range: editorview.Range{}, Text: " "}})
+		h.app.scheduleColorDecorations(p, d, 0)
+		h.settle()
+	}
+	if got := count(); got != 1 {
+		t.Fatalf("unchanged degradation logged %d times after edits, want 1", got)
+	}
+	d.view.ApplyEdits([]editorview.TextEdit{{Range: editorview.Range{End: d.view.TextSnapshot().Len()}, Text: "package sample\n"}})
+	h.app.scheduleColorDecorations(p, d, 0)
+	h.settle()
+	d.view.ApplyEdits([]editorview.TextEdit{{Range: editorview.Range{}, Text: source}})
+	h.app.scheduleColorDecorations(p, d, 0)
+	h.settle()
+	if got := count(); got != 2 {
+		t.Fatalf("degradation recurring after recovery logs = %d, want 2", got)
+	}
+}
+
+func TestRainbowDegradationTracksReasonSet(t *testing.T) {
+	log := &faultLog{}
+	a := &App{logSink: log}
+	state := &documentColorDecorations{}
+	for _, step := range []struct {
+		reasons []string
+		want    int
+	}{
+		{[]string{"bracket_limit", "variable_limit"}, 2},
+		{[]string{"variable_limit", "bracket_limit"}, 2},
+		{[]string{"variable_limit"}, 2},
+		{[]string{"variable_limit", "long_line"}, 3},
+		{nil, 3},
+		{[]string{"variable_limit"}, 4},
+	} {
+		a.reportRainbowDegradation(state, step.reasons)
+		if len(log.events) != step.want {
+			t.Fatalf("reasons %v: got %d logs, want %d", step.reasons, len(log.events), step.want)
+		}
+	}
+}

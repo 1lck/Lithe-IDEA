@@ -40,6 +40,8 @@ type documentColorDecorations struct {
 	bracketView     *editorview.View
 	bracketRevision int
 	resolved        *resolvedRainbow
+	rainbowView     *editorview.View
+	rainbowReasons  []string
 }
 
 const (
@@ -79,6 +81,11 @@ func (a *App) scheduleColorDecorations(p *project, d *document, delay time.Durat
 		docs[d.id] = state
 	}
 	state.revoke()
+	if state.rainbowView != d.view || state.path != d.path || state.language != d.languageID {
+		state.rainbowView = d.view
+		state.resolved = nil
+		state.rainbowReasons = nil
+	}
 	if !builtinBracketMatchingServes(d) || state.path != d.path || state.language != d.languageID ||
 		state.bracketView != d.view || state.bracketRevision != d.view.Revision() {
 		state.bracketView = nil
@@ -145,15 +152,14 @@ func (a *App) requestColorDecorations(p *project, d *document, state *documentCo
 		var resolved *resolvedRainbow
 		var indentScopes editorview.PreparedIndentGuideScopes
 		var previewScopes editorview.PreparedIndentGuideScopes
+		var candidates syntax.CandidateSnapshot
+		candidatesReady := false
 		pairedPreview := preview.view != nil && !preview.text.Same(text) && preview.text.Equal(text)
 		if grammar != nil {
 			var rainbowErr error
-			var candidates syntax.CandidateSnapshot
 			candidates, rainbowErr = view.RainbowCandidates(ctx, text)
 			if rainbowErr == nil {
-				for _, reason := range candidates.Reasons {
-					a.backgroundFailedIn(ctx, "editor_rainbow_"+reason, errors.New(reason))
-				}
+				candidatesReady = true
 				resolved, rainbowErr = resolveRainbowCandidates(ctx, candidates, prefs.RainbowBrackets, prefs.RainbowVariables, previousRainbow)
 				if resolved != nil {
 					rainbow = resolved.result
@@ -209,6 +215,9 @@ func (a *App) requestColorDecorations(p *project, d *document, state *documentCo
 		return func(a *App) {
 			if a.currentColorDecorationsRequest(p, d, state, generation, view) && view.Revision() == revision {
 				state.resolved = resolved
+				if candidatesReady {
+					a.reportRainbowDegradation(state, candidates.Reasons)
+				}
 			}
 			if !provided {
 				a.finishBracketMatches(p, d, state, generation, view, revision, matches, indentScopes)
@@ -221,6 +230,17 @@ func (a *App) requestColorDecorations(p *project, d *document, state *documentCo
 			}
 		}
 	})
+}
+
+// Only the accepted snapshot advances this document's diagnostic state. A
+// persistent limit is one degradation, even if typing repeatedly restarts work.
+func (a *App) reportRainbowDegradation(state *documentColorDecorations, reasons []string) {
+	for _, reason := range reasons {
+		if !slices.Contains(state.rainbowReasons, reason) {
+			a.backgroundFailed("editor_rainbow_"+reason, errors.New(reason))
+		}
+	}
+	state.rainbowReasons = append(state.rainbowReasons[:0], reasons...)
 }
 
 func builtinBracketMatchingServes(d *document) bool {
@@ -251,6 +271,11 @@ func resolveRainbowCandidates(ctx context.Context, candidates syntax.CandidateSn
 	if previous != nil && previous.colorBrackets == colorBrackets && previous.colorVariables == colorVariables &&
 		slices.Equal(previous.brackets, bracketTokens) && slices.Equal(previous.variables, variableTokens) {
 		return previous, nil
+	}
+	if previous != nil && previous.colorBrackets == colorBrackets && previous.colorVariables == colorVariables {
+		if moved := previous.reproject(bracketTokens, variableTokens); moved != nil {
+			return moved, nil
+		}
 	}
 	client := core.NewClient()
 	var rainbow builtinRainbow
@@ -301,6 +326,67 @@ func resolveRainbowCandidates(ctx context.Context, candidates syntax.CandidateSn
 		})
 	}
 	return &resolvedRainbow{brackets: bracketTokens, variables: variableTokens, colorBrackets: colorBrackets, colorVariables: colorVariables, result: rainbow}, errors.Join(bracketErr, variableErr)
+}
+
+// Pairing and colors belong to Core. When only UTF-8 positions move, project
+// its existing answer onto the new candidates without changing that answer.
+func (previous *resolvedRainbow) reproject(brackets []syntax.Bracket, variables []syntax.Variable) *resolvedRainbow {
+	if len(previous.brackets) != len(brackets) || len(previous.variables) != len(variables) {
+		return nil
+	}
+	for i, token := range brackets {
+		if token.Bracket != previous.brackets[i].Bracket || i > 0 && token.Offset <= brackets[i-1].Offset {
+			return nil
+		}
+	}
+	for i, token := range variables {
+		if token.Name != previous.variables[i].Name || token.End <= token.Start ||
+			token.End-token.Start != uint32(len(token.Name)) || i > 0 && token.Start < variables[i-1].End {
+			return nil
+		}
+	}
+	moveBracket := func(offset uint32) (uint32, bool) {
+		i, found := slices.BinarySearchFunc(previous.brackets, offset, func(token syntax.Bracket, offset uint32) int { return cmp.Compare(token.Offset, offset) })
+		if !found {
+			return 0, false
+		}
+		return brackets[i].Offset, true
+	}
+	result := builtinRainbow{
+		colors: slices.Clone(previous.result.colors), matches: slices.Clone(previous.result.matches),
+		indentScopes: slices.Clone(previous.result.indentScopes),
+	}
+	for i, color := range result.colors {
+		if offset, found := moveBracket(color.Start); previous.colorBrackets && found && color.End == color.Start+1 {
+			result.colors[i].Start, result.colors[i].End = offset, offset+1
+			continue
+		}
+		j, found := slices.BinarySearchFunc(previous.variables, color.Start, func(token syntax.Variable, start uint32) int { return cmp.Compare(token.Start, start) })
+		if !found || color.End != previous.variables[j].End {
+			return nil
+		}
+		result.colors[i].Start, result.colors[i].End = variables[j].Start, variables[j].End
+	}
+	for i, match := range result.matches {
+		offset, found := moveBracket(uint32(match.Offset))
+		mate, paired := moveBracket(uint32(match.Mate))
+		if !found || !paired {
+			return nil
+		}
+		result.matches[i] = editorview.BracketMatch{Offset: offset, Mate: mate}
+	}
+	for i, scope := range result.indentScopes {
+		open, found := moveBracket(uint32(scope.Open))
+		close, paired := moveBracket(uint32(scope.Close))
+		if !found || !paired {
+			return nil
+		}
+		result.indentScopes[i] = editorview.IndentGuideScope{Open: int(open), Close: int(close)}
+	}
+	if previous.colorBrackets && previous.colorVariables {
+		slices.SortFunc(result.colors, func(a, b editorview.RainbowColor) int { return cmp.Compare(a.Start, b.Start) })
+	}
+	return &resolvedRainbow{brackets: brackets, variables: variables, colorBrackets: previous.colorBrackets, colorVariables: previous.colorVariables, result: result}
 }
 
 func (a *App) finishBracketMatches(p *project, d *document, state *documentColorDecorations, generation uint64, view *editorview.View, revision int, matches []editorview.BracketMatch, indentScopes editorview.PreparedIndentGuideScopes) {

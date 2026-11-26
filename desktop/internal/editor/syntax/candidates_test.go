@@ -116,6 +116,76 @@ func TestCandidatesReuseCleanSegmentsAfterNeutralEdit(t *testing.T) {
 	}
 }
 
+// candidateLimitSource reaches the byte limit with several ordinary lexical segments.
+// The final padding line is measured rather than tokenized, keeping the test focused on
+// checkpoint reuse instead of the cost of tokenizing a megabyte of filler.
+func candidateLimitSource() string {
+	prefix := "package main\n" + strings.Repeat("var value = (1)\n", 3*segmentLines)
+	return prefix + strings.Repeat(" ", RainbowBracketMaxBytes-len(prefix))
+}
+
+func TestCandidatesSizeLimitDisablingPreservesLexicalCheckpoints(t *testing.T) {
+	h := candidateHighlighter(t, candidateLimitSource())
+	before, err := h.Candidates(t.Context(), h.text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before.Brackets) == 0 || len(before.Variables) == 0 {
+		t.Fatal("the boundary document collected no candidates")
+	}
+	at := h.text.LineStart(1)
+	next := h.text.Insert(at, []byte(" "))
+	h.Edit(next, at, at, at+1)
+	if h.candidates.enabled || len(h.candidates.parts) != 0 {
+		t.Fatal("crossing the size limit retained candidate storage")
+	}
+	got, err := h.Candidates(t.Context(), next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Brackets) != 0 || len(got.Variables) != 0 || len(got.Reasons) != 0 {
+		t.Fatal("disabled collection returned obsolete candidates")
+	}
+	if steps := drain(t, h); steps != 1 {
+		t.Fatalf("disabling collection retokenized %d segments, want only the edited segment", steps)
+	}
+	checkLines(t, h, reference(h.Syntax(), next), 0, next.LineCount()-1)
+}
+
+func TestCandidatesSizeLimitReenableRebuildsUncollectedEdits(t *testing.T) {
+	h := candidateHighlighter(t, candidateLimitSource())
+	at := h.text.Len()
+	next := h.text.Insert(at, []byte(" "))
+	h.Edit(next, at, at, at+1)
+	drain(t, h)
+
+	// This declaration was never indexed while collection was disabled.
+	const declaration = "var changed = [1]int{}\n"
+	at = next.LineStart(1)
+	next = next.Insert(at, []byte(declaration))
+	h.Edit(next, at, at, at+len(declaration))
+	drain(t, h)
+
+	// Drop only filler to return to the inclusive byte limit with the edit intact.
+	end := next.Len()
+	at = RainbowBracketMaxBytes
+	next = next.Delete(at, end)
+	h.Edit(next, at, end, at)
+	drain(t, h)
+	got, err := h.Candidates(t.Context(), next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	brackets, variables := RainbowCandidates(t.Context(), next, h.Syntax(), true, true)
+	if !slices.Equal(got.Brackets, brackets) || !slices.Equal(got.Variables, variables) {
+		t.Fatal("reenabling collection differs from a fresh candidate scan")
+	}
+	if !slices.ContainsFunc(got.Variables, func(variable Variable) bool { return variable.Name == "changed" }) {
+		t.Fatal("reenabling collection did not index the declaration added while disabled")
+	}
+	checkLines(t, h, reference(h.Syntax(), next), 0, next.LineCount()-1)
+}
+
 func TestCandidatesConvergeCrossSegmentAccessorState(t *testing.T) {
 	source := "package main\n" + strings.Repeat("\n", 30) + "object.\nfield\n"
 	h := candidateHighlighter(t, source)

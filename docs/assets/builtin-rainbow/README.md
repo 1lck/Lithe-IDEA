@@ -75,3 +75,41 @@
 两张 Issue 的正文已回读核验。创建时请求的标签没有保留，补充 `refactor` 等普通标签时，GraphQL 返回权限不足，REST 返回 403（需要仓库管理员权限）。标签登记仍未完成，合并前需要维护者补齐；没有将这一项记为通过。
 
 本次分组调整：先确认中英文分区回归在移动前失败，移动后 8 项计时结果通过；保留普通参考线关闭时禁用彩虹开关、保存选择、重新开启后恢复和色板显隐。明暗主题设置场景已重拍并检查，不涉及编辑器绘制或 Core 行为变更。
+
+
+## 2026-11-26：默认依赖与新评审修复
+
+当前分支合并 `upstream/main 82530d8a0`，保留 #2427 的 `firstSub` 可见折行循环，并合入 #2436、#2437 的测试等待及夹具修复。Core 固定 `c269c411`（#201），Viva 固定 `7696355e44b5`（main #2439，包含已合并的上游 #458）。默认 wrapper 的 Core 身份为 `core-source=pinned`、`core-worktree=clean`，无 Core/Viva 本地覆盖。
+
+降级日志回归在修复前观察到同一原因随三次编辑累计四条 WARN，修复后只在原因新出现时记录；恢复后再次出现仍记录。位置复用回归在修复前因偏移改变重新调用已取消的 Core 请求而失败；修复后按候选序号投影颜色、配对和作用域，结果与新 Core 调用一致，覆盖非均匀位移、不匹配闭括号及混合颜色排序。跨 1 MiB 关闭候选收集的旧实现重分词四段，修复后只重算编辑所在的一段；重新启用仍重建完整候选。
+
+### 性能复核
+
+新增正式 `BenchmarkEditorViewPaint/indent-guides`，设置 `IndentGuides=true` 并安装视口附近已准备的代码块作用域。两侧均保留该场景，100 KiB/10 MiB 文档、默认预算不变。前侧仅把 `paint.go`、`highlighter.go` 覆盖为 `61f4bc7` 的实现，其余代码和依赖与当前侧相同；覆盖文件只在 `.artifacts/pr2420-update/`。
+
+预先通过 `scripts/desktop/desktop-go.sh test -c` 编译两侧视图和语法测试程序，停止其他编译和测试后运行。首轮各六样本的 48 项均满足预算，但 perfhistory 报告十项耗时回归；这些结果没有当作无回归结论。随后在同一 Windows amd64 物理机 Intel Core Ultra 5 125H 上固定 CPU 0、`-test.cpu=1`，交替前后顺序，每侧六样本、200 ms，对全部 42 项视图场景复核，未检测到编译/其他测试重叠；没有修改实现、规模、场景或预算。固定 CPU 后 perfhistory 未报告回归，42 项均满足可判定预算。该机器不是 Apple M4，不判绝对耗时上限。
+
+| 场景 | 前侧 100 KiB µs | 当前 100 KiB µs | 前侧 10 MiB µs | 当前 10 MiB µs | 说明 |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Go 绘制 | 48.56 | 48.14 | 44.99 | 44.24 | 两侧零分配 |
+| 默认普通参考线及作用域 | 52.02 | 51.44 | 48.32 | 48.66 | 当前规模比 0.95，零分配；相对当前无参考线 Go 场景增加约 6.9% / 10.0% |
+| 小地图绘制 | 72.25 | 82.11 | 70.52 | 71.18 | 当前规模比 0.87，零分配；耗时差未超过 perfhistory 15% 阈值 |
+| 长行换行绘制 | 40.67 | 38.28 | 112.13 | 43.38 | 规模比 2.76→1.13，零分配 |
+| 长行换行输入及下一帧 | 50.86 | 49.69 | 133.19 | 59.96 | 规模比 2.62→1.21；分配次数保持 9 / 16 |
+
+原始输出、身份信息、覆盖配置和预算报告保留在本检出的 `.artifacts/pr2420-update/`。基准程序使用 `-test.run=^$ -test.bench=^BenchmarkEditorView(Paint|Type|Scroll) -test.count=1 -test.benchtime=200ms -test.cpu=1`，每侧交替六次。语法候选管线另以 `^BenchmarkEditorSyntaxCandidates`、count 6 验证，六项均满足预算，分配次数不变。报告使用：
+
+```bash
+scripts/desktop/perf/editor-bench.sh compare \
+  .artifacts/pr2420-update/perf-pinned-before.txt \
+  .artifacts/pr2420-update/perf-pinned-after.txt
+```
+
+### 默认依赖验证及限制
+
+- Windows amd64 GNU 原生 `scripts/desktop/desktop-go.sh build -o ../.artifacts/pr2420-update/lithe.exe ./cmd/lithe` 成功；未使用 `vivahead` 构建标签。
+- `editor/...`、`editorview`、`settingswindow` 和 `core` 包完整测试通过，包含日志目录调用点校验。相关语法、视图、工作台竞态通过；合并最终 main 后工作台竞态再次通过。
+- Windows 逐项计时最终记录 53 项通过，进程树终止已确认；新增日志回归 0.60 秒，安装目录只读工作流 5.50 秒。静态扫描对 Go 为 N/A，另按资源、等待及清理边界人工检查。
+- 默认依赖无头视觉用例覆盖普通/彩虹参考线、括号和符号背景、Problems 源码预览；深色中文、浅色英文截图重新生成并检查，位于忽略目录，不将其当作原生窗口验收。
+- `test ./... -timeout=300s` 中其他包通过，工作台触发整包累计期限，最后的 `TestBuildProviderObservesGlobalToolchainSavedByAnotherClient` 当时仅运行 2 秒，单独复测 5.31 秒通过。因此不宣称全包通过，也不把这个累计超时当作该用例或本次彩虹改动引入的挂死。
+- macOS、原生可见窗口及整机工作流未验收。当前机器没有 zsh，资源只读静态脚本未能在本机执行；已有安装目录只读回归通过，完整静态门禁仍由 CI 验证。

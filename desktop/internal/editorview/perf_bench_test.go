@@ -141,6 +141,7 @@ type paintCase struct {
 var paintCases = []paintCase{
 	{name: "plain", kind: editorperf.Go},
 	{name: "go", kind: editorperf.Go, highlight: true},
+	{name: "indent-guides", kind: editorperf.Go, highlight: true, arrange: benchIndentGuides},
 	{name: "java", kind: editorperf.Java, highlight: true},
 	{name: "wrap", kind: editorperf.Go, highlight: true, layout: func(v *View) { v.SetWrap(true) }},
 	{name: "minimap", kind: editorperf.Go, highlight: true, layout: func(v *View) { v.SetMinimap(true) }},
@@ -192,6 +193,37 @@ var paintCases = []paintCase{
 // benchColorDecorations is the most provider colors Core sends for a document
 // (MAX_MERGED_COLOR_DECORATIONS of its plugin-editor crate).
 const benchColorDecorations = 10_000
+
+// benchIndentGuides installs block geometry around the viewport before timing,
+// as the color worker does for a completed snapshot.
+func benchIndentGuides(v *View) {
+	v.SetPresentation(Presentation{IndentGuides: true})
+	mid := v.text.LineOf(v.caret)
+	first, last := max(mid-128, 0), min(mid+128, v.text.LineCount()-1)
+	var scopes []IndentGuideScope
+	var stack []int
+	for line := first; line <= last; line++ {
+		start := v.text.LineStart(line)
+		text, _ := v.text.Substring(start, v.lineEnd(line))
+		for column, r := range text {
+			switch r {
+			case '{':
+				stack = append(stack, len(scopes))
+				scopes = append(scopes, IndentGuideScope{Open: start + column})
+			case '}':
+				if len(stack) > 0 {
+					i := stack[len(stack)-1]
+					stack = stack[:len(stack)-1]
+					scopes[i].Close = start + column
+				}
+			}
+		}
+	}
+	v.SetIndentGuideScopes(PrepareIndentGuideScopes(v.TextSnapshot(), scopes))
+	if len(v.indentGuideScopes) == 0 {
+		panic("indent-guides fixture has no block scopes")
+	}
+}
 
 // rainbowBrackets colors the brackets of the lines around the caret's, the most that Core sends,
 // cycling three colors as a rainbow-bracket plugin does by nesting depth. Half of them are after
