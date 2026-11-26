@@ -316,6 +316,17 @@ func TestClosingAnIntegratedBashHangsUpTheWholeJob(t *testing.T) {
 	}
 }
 
+// Bash's hangup forwarding also continues stopped jobs so they can act on the
+// hangup instead of remaining stopped forever.
+func TestClosingAnIntegratedBashHangsUpAStoppedJob(t *testing.T) {
+	s := startHangupShell(t, "bash", nil)
+	s.run("sleep 300 & echo job=$!; kill -STOP $!\r", 1, "\r\njob=")
+	job := jobOf(t, s)
+
+	closeAndAwaitEnd(t, s.shell)
+	awaitProcessEnd(t, job)
+}
+
 // The close is a shell key binding, not command text appended to the input the
 // user left unfinished; even the continuation of a multiline command cannot
 // keep the terminal open or execute as part of the close.
@@ -354,7 +365,7 @@ func TestClosingAnIntegratedViBashHangsUpItsJobs(t *testing.T) {
 // command before it failed, the controlled exit itself succeeds.
 func TestClosingAnIntegratedBashAfterAFailedCommandExitsSuccessfully(t *testing.T) {
 	s := startHangupShell(t, "bash", nil)
-	s.run("false", 1, "")
+	s.run("false\r", 1, "")
 
 	closeAndAwaitEnd(t, s.shell)
 	if s.shell.ExitStatus() != 0 {
