@@ -43,7 +43,7 @@ func TestRainbowBracketsUseGrammarScopesAndUTF8Offsets(t *testing.T) {
 	}
 }
 
-func TestRainbowBracketsDropIncompleteSnapshots(t *testing.T) {
+func TestRainbowBracketsKeepBoundedPrefix(t *testing.T) {
 	language := NewRegistry().Syntax("go")
 	for _, tc := range []struct{ name, source string }{
 		{"oversized document", strings.Repeat(" ", RainbowBracketMaxBytes) + "()"},
@@ -51,8 +51,16 @@ func TestRainbowBracketsDropIncompleteSnapshots(t *testing.T) {
 		{"too many candidates", "package main\n" + strings.Repeat("var _ = (1)\n", rainbowBracketMaxCount/2+1)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := RainbowBrackets(t.Context(), rope.FromString(tc.source), language); len(got) != 0 {
-				t.Fatalf("incomplete snapshot returned %d brackets", len(got))
+			got := RainbowBrackets(t.Context(), rope.FromString(tc.source), language)
+			want := 0
+			switch tc.name {
+			case "oversized line":
+				want = 4
+			case "too many candidates":
+				want = rainbowBracketMaxCount
+			}
+			if len(got) != want {
+				t.Fatalf("bounded prefix returned %d brackets, want %d", len(got), want)
 			}
 		})
 	}

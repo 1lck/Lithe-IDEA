@@ -57,10 +57,10 @@ func (a *App) setEditorPreferences(stored core.EditorStoredPreferences, resolved
 	default:
 	}
 	// Palette editors replace their drafts, while snapshots own their slices.
-	stored.RainbowBracketLightColors = slices.Clone(stored.RainbowBracketLightColors)
-	stored.RainbowBracketDarkColors = slices.Clone(stored.RainbowBracketDarkColors)
-	resolved.RainbowBracketLightColors = slices.Clone(resolved.RainbowBracketLightColors)
-	resolved.RainbowBracketDarkColors = slices.Clone(resolved.RainbowBracketDarkColors)
+	stored.RainbowLightColors = slices.Clone(stored.RainbowLightColors)
+	stored.RainbowDarkColors = slices.Clone(stored.RainbowDarkColors)
+	resolved.RainbowLightColors = slices.Clone(resolved.RainbowLightColors)
+	resolved.RainbowDarkColors = slices.Clone(resolved.RainbowDarkColors)
 	state := sub.editorPreferences
 	state.Lock()
 	state.latest = editorPreferencesSnapshot{stored, resolved, state.latest.generation + 1}
@@ -107,8 +107,8 @@ func (a *App) applyEditorPreferences(stored core.EditorStoredPreferences, resolv
 	rainbowChanged := a.editorPreferences.RainbowBrackets != resolved.RainbowBrackets ||
 		a.editorPreferences.RainbowVariables != resolved.RainbowVariables ||
 		((resolved.RainbowBrackets || resolved.RainbowVariables) &&
-			(!slices.Equal(a.editorPreferences.RainbowBracketLightColors, resolved.RainbowBracketLightColors) ||
-				!slices.Equal(a.editorPreferences.RainbowBracketDarkColors, resolved.RainbowBracketDarkColors)))
+			(!slices.Equal(a.editorPreferences.RainbowLightColors, resolved.RainbowLightColors) ||
+				!slices.Equal(a.editorPreferences.RainbowDarkColors, resolved.RainbowDarkColors)))
 	a.editorPreferences = resolved
 	if inlayChanged {
 		a.applyInlayHintsPreference(resolved.InlayHints)

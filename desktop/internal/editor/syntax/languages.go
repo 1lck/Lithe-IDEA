@@ -330,7 +330,7 @@ var (
 // Monaco languages with their file associations, and the basic associations it added. File
 // names and prefixes are tried in this order, before any extension.
 var bundledLanguages = []Language{
-	{ID: "java", Scope: "source.java", Extensions: []string{".java", ".jav"}, Rules: JavaRules,
+	{Candidates: &CandidateRules{DeclarationScopes: []string{"variable.other.definition", "variable.parameter"}, PlainContexts: []string{"meta.method.body"}, QualifierScopes: []string{"variable.other.object"}, BindingKeyword: "keyword.operator.instanceof", TypeScopes: []string{"storage.type", "entity.name.type"}}, ID: "java", Scope: "source.java", Extensions: []string{".java", ".jav"}, Rules: JavaRules,
 		Comments: cComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
 	{ID: "makefile", Scope: "source.makefile", Extensions: []string{".mk", ".mak"},
 		FileNames: []string{"makefile", "gnumakefile"}, FilePrefixes: []string{"makefile."},
@@ -360,7 +360,7 @@ var bundledLanguages = []Language{
 	{ID: "css", Scope: "source.css", Rules: CSSRules, Extensions: []string{".css"}, Comments: Comments{Block: Pair{"/*", "*/"}}, Brackets: cBrackets, AutoClosing: cAutoClosing},
 	{ID: "dart", Extensions: []string{".dart"}, Comments: cComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
 	{ID: "elixir", Extensions: []string{".ex", ".exs"}, Comments: hashComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
-	{ID: "go", Scope: "source.go", Rules: CodeRules, Extensions: []string{".go"}, Comments: cComments, Brackets: cBrackets,
+	{Candidates: &CandidateRules{ExcludedNames: []string{"_"}}, ID: "go", Scope: "source.go", Rules: CodeRules, Extensions: []string{".go"}, Comments: cComments, Brackets: cBrackets,
 		AutoClosing: scriptClosing},
 	{ID: "graphql", Scope: "source.graphql", Rules: CodeRules, Extensions: []string{".graphql", ".gql"}, Comments: hashComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
 	// ' is not paired: it marks primes in names, as foldl'.
@@ -398,7 +398,7 @@ var bundledLanguages = []Language{
 	{ID: "r", Extensions: []string{".r", ".rhistory", ".rmd", ".rprofile", ".rt"}, Comments: hashComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
 	{ID: "ruby", Scope: "source.ruby", Rules: CodeRules, Extensions: []string{".rb", ".rbx", ".rjs", ".gemspec", ".pp"}, FileNames: []string{"rakefile", "gemfile"},
 		Comments: Comments{Line: "#", Block: Pair{"=begin", "=end"}}, Brackets: cBrackets, AutoClosing: cAutoClosing},
-	{ID: "rust", Scope: "source.rust", Rules: CodeRules, Extensions: []string{".rs", ".rlib"}, Comments: cComments, Brackets: cBrackets,
+	{Candidates: &CandidateRules{ExcludedNames: []string{"_"}, IdentifierPrefixes: []string{"r#"}}, ID: "rust", Scope: "source.rust", Rules: CodeRules, Extensions: []string{".rs", ".rlib"}, Comments: cComments, Brackets: cBrackets,
 		AutoClosing: []Pair{{"{", "}"}, {"[", "]"}, {"(", ")"}, {`"`, `"`}}},
 	{ID: "scala", Extensions: []string{".scala", ".sc", ".sbt"}, Comments: cComments, Brackets: cBrackets, AutoClosing: cAutoClosing},
 	{ID: "scheme", Extensions: []string{".scm", ".ss", ".sch", ".rkt"},

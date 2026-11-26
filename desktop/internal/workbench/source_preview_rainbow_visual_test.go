@@ -37,8 +37,8 @@ func TestVisualProblemsSourcePreviewRainbow(t *testing.T) {
 				Theme: themeChoice(theme), Language: "en", DisableAutoSave: true,
 				EditorPreferences: core.EditorStoredPreferences{
 					RainbowBrackets: &on, RainbowVariables: &on, IndentGuides: &on, RainbowIndentGuides: &on,
-					RainbowBracketLightColors: []string{"#B04A45", "#317856", "#6752BA", "#996111"},
-					RainbowBracketDarkColors:  []string{"#EF8B80", "#91C99F", "#B3A0EA", "#E6BF70"},
+					RainbowLightColors: []string{"#B04A45", "#317856", "#6752BA", "#996111"},
+					RainbowDarkColors:  []string{"#EF8B80", "#91C99F", "#B3A0EA", "#E6BF70"},
 				},
 			}); err != nil {
 				t.Fatal(err)

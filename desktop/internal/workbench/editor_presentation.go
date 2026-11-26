@@ -11,9 +11,9 @@ func (a *App) editorPresentation() editorview.Presentation {
 		IndentGuides: prefs.IndentGuides,
 	}
 	if prefs.RainbowIndentGuidesEffective {
-		presentation.IndentGuideColors = prefs.RainbowBracketLightColors
+		presentation.IndentGuideColors = prefs.RainbowLightColors
 		if a.colors.Dark {
-			presentation.IndentGuideColors = prefs.RainbowBracketDarkColors
+			presentation.IndentGuideColors = prefs.RainbowDarkColors
 		}
 	}
 	return presentation

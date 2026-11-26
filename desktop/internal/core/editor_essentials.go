@@ -16,8 +16,8 @@ type EditorStoredPreferences struct {
 	InlayHints                *bool    `json:"inlayHints,omitempty"`
 	RainbowBrackets           *bool    `json:"rainbowBrackets,omitempty"`
 	RainbowVariables          *bool    `json:"rainbowVariables,omitempty"`
-	RainbowBracketLightColors []string `json:"rainbowBracketLightColors,omitempty"`
-	RainbowBracketDarkColors  []string `json:"rainbowBracketDarkColors,omitempty"`
+	RainbowLightColors        []string `json:"rainbowLightColors,omitempty"`
+	RainbowDarkColors         []string `json:"rainbowDarkColors,omitempty"`
 	CursorStyle               string   `json:"cursorStyle,omitempty"`
 	CursorBlink               *bool    `json:"cursorBlink,omitempty"`
 	AutoSaveDelayMilliseconds *uint64  `json:"autoSaveDelayMilliseconds,omitempty"`
@@ -33,8 +33,8 @@ type EditorPreferences struct {
 	InlayHints                       bool     `json:"inlayHints"`
 	RainbowBrackets                  bool     `json:"rainbowBrackets"`
 	RainbowVariables                 bool     `json:"rainbowVariables"`
-	RainbowBracketLightColors        []string `json:"rainbowBracketLightColors"`
-	RainbowBracketDarkColors         []string `json:"rainbowBracketDarkColors"`
+	RainbowLightColors               []string `json:"rainbowLightColors"`
+	RainbowDarkColors                []string `json:"rainbowDarkColors"`
 	CursorStyle                      string   `json:"cursorStyle"`
 	CursorBlink                      bool     `json:"cursorBlink"`
 	AutoSaveDelayMilliseconds        uint64   `json:"autoSaveDelayMilliseconds"`

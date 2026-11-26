@@ -24,8 +24,8 @@ func rainbowPreviewFixture(t *testing.T) (*harness, *document, *sourcePreview) {
 	prefs := store.At(t.TempDir())
 	if err := prefs.Save(settingsFile, settings{EditorPreferences: core.EditorStoredPreferences{
 		RainbowBrackets: &on, RainbowVariables: &on, IndentGuides: &on, RainbowIndentGuides: &on,
-		RainbowBracketLightColors: []string{"#ABCDEF", "#654321", "#4729AD", "#DD7831"},
-		RainbowBracketDarkColors:  []string{"#DCBAFE", "#123456", "#DA9274", "#1387DD"},
+		RainbowLightColors: []string{"#ABCDEF", "#654321", "#4729AD", "#DD7831", "#2879BD", "#D23878"},
+		RainbowDarkColors:  []string{"#DCBAFE", "#123456", "#DA9274", "#1387DD"},
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func rainbowPreviewFixture(t *testing.T) (*harness, *document, *sourcePreview) {
 	})
 	d := h.app.project.docs.byPath(path)
 	h.await("document rainbow colors installed", func() bool {
-		return viewTextInForeground(d.view, 0x4729AD) == "valuevaluevalue"
+		return viewTextInForeground(d.view, 0xDD7831) == "valuevaluevalue"
 	})
 	sp := &h.app.problems.preview
 	sp.path, sp.line = path, 1
@@ -51,7 +51,7 @@ func TestEditableSourcePreviewKeepsRainbowColorsThroughEditsAndDisable(t *testin
 	h, d, sp := rainbowPreviewFixture(t)
 	assertColors := func() {
 		t.Helper()
-		if got := viewTextInForeground(sp.view, 0x4729AD); got != "valuevaluevalue" {
+		if got := viewTextInForeground(sp.view, 0xDD7831); got != "valuevaluevalue" {
 			t.Fatalf("preview variable colors = %q, want all occurrences of value", got)
 		}
 		if got, want := viewTextInForeground(sp.view, 0xABCDEF), viewTextInForeground(d.view, 0xABCDEF); got != want {
@@ -66,13 +66,13 @@ func TestEditableSourcePreviewKeepsRainbowColorsThroughEditsAndDisable(t *testin
 		assertColors()
 		h.app.scheduleColorDecorations(h.app.project, d, 0)
 		h.await("mirrored preview rainbow colors refreshed", func() bool {
-			return viewTextInForeground(sp.view, 0x4729AD) == "valuevaluevalue"
+			return viewTextInForeground(sp.view, 0xDD7831) == "valuevaluevalue"
 		})
 		assertColors()
 	}
 	// Use a different palette so the assertion needs the fresh worker result, rather than the
 	// foreground ranges moved by either mirrored edit.
-	h.app.editorPreferences.RainbowBracketLightColors = []string{"#2879BD"}
+	h.app.editorPreferences.RainbowLightColors = []string{"#2879BD"}
 	h.app.refreshBuiltinRainbowColors()
 	h.await("edited preview received a fresh palette", func() bool {
 		return viewHasForeground(sp.view, 0x2879BD)
@@ -163,7 +163,7 @@ func TestSourcePreviewDropsUnsupportedBracketIndexBeforeProviderAnswer(t *testin
 	if got := paintPairs(); got != 0 {
 		t.Fatalf("preview kept %d obsolete bracket pair markers while the provider answer is pending", got)
 	}
-	if !viewHasForeground(sp.view, 0x4729AD) {
+	if !viewHasForeground(sp.view, 0xDD7831) {
 		t.Fatal("withdrawing the grammar also dropped the provider colors it should preserve")
 	}
 }

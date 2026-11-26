@@ -31,8 +31,8 @@ func TestEditorPreferencesPublicationProtectsEveryWindowSave(t *testing.T) {
 		t.Helper()
 		stored := core.EditorStoredPreferences{
 			RainbowBrackets: &on, RainbowVariables: &on,
-			RainbowBracketLightColors: colors,
-			RainbowBracketDarkColors:  []string{"#AABBCC", "#DDEEFF"},
+			RainbowLightColors: colors,
+			RainbowDarkColors:  []string{"#AABBCC", "#DDEEFF"},
 		}
 		resolved, err := core.NewClient().ResolveEditorPreferences(ctx, stored)
 		if err != nil {
@@ -77,7 +77,7 @@ func TestEditorPreferencesWatchReadsExternalChangesAndPreservesThemOnSave(t *tes
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	h.settle()
 	on := true
-	want := core.EditorStoredPreferences{RainbowVariables: &on, RainbowBracketLightColors: []string{"#123456", "#ABCDEF"}}
+	want := core.EditorStoredPreferences{RainbowVariables: &on, RainbowLightColors: []string{"#123456", "#ABCDEF"}}
 	// A separate client has its own Store and no in-process publication. Write
 	// before this client handles the directory notification, then save locally.
 	external := store.At(h.store.Dir())
@@ -96,7 +96,7 @@ func TestEditorPreferencesWatchReadsExternalChangesAndPreservesThemOnSave(t *tes
 	h.await("external editor preferences to reach the current window", func() bool {
 		return reflect.DeepEqual(h.app.settings.EditorPreferences, want)
 	})
-	if !h.app.editorPreferences.RainbowVariables || !reflect.DeepEqual(h.app.editorPreferences.RainbowBracketLightColors, want.RainbowBracketLightColors) {
+	if !h.app.editorPreferences.RainbowVariables || !reflect.DeepEqual(h.app.editorPreferences.RainbowLightColors, want.RainbowLightColors) {
 		t.Fatal("the external settings source did not reach editor presentation")
 	}
 }

@@ -70,7 +70,7 @@ func TestEditorRainbowBracketsSavesAndRestoresRealPreferences(t *testing.T) {
 		stored, resolved = s, r
 		writes++
 	}}), Values{Language: "en", WindowWidth: windowMinWidth, WindowHeight: windowMinHeight, EditorStoredPreferences: core.EditorStoredPreferences{
-		RainbowBracketLightColors: []string{"#AA3300", "#2266FF"},
+		RainbowLightColors: []string{"#AA3300", "#2266FF"},
 	}})
 	w.sess.page = pageEditor
 	d := openWindow(t, w)
@@ -96,7 +96,7 @@ func TestEditorRainbowBracketsSavesAndRestoresRealPreferences(t *testing.T) {
 	d.click(toggle)
 	d.pump()
 	if writes != 1 || stored.RainbowBrackets == nil || !*stored.RainbowBrackets || !resolved.RainbowBrackets ||
-		len(stored.RainbowBracketLightColors) != 2 || stored.RainbowBracketDarkColors != nil {
+		len(stored.RainbowLightColors) != 2 || stored.RainbowDarkColors != nil {
 		t.Fatalf("switch should preserve the custom two-color light palette and inherit dark colors: %+v", stored)
 	}
 
@@ -106,7 +106,7 @@ func TestEditorRainbowBracketsSavesAndRestoresRealPreferences(t *testing.T) {
 	d.pump()
 	clickPickerButton(w.text.Settings.Cancel)
 	d.pump()
-	if writes != 1 || stored.RainbowBracketLightColors[0] != "#AA3300" || w.sess.finished.Load() {
+	if writes != 1 || stored.RainbowLightColors[0] != "#AA3300" || w.sess.finished.Load() {
 		t.Fatal("cancel should close the picker and keep the settings window and color")
 	}
 	d.click(swatch)
@@ -119,8 +119,8 @@ func TestEditorRainbowBracketsSavesAndRestoresRealPreferences(t *testing.T) {
 	clickPickerButton(i18n.Shared(i18n.English, "ui.save"))
 	d.pump()
 	wantLight := []string{"#9700AA", "#2266FF"}
-	if writes != 2 || !slices.Equal(stored.RainbowBracketLightColors, wantLight) ||
-		!slices.Equal(resolved.RainbowBracketLightColors, wantLight) || stored.RainbowBracketDarkColors != nil ||
+	if writes != 2 || !slices.Equal(stored.RainbowLightColors, wantLight) ||
+		!slices.Equal(resolved.RainbowLightColors, wantLight) || stored.RainbowDarkColors != nil ||
 		w.editorPrefsError != "" {
 		t.Fatalf("color picker save should preserve the other colors and normalize the applied value: %+v", stored)
 	}
@@ -132,7 +132,7 @@ func TestEditorRainbowBracketsSavesAndRestoresRealPreferences(t *testing.T) {
 	d.pump()
 	clickPickerButton(i18n.Shared(i18n.English, "ui.save"))
 	d.pump()
-	if writes != 3 || !slices.Equal(stored.RainbowBracketLightColors, []string{"#9700AA", "#2266FF", "#00695C"}) {
+	if writes != 3 || !slices.Equal(stored.RainbowLightColors, []string{"#9700AA", "#2266FF", "#00695C"}) {
 		t.Fatalf("add color should append one slot without changing the existing colors: %+v", stored)
 	}
 	added := i18n.SharedFormat(i18n.English, "desktop.editorPrefs.rainbowPaletteColor", map[string]string{"palette": lightLabel, "number": "3"})
@@ -140,7 +140,7 @@ func TestEditorRainbowBracketsSavesAndRestoresRealPreferences(t *testing.T) {
 	d.pump()
 	clickPickerButton(i18n.Shared(i18n.English, "ui.remove"))
 	d.pump()
-	if writes != 4 || !slices.Equal(stored.RainbowBracketLightColors, wantLight) {
+	if writes != 4 || !slices.Equal(stored.RainbowLightColors, wantLight) {
 		t.Fatalf("remove color should delete only the selected slot: %+v", stored)
 	}
 
@@ -148,13 +148,13 @@ func TestEditorRainbowBracketsSavesAndRestoresRealPreferences(t *testing.T) {
 	reopened.sess.page = pageEditor
 	second := openWindow(t, reopened)
 	second.pump()
-	if !second.hit(toggle).Checked || !slices.Equal(reopened.sess.values.EditorPreferences.RainbowBracketLightColors, wantLight) || second.has(added) {
+	if !second.hit(toggle).Checked || !slices.Equal(reopened.sess.values.EditorPreferences.RainbowLightColors, wantLight) || second.has(added) {
 		t.Fatal("reopened settings did not display the values saved to the editor configuration")
 	}
 
 	d.click(w.text.Settings.RestoreDefaults)
 	d.pump()
-	if writes != 5 || stored.RainbowBrackets != nil || stored.RainbowBracketLightColors != nil || resolved.RainbowBrackets || d.has(swatch) {
+	if writes != 5 || stored.RainbowBrackets != nil || stored.RainbowLightColors != nil || resolved.RainbowBrackets || d.has(swatch) {
 		t.Fatalf("reset did not clear the rainbow bracket preferences: writes=%d, stored=%+v, resolved=%t, swatches=%t", writes, stored, resolved.RainbowBrackets, d.has(swatch))
 	}
 }

@@ -6,6 +6,16 @@ import (
 	"testing"
 )
 
+func TestPluginSemanticHighlightsKeepKindsAndTruncation(t *testing.T) {
+	result, err := PluginSemanticHighlightRanges(BackendEvent{Result: json.RawMessage(`{"ranges":[{"start":{"line":0,"utf16Column":1},"end":{"line":0,"utf16Column":4},"kind":3},{"start":{"line":1,"utf16Column":0},"end":{"line":1,"utf16Column":3}}],"truncated":true}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Truncated || len(result.Ranges) != 2 || result.Ranges[0].Kind == nil || *result.Ranges[0].Kind != 3 || result.Ranges[1].Kind != nil || result.Ranges[0].Start.UTF16Column != 1 {
+		t.Fatalf("highlight metadata lost: %+v", result)
+	}
+}
+
 func TestPluginSemanticLocationDecodesCoreShape(t *testing.T) {
 	var locations struct {
 		Locations []PluginSemanticLocation `json:"locations"`

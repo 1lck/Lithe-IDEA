@@ -202,7 +202,11 @@ func (a *App) applySymbolHighlights(pending *semanticPending, event core.Backend
 		reported, err := core.PluginSemanticHighlightRanges(event)
 		var ranges []editorview.Range
 		if err == nil {
-			ranges, err = projectSymbolHighlightRanges(ctx, text, reported)
+			projected := make([]core.PluginDocumentRange, len(reported.Ranges))
+			for i, highlight := range reported.Ranges {
+				projected[i] = highlight.PluginDocumentRange
+			}
+			ranges, err = projectSymbolHighlightRanges(ctx, text, projected)
 		}
 		// log-exempt: 用户取消：选区、文本或工作区已经更换。
 		if errors.Is(err, context.Canceled) {
@@ -211,6 +215,9 @@ func (a *App) applySymbolHighlights(pending *semanticPending, event core.Backend
 		return func(a *App) {
 			if a.symbolHighlightCurrent(p, key, gen) {
 				s.cancel = nil
+				if reported.Truncated {
+					a.backgroundFailed("document_highlight_truncated", errors.New("highlight_limit"))
+				}
 				if err != nil {
 					a.backgroundFailed("plugin_semantics", err)
 					if !errors.Is(err, editorview.ErrPosition) {

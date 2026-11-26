@@ -3,7 +3,6 @@ package syntax
 import (
 	"bytes"
 	"context"
-	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/rope"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/textmate"
@@ -14,9 +13,6 @@ const (
 	RainbowBracketMaxBytes = 1 << 20
 	// rainbowBracketMaxCount matches the input limit of Core's editor.rainbowBrackets.
 	rainbowBracketMaxCount = 10_000
-	// Cold grammar compilation shares this background line budget. The viewport's tighter
-	// limit may leave a line incomplete during first use, which this scan cannot accept.
-	rainbowBracketLineLimit = 250 * time.Millisecond
 )
 
 // Bracket identifies one source delimiter by its absolute UTF-8 byte offset.
@@ -31,58 +27,33 @@ func RainbowBrackets(ctx context.Context, text rope.Rope, language *Syntax) []Br
 	return brackets
 }
 
-// RainbowCandidates uses a single grammar pass for the requested bracket and variable ranges.
-// It runs off the window thread. Incomplete tokenization discards both sets since the lexical
-// state is unknown. Each set has its own range budget, so overflow in one leaves the other valid.
+// RainbowCandidates is the synchronous snapshot helper used by isolated consumers and tests.
+// Live editors consume Highlighter.Candidates and reuse their incremental tokenization.
 func RainbowCandidates(ctx context.Context, text rope.Rope, language *Syntax, wantBrackets, wantVariables bool) ([]Bracket, []Variable) {
-	if language == nil || text.Len() == 0 || text.Len() > RainbowBracketMaxBytes || !wantBrackets && !wantVariables {
+	if language == nil || text.Len() > RainbowBracketMaxBytes || !wantBrackets && !wantVariables {
 		return nil, nil
 	}
-	tokenizer := language.grammar.NewTokenizer()
-	var state *textmate.StateStack
-	var tokens []textmate.Token
-	var lineBytes []byte
-	var brackets []Bracket
-	variables := variableCandidates{language: language.Language().ID}
-	deadline, hasDeadline := ctx.Deadline()
-	start := 0
-	for line, lines := 0, text.LineCount(); line < lines; line++ {
-		end := text.LineEnd(line)
-		if ctx.Err() != nil || end-start > maxLineBytes {
+	h := newHighlighter(language, text, HighlighterOptions{LineLimit: -1, CollectCandidates: true}, false)
+	defer h.Close()
+	for h.step() {
+		if ctx.Err() != nil {
 			return nil, nil
 		}
-		lineLimit := rainbowBracketLineLimit
-		if hasDeadline {
-			lineLimit = min(lineLimit, time.Until(deadline))
-			if lineLimit <= 0 {
-				return nil, nil
-			}
-		}
-		lineBytes = text.AppendRange(lineBytes[:0], start, end)
-		var stopped bool
-		tokens, state, stopped = tokenizer.TokenizeLine(tokens[:0], lineBytes, state, lineLimit)
-		if stopped {
-			return nil, nil
-		}
-		if wantBrackets {
-			brackets, wantBrackets = appendRainbowBrackets(brackets, lineBytes, tokens, start)
-		}
-		if wantVariables {
-			wantVariables = variables.appendLine(lineBytes, tokens, start)
-		}
-		if !wantBrackets && !wantVariables {
-			return nil, nil
-		}
-		start = end + 1
 	}
-	// log-exempt: 用户取消：替换或关闭编辑器后丢弃该快照的候选范围。
-	if ctx.Err() != nil {
+	result, err := h.Candidates(ctx, text)
+	if err != nil {
 		return nil, nil
 	}
-	return brackets, variables.ranges
+	if !wantBrackets {
+		result.Brackets = nil
+	}
+	if !wantVariables {
+		result.Variables = nil
+	}
+	return result.Brackets, result.Variables
 }
 
-func appendRainbowBrackets(brackets []Bracket, line []byte, tokens []textmate.Token, start int) ([]Bracket, bool) {
+func appendRainbowBrackets(brackets []Bracket, line []byte, tokens []textmate.Token, start, limit int) ([]Bracket, bool) {
 	token := 0
 	for from := 0; from < len(line); {
 		next := bytes.IndexAny(line[from:], "()[]{}")
@@ -97,8 +68,8 @@ func appendRainbowBrackets(brackets []Bracket, line []byte, tokens []textmate.To
 		if len(tokens) == 0 || !codeTokenScope(tokens[token].Scopes) {
 			continue
 		}
-		if len(brackets) == rainbowBracketMaxCount {
-			return nil, false
+		if len(brackets) == limit {
+			return brackets, false
 		}
 		brackets = append(brackets, Bracket{Offset: uint32(start + at), Bracket: string(line[at:from])})
 	}

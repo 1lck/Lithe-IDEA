@@ -21,7 +21,7 @@ func TestEditorPreferencesPublicationRefreshesOpenSettings(t *testing.T) {
 	on := true
 	stored := core.EditorStoredPreferences{
 		RainbowBrackets: &on, RainbowVariables: &on,
-		RainbowBracketLightColors: []string{"#112233", "#445566"},
+		RainbowLightColors: []string{"#112233", "#445566"},
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -37,7 +37,7 @@ func TestEditorPreferencesPublicationRefreshesOpenSettings(t *testing.T) {
 	}
 	d.click(i18n.Shared(i18n.English, "desktop.editorPrefs.lineNumbers"))
 	d.pump()
-	if saved.RainbowVariables == nil || !*saved.RainbowVariables || !reflect.DeepEqual(saved.RainbowBracketLightColors, stored.RainbowBracketLightColors) {
+	if saved.RainbowVariables == nil || !*saved.RainbowVariables || !reflect.DeepEqual(saved.RainbowLightColors, stored.RainbowLightColors) {
 		t.Fatalf("editing another setting reverted the published rainbow preferences: %+v", saved)
 	}
 }

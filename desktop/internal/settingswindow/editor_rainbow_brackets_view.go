@@ -70,8 +70,8 @@ func rainbowHex(color gfx.Color) string {
 }
 
 func (w *window) loadRainbowPalettes(value core.EditorPreferences) {
-	w.rainbowLight.load(value.RainbowBracketLightColors)
-	w.rainbowDark.load(value.RainbowBracketDarkColors)
+	w.rainbowLight.load(value.RainbowLightColors)
+	w.rainbowDark.load(value.RainbowDarkColors)
 }
 
 func (w *window) editorRainbowCard(c ui.C) {
@@ -100,14 +100,14 @@ func (w *window) rainbowControls(c ui.C, current core.EditorPreferences) {
 		return
 	}
 	stored := w.sess.values.EditorStoredPreferences
-	light, lightChanged := w.rainbowLight.changed(current.RainbowBracketLightColors)
-	dark, darkChanged := w.rainbowDark.changed(current.RainbowBracketDarkColors)
+	light, lightChanged := w.rainbowLight.changed(current.RainbowLightColors)
+	dark, darkChanged := w.rainbowDark.changed(current.RainbowDarkColors)
 	if lightChanged || darkChanged {
 		if lightChanged {
-			stored.RainbowBracketLightColors = light
+			stored.RainbowLightColors = light
 		}
 		if darkChanged {
-			stored.RainbowBracketDarkColors = dark
+			stored.RainbowDarkColors = dark
 		}
 		if value, ok := w.resolveEditorPresentation(stored); ok {
 			w.publishEditorPresentation(stored, value)

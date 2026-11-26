@@ -213,8 +213,8 @@ func TestBuiltInRainbowVariablesShareColorByNameWithoutPluginServices(t *testing
 	enabled := true
 	prefs := store.At(t.TempDir())
 	if err := prefs.Save(settingsFile, settings{EditorPreferences: core.EditorStoredPreferences{
-		RainbowVariables:          &enabled,
-		RainbowBracketLightColors: []string{"#ABCDEF", "#654321", "#4729AD", "#DD7831"},
+		RainbowVariables:   &enabled,
+		RainbowLightColors: []string{"#ABCDEF", "#654321", "#4729AD", "#DD7831", "#2879BD", "#D23878"},
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -230,12 +230,12 @@ func TestBuiltInRainbowVariablesShareColorByNameWithoutPluginServices(t *testing
 		t.Fatal("standalone editor assembled a plugin service")
 	}
 	h.await("rainbow variables applied", func() bool {
-		return viewTextInForeground(d.view, 0x4729AD) != ""
+		return viewTextInForeground(d.view, 0xDD7831) != ""
 	})
-	if got := viewTextInForeground(d.view, 0x4729AD); got != "valuevaluevalue" {
+	if got := viewTextInForeground(d.view, 0xDD7831); got != "valuevaluevalue" {
 		t.Errorf("colored text for value = %q", got)
 	}
-	if got := viewTextInForeground(d.view, 0xABCDEF); got != "locallocal" {
+	if got := viewTextInForeground(d.view, 0xD23878); got != "locallocal" {
 		t.Errorf("colored text for local = %q", got)
 	}
 
@@ -244,7 +244,7 @@ func TestBuiltInRainbowVariablesShareColorByNameWithoutPluginServices(t *testing
 	h.await("variables and brackets applied together", func() bool {
 		return strings.Contains(viewTextInForeground(d.view, 0xABCDEF), "}")
 	})
-	if got := viewTextInForeground(d.view, 0x4729AD); got != "valuevaluevalue" {
+	if got := viewTextInForeground(d.view, 0xDD7831); got != "valuevaluevalue" {
 		t.Errorf("brackets changed the variable colors: %q", got)
 	}
 	h.app.editorPreferences.RainbowVariables = false
@@ -252,7 +252,7 @@ func TestBuiltInRainbowVariablesShareColorByNameWithoutPluginServices(t *testing
 	h.await("brackets reapplied without variables", func() bool {
 		return strings.Contains(viewTextInForeground(d.view, 0xABCDEF), "}")
 	})
-	if got := viewTextInForeground(d.view, 0x4729AD); got != "" {
+	if got := viewTextInForeground(d.view, 0xDD7831); got != "" {
 		t.Errorf("variables still colored after disabling: %q", got)
 	}
 }
@@ -266,8 +266,8 @@ func TestBuiltInRainbowBracketsWithoutPluginServices(t *testing.T) {
 	enabled := true
 	prefs := store.At(t.TempDir())
 	if err := prefs.Save(settingsFile, settings{EditorPreferences: core.EditorStoredPreferences{
-		RainbowBrackets:           &enabled,
-		RainbowBracketLightColors: []string{"#ABCDEF", "#123456"},
+		RainbowBrackets:    &enabled,
+		RainbowLightColors: []string{"#ABCDEF", "#123456"},
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +287,7 @@ func TestBuiltInRainbowBracketsWithoutPluginServices(t *testing.T) {
 	})
 
 	// A changed configured palette takes effect on the already-open document.
-	h.app.editorPreferences.RainbowBracketLightColors = []string{"#DD7831"}
+	h.app.editorPreferences.RainbowLightColors = []string{"#DD7831"}
 	h.app.refreshBuiltinRainbowColors()
 	h.await("updated bracket palette", func() bool { return viewHasForeground(d.view, 0xDD7831) })
 
@@ -436,5 +436,36 @@ func TestMoveOpenDocumentInvalidatesColorDecorations(t *testing.T) {
 	h.app.finishColorDecorations(p, d, request, generation, d.view, revision, prepared, nil)
 	if viewHasForeground(d.view, 0xC00050) {
 		t.Error("the renamed document kept colors selected for its old path")
+	}
+}
+
+func resolveBuiltinRainbow(ctx context.Context, text rope.Rope, grammar *syntax.Syntax, colorBrackets, colorVariables bool) (builtinRainbow, error) {
+	brackets, variables := syntax.RainbowCandidates(ctx, text, grammar, true, colorVariables)
+	resolved, err := resolveRainbowCandidates(ctx, syntax.CandidateSnapshot{Brackets: brackets, Variables: variables}, colorBrackets, colorVariables, nil)
+	if resolved == nil {
+		return builtinRainbow{}, err
+	}
+	return resolved.result, err
+}
+
+func TestRainbowCandidatesReuseResolvedCoreResult(t *testing.T) {
+	candidates := syntax.CandidateSnapshot{Brackets: []syntax.Bracket{{Offset: 0, Bracket: "{"}, {Offset: 1, Bracket: "}"}}}
+	first, err := resolveRainbowCandidates(t.Context(), candidates, false, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A cancelled request cannot call Core, so reusing its complete answer still succeeds.
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	next, err := resolveRainbowCandidates(ctx, candidates, false, false, first)
+	if err != nil || next != first {
+		t.Fatalf("unchanged candidates were not reused: %v", err)
+	}
+	if len(next.result.matches) != 2 || len(next.result.indentScopes) != 1 {
+		t.Fatalf("pairing lost while colors disabled: %+v", next.result)
+	}
+	_, err = resolveRainbowCandidates(ctx, candidates, true, false, first)
+	if err == nil {
+		t.Fatal("changed options reused an incompatible Core result")
 	}
 }

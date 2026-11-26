@@ -321,6 +321,7 @@ func New(cfg Config) *View {
 	}
 	notify := cfg.Notify
 	v.hl = syntax.NewHighlighter(cfg.Syntax, text, syntax.HighlighterOptions{
+		CollectCandidates: true,
 		OnChange: func(first, last int) {
 			v.hlGen.Add(1)
 			if notify != nil {
