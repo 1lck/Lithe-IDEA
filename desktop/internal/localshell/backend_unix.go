@@ -120,6 +120,7 @@ func startBackend(config Config) (backend, error) {
 		},
 		promptToken:         promptToken,
 		retryHangupAtPrompt: bash && promptToken != "",
+		waitForJobs:         jobExecWaiter(cmd.Process.Pid, promptToken),
 	}, nil
 }
 

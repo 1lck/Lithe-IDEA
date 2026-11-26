@@ -93,6 +93,8 @@ type backend struct {
 	promptToken string
 	// retryHangupAtPrompt is set by the Unix backend for integrated Bash.
 	retryHangupAtPrompt bool
+	// waitForJobs lets newly forked jobs finish starting before the shell forwards SIGHUP.
+	waitForJobs func()
 }
 
 // ExitError is why a shell ended with a nonzero status. It has the same
@@ -451,6 +453,23 @@ func (shell *Shell) hangUpAtPrompt(shown <-chan struct{}) {
 // hangUp asks the shell to end and kills it if it outlives killGrace. The
 // waiter releases the terminal after the process exits and output is drained.
 func (shell *Shell) hangUp() {
+	shell.mu.Lock()
+	atPrompt := shell.lastMark == 'B'
+	shell.mu.Unlock()
+	retry := atPrompt && shell.b.retryHangupAtPrompt
+	if atPrompt && shell.b.waitForJobs != nil {
+		// Close may run on the window thread. Keep procfs and the bounded
+		// wait for exec off it, even when the prompt was already visible.
+		go func() {
+			shell.b.waitForJobs()
+			shell.signalHangup(retry)
+		}()
+		return
+	}
+	shell.signalHangup(retry)
+}
+
+func (shell *Shell) signalHangup(retryAtPrompt bool) {
 	select {
 	case <-shell.done:
 		return
@@ -459,15 +478,10 @@ func (shell *Shell) hangUp() {
 	shell.b.hangup()
 	kill := time.AfterFunc(killGrace, shell.b.kill)
 	var retry *time.Timer
-	if shell.b.retryHangupAtPrompt {
-		shell.mu.Lock()
-		atPrompt := shell.lastMark == 'B'
-		shell.mu.Unlock()
-		if atPrompt {
-			// Bash can print the prompt before Readline is ready to handle
-			// SIGHUP. Give the shell another chance to forward it to its jobs.
-			retry = time.AfterFunc(hangupRetryDelay, shell.b.hangup)
-		}
+	if retryAtPrompt {
+		// Bash can print the prompt before Readline is ready to handle
+		// SIGHUP. Give the shell another chance to forward it to its jobs.
+		retry = time.AfterFunc(hangupRetryDelay, shell.b.hangup)
 	}
 	go func() {
 		<-shell.done

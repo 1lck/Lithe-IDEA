@@ -326,6 +326,20 @@ func startHangupShell(t *testing.T, name string, env []string) *integrated {
 
 var jobPattern = regexp.MustCompile(`\r\njob=(\d+)\r\n`)
 
+func TestClosingBashLeavesDisownedJobsRunning(t *testing.T) {
+	for _, command := range []string{"disown", "disown -h"} {
+		t.Run(command, func(t *testing.T) {
+			s := startHangupShell(t, "bash", nil)
+			s.run("sleep 300 & job=$!; "+command+"; echo job=$job\r", 1, "\r\njob=")
+			job := jobOf(t, s)
+			closeAndAwaitEnd(t, s.shell)
+			if err := syscall.Kill(job, 0); err != nil {
+				t.Fatalf("disowned job %d did not survive closing Bash: %v", job, err)
+			}
+		})
+	}
+}
+
 // jobOf is the pid the shell printed as job=<pid>; the job is killed when the test ends.
 func jobOf(t *testing.T, s *integrated) int {
 	t.Helper()

@@ -109,7 +109,8 @@ Motty 有开关。没有采用：只在命令行输入区、单击且未拖动�
 - 关闭集成终端时等 Shell 回到提示符再挂断（#2005、[#2054](https://github.com/1lck/Lithe-IDEA/issues/2054)）。Bash 运行 `PROMPT_COMMAND` 时可能无法把挂断转给后台任务。提示符钩子也能启动前台程序，所以前台进程组无法区分正在运行的用户命令和提示符钩子。显示过提示符的 Shell 如还未打出下一个 B 标记，就继续读取并丢弃输出，最多等原有的 1 秒宽限再发送 SIGHUP。未经集成或还没有提示符的 Shell 立即挂断。
 - 伪终端主端（PTY master）留到 Shell 退出并完成有界输出排空。Unix 上关闭主端会让 Shell 的读端看到 EOF 或 EIO，与 Bash 处理 SIGHUP 的顺序产生竞争。保留主端使 Bash 有机会把信号转给自己的任务。Linux 并发复现显示，Bash 打出 B 标记后仍可能错过第一次 SIGHUP，0.5 秒后被强制结束而后台任务仍在运行。集成 Bash 在提示符处挂断后，若 100 毫秒内仍未完成关闭，再给 Shell 发一次 SIGHUP，让进入输入循环的 Bash 转发；0.5 秒强制结束宽限不变。
 - 不要这样做：给会话里所有进程组都发挂断。用户 `disown` 掉的任务会被一起结束；挂断交给 Shell 转发，`disown`/`disown -h` 的语义才能保留。其他终端（如 Ghostty）也只挂断 Shell 自己的进程组。
-- 仍然存在的限制：没有集成、但用户自己配了 `PROMPT_COMMAND` 的 bash 不变。zsh 只有在后台任务刚 fork、还没 exec 的约 1 毫秒里被挂断时才会留下任务，这个窗口没有标记可以等，不处理。一直不回提示符的 Shell（例如在 `PROMPT_COMMAND` 里死循环）在 1 秒后照常挂断。
+- Linux 上，提示符可以早于后台子进程执行目标程序（`exec`）。#2054 的内核信号跟踪中，Bash 已向后台任务转发 SIGHUP，子进程用继承的 Bash 处理器接收后仍然启动了 `sleep`。因此集成 Bash 和 Zsh 在提示符处关闭时，先在后台读取该 Shell 的直接子进程列表，通过 Linux 进程信息（procfs）检查内核的 `PF_FORKNOEXEC` 标志。已经执行目标程序的任务无需等待。停止的任务交给 Shell 处理，持续运行内建命令的子 Shell 最多占用所有任务共享的 100 毫秒宽限。procfs 不可读时按原有顺序挂断。
+- 没有集成、但用户自己配了 `PROMPT_COMMAND` 的 bash 不变。一直不回提示符的 Shell（例如在 `PROMPT_COMMAND` 里死循环）在 1 秒后照常挂断。
 - 没有消费方的回调和目录上报已由 #1984 删除，见“只上报有消费方的内容”。
 - Windows：PowerShell 的 `-NoExit -EncodedCommand` 启动和 cmd 的 `PROMPT` 环境变量由 termview 首次启用，实机运行验收还没做，见 #2008。
 - 重新评估的触发条件：cmd 有了能上报命令开始的方式；termview 能拿到外层拖动的按下/松开事件；或者用户反馈需要关闭点击移动。
@@ -118,6 +119,7 @@ Motty 有开关。没有采用：只在命令行输入区、单击且未拖动�
 
 - `./scripts/desktop/desktop-go.sh test ./internal/localshell/... ./internal/term/... ./internal/termview/... -count=1`：真实 bash/zsh 经垫片启动并上报提示符和命令，第一个提示符出现时启动目录已删除；挂断能结束 Shell 和后台任务；命令刚结束、bash 还在运行 `PROMPT_COMMAND`（包括慢的 `PROMPT_COMMAND`）时关闭，后台任务也会结束（`TestClosingAnIntegratedShellRightAfterACommandHangsUpItsJobs`，关掉推迟后 bash 的三个用例都会失败）；一直不回提示符的 Shell 在宽限期后结束（`TestClosingAnIntegratedShellThatNeverPromptsStillEndsIt`）；标记识别跨分片、只认本会话令牌（`TestPromptMarks*`、`TestPromptMarksAcrossEverySplit`）；命令结束只在退出码有效时收回输入模式（`TestACommandEndReclaimsOnlyWithAValidStatus`）；WSL 脚本在起始目录启动登录 Shell（`TestWSLScriptStartsTheLoginShellInTheStartFolder`）；启动文件还在运行时关闭，Shell 被结束、目录被删除（`TestClosingAShellDuringItsStartupRemovesItsPrivateDirectory`）；令牌每次启动更换；提示符处尺寸保持后只发一次；点击按条件发送方向键。
 - `TestCloseLetsTheShellHandleHangupBeforeReleasingThePTY` 用可控后端验证关闭顺序。即使提示符钩子占用前台进程组，也先等 B 标记，发出挂断后再等 Shell 退出，最后关闭主端。
+- `TestBashJobWaiterDistinguishesForkFromExec` 用命名管道将子进程停在执行目标程序之前，在虚拟时钟上验证等待上限。放行后再次检查，已执行目标程序的子进程不会触发等待。`TestClosingBashLeavesDisownedJobsRunning` 用真实终端验证 `disown` 和 `disown -h`。
 - 运行 `./internal/workbench/` 测试前后统计 `TMPDIR` 下的 `motty-shell.*` 目录，数量不变。
 - `scripts/desktop/verify/verify-runtime-bundle-immutability.sh`：确认运行时没有写入发行目录。
 - 在 Windows 上运行 `TestWindowsShellsMarkTheirPromptsUnderTheToken`（PowerShell 在下一个提示符前标记命令开始、屏幕开启两项功能，cmd 不标记）、`TestPowerShellReadLineIntegrationMarksTheCommandStart`、`TestPowerShellPromptIntegrationPreservesCustomPromptAndExitStatus`，它们只在 Windows 编译。

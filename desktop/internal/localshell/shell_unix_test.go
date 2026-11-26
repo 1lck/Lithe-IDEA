@@ -260,6 +260,33 @@ func TestCloseLetsTheShellHandleHangupBeforeReleasingThePTY(t *testing.T) {
 	})
 }
 
+func TestBashPromptHangupWaitsForJobExec(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		execReady := make(chan struct{})
+		var signals int
+		shell := resizeTestShell(backend{
+			retryHangupAtPrompt: true,
+			waitForJobs:         func() { <-execReady },
+			hangup:              func() { signals++ },
+		})
+		shell.space = sync.NewCond(&shell.mu)
+		shell.prompted, shell.lastMark = true, 'B'
+		liveShells.Acquire()
+		defer close(shell.done)
+
+		shell.Close()
+		synctest.Wait()
+		if signals != 0 {
+			t.Errorf("sent %d hangups while the job still had Bash's signal handler", signals)
+		}
+		close(execReady)
+		synctest.Wait()
+		if signals != 1 {
+			t.Errorf("sent %d hangups after exec, want one", signals)
+		}
+	})
+}
+
 func TestHangupRetriesAtTheBashPromptBeforeForcingExit(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		signals := make(chan string, 3)
