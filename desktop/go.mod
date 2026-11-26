@@ -21,4 +21,4 @@ require (
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 )
 
-replace github.com/vivaui/viva => github.com/Lithe-IDEA/viva v0.6.10-0.20261126074811-7696355e44b5
+replace github.com/vivaui/viva => github.com/Lithe-IDEA/viva v0.6.10-0.20261126085257-600e6846f15a

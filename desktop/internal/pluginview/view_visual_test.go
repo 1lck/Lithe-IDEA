@@ -110,6 +110,8 @@ func TestVisualPluginView(t *testing.T) {
 					ui.Column(c.Key("body")).Fill().Background(theme.Background).Children(func() { Draw(c, s, host, true) })
 				},
 				Theme: &theme, Background: &background, Invalidator: invalidator,
+				// Every client window the view is drawn in turns these on.
+				EllipsisTooltips: true,
 			})
 			session, err := headless.Open(ui.Configure(page, app.Config{Width: 480, Height: 860, Invalidator: invalidator}), nil, headless.Options{})
 			if err != nil {
@@ -164,7 +166,11 @@ func TestVisualCanvasEllipsis(t *testing.T) {
 				theme.Tooltip = uistyle.Tooltip(dark)
 				background := theme.Background
 				host := &Host{Palette: visualPalette(theme, dark), Language: language, Icon: HostIcon}
-				page := ui.NewPage(ui.PageConfig{View: func(c ui.C) { Draw(c, s, host, true) }, Theme: &theme, Background: &background})
+				page := ui.NewPage(ui.PageConfig{
+					View: func(c ui.C) { Draw(c, s, host, true) }, Theme: &theme, Background: &background,
+					// So does every client window, which shows the full text of the cut node.
+					EllipsisTooltips: true,
+				})
 				session, err := headless.Open(ui.Configure(page, app.Config{Width: 480, Height: 300}), nil, headless.Options{})
 				if err != nil {
 					t.Fatal(err)

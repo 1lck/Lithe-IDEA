@@ -75,6 +75,22 @@ func (a *App) shellSplitter(c ui.C, which shellSplit) ui.Box {
 	return ui.Splitter(c, &a.layout.split[which]).Label(a.text.Panel.Resize)
 }
 
+// tooltipSide is where the full text of a value the tool window in slot s cuts short with an
+// ellipsis opens: toward the editor, on the inner side of the window's edge the slot lies
+// along, as the tooltips of the stripe buttons open. A path the Commit tool window cuts short
+// shows in full over the editor rather than over the rows below it, and the bottom area, along
+// the window's bottom edge, opens it above the text on every row instead of below it on the
+// upper rows and flipping above only on the rows near the edge.
+func (s slot) tooltipSide() ui.TooltipSide {
+	switch s {
+	case slotLeftTop, slotLeftBottom:
+		return ui.TooltipRight
+	case slotRightTop, slotRightBottom:
+		return ui.TooltipLeft
+	}
+	return ui.TooltipTop
+}
+
 // shellPanel declares the tool window open in slot s, the catalog item index: a header with
 // its name and a button that hides it, over a body. Most tool windows have no contents yet,
 // so their body says so, in the middle. The Git tool window has more in its header, the tabs
@@ -92,7 +108,8 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 	if tool.id == itemFind && p != nil {
 		header = 39
 	}
-	return ui.Column(c.KeyInt(int(s))).Background(a.colors.Panel).Radius(workbenchPanelRadius).Clip().Children(func() {
+	return ui.Column(c.KeyInt(int(s))).Background(a.colors.Panel).Radius(workbenchPanelRadius).Clip().
+		EllipsisTooltipOn(s.tooltipSide()).Children(func() {
 		// The header is a target of its own so a right-click on it offers to hide the tool
 		// window, as the earlier client's tool window headers did.
 		hk := c.Part("header")

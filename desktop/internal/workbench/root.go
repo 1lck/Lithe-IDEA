@@ -76,6 +76,9 @@ func (a *App) sessionConfig() app.Config {
 		// One scrollbar geometry for the whole window: every list, tree and area of the
 		// page inherits it, so the project tree and the Git log measure their bars alike.
 		BarStyle: uistyle.Bars,
+		// Text cut short with an ellipsis shows its whole value when the pointer rests on it;
+		// each region opens the tooltip toward the content beside it (shell_view.go).
+		EllipsisTooltips: true,
 	})
 	config := ui.Configure(a.root, base)
 	// An open pointer hover follows the pointer over the whole window, before the element under

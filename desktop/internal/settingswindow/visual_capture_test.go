@@ -366,6 +366,41 @@ func TestVisualToolchainEllipsis(t *testing.T) {
 	}
 }
 
+// TestVisualSidebarEllipsis captures a page name the sidebar cuts short with its full name shown
+// to its right. Only the English sidebar cuts a built-in page name short, so it is captured in
+// English alone.
+func TestVisualSidebarEllipsis(t *testing.T) {
+	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
+	if out == "" {
+		t.Skip("set LITHE_VISUAL_OUTPUT_DIR")
+	}
+	if err := os.MkdirAll(out, 0755); err != nil {
+		t.Fatal(err)
+	}
+	language := i18n.English
+	for _, theme := range []string{"dark", "light"} {
+		t.Run(theme+"-"+language.Code(), func(t *testing.T) {
+			w := newWindow(NewController(Options{
+				Text: func() *i18n.Messages { return i18n.For(language) }, Language: func() i18n.Language { return language },
+			}), Values{Theme: theme, Language: language.Code()})
+			session, err := headless.Open(w.config(), nil, headless.Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(session.Close)
+			d := &windowDriver{t: t, w: w, driver: session.Driver()}
+			d.pump()
+			full := titleOf(&w.text.Settings, pageBuild)
+			if got, _ := d.restForTip(d.cutSidebarEntry(full), session.Advance); got != full {
+				t.Fatalf("sidebar tooltip %q, want %q", got, full)
+			}
+			if err := session.Screenshot(filepath.Join(out, "ellipsis-settings-sidebar-hover-"+theme+"-"+language.Code()+".png")); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func globalVisualToolchains() toolchain.Snapshot {
 	snapshot := fixtureSnapshot()
 	snapshot.Root = ""

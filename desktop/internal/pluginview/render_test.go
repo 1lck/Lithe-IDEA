@@ -49,6 +49,8 @@ func paintView(t *testing.T, b *backend, s *Session) *viewDriver {
 		Theme:       &theme,
 		Background:  &background,
 		Invalidator: invalidator,
+		// Every client window the view is drawn in turns these on.
+		EllipsisTooltips: true,
 	})
 	driver, err := app.NewDriver(ui.Configure(page, app.Config{Width: 480, Height: 400, Invalidator: invalidator}), nil)
 	if err != nil {

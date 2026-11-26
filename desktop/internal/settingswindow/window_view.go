@@ -84,11 +84,13 @@ func (w *window) title(c ui.C) {
 	})
 }
 
-// sidebar is the column at the leading side: the search field above the list of pages.
+// sidebar is the column at the leading side: the search field above the list of pages. A
+// page name it cuts short shows in full to its right, over the page beside it.
 func (w *window) sidebar(c ui.C) {
 	p := &w.pal
 	settings := &w.text.Settings
-	ui.Column(c).Width(sidebarWidth).FillHeight().Shrink(0).Background(p.sidebar).Clip().Children(func() {
+	ui.Column(c).Width(sidebarWidth).FillHeight().Shrink(0).Background(p.sidebar).Clip().
+		EllipsisTooltipOn(ui.TooltipRight).Children(func() {
 		ui.Row(c).FillWidth().Shrink(0).PadSides(10, 10, 8, 10).Children(func() {
 			search := ui.TextField(c, &w.searchField, settings.Search, settings.Search, ui.WithID(searchID)).Icon(icons.Search).FillWidth().Height(searchHeight)
 			if w.searchField.Text() != "" {

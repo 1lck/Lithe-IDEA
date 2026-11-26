@@ -510,11 +510,12 @@ func (a *App) hiddenToolWindowRow(c ui.C, i int) (ui.Box, bool) {
 
 // statusBar is the strip across the bottom of the workbench: remote ports and the navigation
 // path of the item the user is on at the leading end
-// (status_path_view.go), and at the trailing end the readouts the user can arrange.
+// (status_path_view.go), and at the trailing end the readouts the user can arrange. Text it
+// cuts short shows in full above the bar, the only room along the window's bottom edge.
 func (a *App) statusBar(c ui.C) {
 	clicked := -1
 	ui.Row(c).FillWidth().Height(statusBarHeight).Shrink(0).Background(a.chromeFill()).
-		Items(ui.Center).PadX(chromeEdge).Children(func() {
+		Items(ui.Center).PadX(chromeEdge).EllipsisTooltipOn(ui.TooltipTop).Children(func() {
 		a.remotePortsStatusItem(c)
 		a.statusPathView(c)
 		a.pluginWorkflowStatus(c)
