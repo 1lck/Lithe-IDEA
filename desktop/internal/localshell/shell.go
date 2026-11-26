@@ -11,6 +11,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/shellkind"
 	"github.com/vivaui/viva/leaks"
 	"io"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -93,8 +94,6 @@ type backend struct {
 	promptToken string
 	// retryHangupAtPrompt is set by the Unix backend for integrated Bash.
 	retryHangupAtPrompt bool
-	// waitForJobs lets newly forked jobs finish starting before the shell forwards SIGHUP.
-	waitForJobs func()
 }
 
 // ExitError is why a shell ended with a nonzero status. It has the same
@@ -138,6 +137,9 @@ type Shell struct {
 	lastMark    byte
 	prompted    bool
 	promptShown chan struct{}
+	// hangupAfter bounds the fork/exec grace period at a fresh Linux prompt.
+	// Guarded by mu.
+	hangupAfter time.Time
 }
 
 // Kind is the family of the shell this session runs, Unknown when the program is
@@ -453,13 +455,12 @@ func (shell *Shell) hangUpAtPrompt(shown <-chan struct{}) {
 // hangUp asks the shell to end and kills it if it outlives killGrace. The
 // waiter releases the terminal after the process exits and output is drained.
 func (shell *Shell) hangUp() {
-	if shell.b.waitForJobs != nil && shell.atPrompt() {
-		// Close may run on the window thread. Keep procfs and the bounded
-		// wait for exec off it, even when the prompt was already visible.
-		go func() {
-			shell.b.waitForJobs()
-			shell.signalHangup()
-		}()
+	shell.mu.Lock()
+	delay := time.Until(shell.hangupAfter)
+	atPrompt := shell.lastMark == 'B'
+	shell.mu.Unlock()
+	if atPrompt && delay > 0 {
+		time.AfterFunc(delay, shell.signalHangup)
 		return
 	}
 	shell.signalHangup()
@@ -503,6 +504,12 @@ func (shell *Shell) sawMark(kind byte) {
 		return
 	}
 	shell.prompted = true
+	if runtime.GOOS == "linux" && shell.b.promptToken != "" {
+		// The prompt can precede exec in a background job that still has the
+		// shell's SIGHUP handler. Linux's procfs children list can omit a job
+		// during a concurrent exit. Give all jobs the same bounded grace.
+		shell.hangupAfter = time.Now().Add(jobExecGrace)
+	}
 	if shell.promptShown != nil {
 		close(shell.promptShown)
 		shell.promptShown = nil
@@ -511,6 +518,8 @@ func (shell *Shell) sawMark(kind byte) {
 
 // hangupRetryDelay lets Readline finish entering its input loop after the prompt.
 const hangupRetryDelay = 100 * time.Millisecond
+
+const jobExecGrace = 100 * time.Millisecond
 
 // killGrace is how long a shell gets to leave after a hangup before it is killed.
 const killGrace = 500 * time.Millisecond

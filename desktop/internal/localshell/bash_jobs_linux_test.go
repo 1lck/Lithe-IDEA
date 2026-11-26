@@ -1,53 +1,39 @@
 package localshell
 
 import (
-	"os"
-	"path/filepath"
-	"strings"
+	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
-
-	"golang.org/x/sys/unix"
 )
 
-// A FIFO lets the test hold a real Bash child before exec, then release it.
-// Only the waiter's clock is virtual; both process states are acknowledged.
-func TestBashJobWaiterDistinguishesForkFromExec(t *testing.T) {
-	gate := filepath.Join(t.TempDir(), "gate")
-	if err := unix.Mkfifo(gate, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	writer, err := os.OpenFile(gate, os.O_RDWR, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer writer.Close()
-	s := startHangupShell(t, "bash", []string{"GATE=" + gate})
-	s.run(`(read -r < "$GATE"; exec sh -c 'echo exec-"ready"; exec sleep 300') & echo job=$!`+"\r", 1, "\r\njob=")
-	job := jobOf(t, s)
-	if s.shell.b.waitForJobs == nil {
-		t.Fatal("Linux integrated Bash has no job waiter")
-	}
-	wait := func() time.Duration {
-		var elapsed time.Duration
-		synctest.Test(t, func(t *testing.T) {
-			start := time.Now()
-			s.shell.b.waitForJobs()
-			elapsed = time.Since(start)
+func TestClosingAtRecentLinuxPromptGivesJobsTimeToExec(t *testing.T) {
+	for _, age := range []time.Duration{0, 60 * time.Millisecond, time.Second} {
+		t.Run(age.String(), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				const grace = 100 * time.Millisecond
+				var signaled time.Time
+				shell := resizeTestShell(backend{
+					promptToken: "test",
+					hangup:      func() { signaled = time.Now() },
+				})
+				shell.space = sync.NewCond(&shell.mu)
+				liveShells.Acquire()
+				defer close(shell.done)
+				shell.sawMark('B')
+				time.Sleep(age)
+				closedAt := time.Now()
+				want := closedAt.Add(max(0, grace-age))
+				shell.Close()
+				if !time.Now().Equal(closedAt) {
+					t.Fatal("Close blocked during the grace period")
+				}
+				time.Sleep(max(0, grace-age))
+				synctest.Wait()
+				if !signaled.Equal(want) {
+					t.Fatalf("hangup at %v, want %v for prompt age %v", signaled, want, age)
+				}
+			})
 		})
-		return elapsed
 	}
-	if elapsed := wait(); elapsed <= 0 || elapsed > 100*time.Millisecond {
-		t.Fatalf("wait for a child blocked before exec took %v", elapsed)
-	}
-	if _, err := writer.WriteString("\n"); err != nil {
-		t.Fatal(err)
-	}
-	s.await("child's exec", func() bool { return strings.Contains(s.output, "exec-ready\r\n") })
-	if elapsed := wait(); elapsed != 0 {
-		t.Fatalf("wait for a child after exec took %v", elapsed)
-	}
-	closeAndAwaitEnd(t, s.shell)
-	awaitProcessEnd(t, job)
 }
