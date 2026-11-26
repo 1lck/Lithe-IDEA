@@ -12,10 +12,7 @@
       "desktop/internal/core/bridge.go",
       "scripts/ci/desktop-autobuild/package-autobuild.sh",
       "scripts/ci/desktop-autobuild/package-autobuild.test.mjs",
-      "scripts/ci/common/desktop-packages.mjs",
-      "scripts/desktop/build-desktop-core.sh",
-      "scripts/desktop/desktop-go.sh",
-      "desktop/internal/core/desktop_go_test.go"
+      "scripts/ci/common/desktop-packages.mjs"
     ]
   },
   "windows": {
@@ -24,10 +21,7 @@
     "evidence": [
       "scripts/desktop/package-desktop.sh",
       "scripts/desktop/package-desktop.test.mjs",
-      "desktop/internal/core/bridge.go",
-      "scripts/desktop/build-desktop-core.sh",
-      "scripts/desktop/desktop-go.sh",
-      "desktop/internal/core/desktop_go_test.go"
+      "desktop/internal/core/bridge.go"
     ]
   },
   "owner": "Desktop",

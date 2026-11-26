@@ -458,15 +458,14 @@ format_identity() {
 }
 
 # Fast-path for pinned builds: when the staged archive, header, native-static-libs and lithe-mcp
-# helper already match this exact revision, rustc, target and profile, skip git and cargo. An
-# existing source checkout with its manifest deliberately deleted does not take this path: falling
-# through fails there instead of hiding or repairing that deletion. A stage-only cache has no such
-# deletion state and may use the fast path.
-# Local LITHE_CORE_RUST_DIR overrides and --checkout-only never take this path.
+# helper already match this exact revision, rustc, target and profile, skip git and cargo.
+# Local LITHE_CORE_RUST_DIR overrides and --checkout-only never take this path. If a pinned
+# checkout already exists, require its rust/Cargo.toml to still be intact so a deleted worktree
+# manifest still fails closed.
 if [[ "$CHECKOUT_ONLY" == "no" && -z "${LITHE_CORE_RUST_DIR:-}" ]]; then
+    PINNED_SOURCE_DIR="$ARTIFACTS_DIR/lithe-core-rust/source"
     EXPECTED_IDENTITY="$(format_identity "$PINNED_CORE_REVISION" "clean" "pinned")"
-    if [[ ( ! -e "$ARTIFACTS_DIR/lithe-core-rust/source/.git" \
-        || -f "$ARTIFACTS_DIR/lithe-core-rust/source/rust/Cargo.toml" ) \
+    if [[ ( ! -d "$PINNED_SOURCE_DIR/.git" || -f "$PINNED_SOURCE_DIR/rust/Cargo.toml" ) \
         && -f "$STAGE_DIR/identity.txt" \
         && "$(cat "$STAGE_DIR/identity.txt")" == "$EXPECTED_IDENTITY" \
         && -s "$STAGE_DIR/lib/liblithe_core.a" \
