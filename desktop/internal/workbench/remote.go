@@ -39,6 +39,12 @@ const (
 // remoteState is the window's state.
 type remoteState struct {
 	open bool
+	// hostsOnly presents the same source and discovered hosts in the title bar's dropdown,
+	// without showing the connection window until a host or action is chosen.
+	hostsOnly bool
+	// hostReads cancels discovery started by the dropdown when it closes, rather than leaving
+	// WSL/container processes running until their deadlines. A promoted window keeps ownership.
+	hostReads []context.CancelFunc
 	// generation counts the openings and closings, so that a result arriving after the window
 	// closed is dropped.
 	generation uint64
@@ -190,6 +196,13 @@ var remoteAuthentications = []string{
 func (a *App) openRemote(surface actionSurface) {
 	r := &a.remote
 	if r.open {
+		if r.hostsOnly {
+			r.hostsOnly = false
+			a.performed("remote.connections.open", surface)
+			if r.loaded && r.readErr == "" {
+				a.loadRemoteImportCounts()
+			}
+		}
 		return
 	}
 	r.generation++
@@ -205,6 +218,13 @@ func (a *App) openRemote(surface actionSurface) {
 // folder was being chosen over. What was typed and not saved is dropped.
 func (a *App) closeRemote() {
 	r := &a.remote
+	if r.containers.cancel != nil {
+		r.containers.cancel()
+	}
+	for _, cancel := range r.hostReads {
+		cancel()
+	}
+	r.hostReads = nil
 	r.stopProbe()
 	r.stopConnect()
 	a.leaveRemoteBrowser()
@@ -232,7 +252,7 @@ func (a *App) loadRemote(how remoteLoad, id string) {
 	r := &a.remote
 	r.loading = true
 	generation, kernel, root := r.generation, a.kernel, a.globalToolchainRoot()
-	a.background(nil, remoteReadTimeout, func(ctx context.Context) func(*App) {
+	cancel := a.background(nil, remoteReadTimeout, func(ctx context.Context) func(*App) {
 		source, err := remoteconn.Read(ctx, kernel, root)
 		return func(a *App) {
 			r := &a.remote
@@ -245,7 +265,7 @@ func (a *App) loadRemote(how remoteLoad, id string) {
 			if err != nil {
 				a.operationFailed("remote_connections_read", documentLogError(err))
 				r.readErr = remoteReadFailure(a.language(), source, err)
-			} else {
+			} else if !r.hostsOnly {
 				// The counts leave out the hosts already saved, so they follow every reread.
 				a.loadRemoteImportCounts()
 			}
@@ -264,10 +284,19 @@ func (a *App) loadRemote(how remoteLoad, id string) {
 					a.connectRemoteReopen(reopen)
 					return
 				}
+				// Discovery can finish before this read. Keep the host the user already chose,
+				// including its running connection, rather than selecting the first SSH entry.
+				if r.wsl.selected != "" || r.containers.selected != nil {
+					r.syncListSelection()
+					return
+				}
 				r.selectFirst()
 			}
 		}
 	})
+	if r.hostsOnly {
+		r.hostReads = append(r.hostReads, cancel)
+	}
 }
 
 // remoteReadFailure is the window's text for a list that could not be read.

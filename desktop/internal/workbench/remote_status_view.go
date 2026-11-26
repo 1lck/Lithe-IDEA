@@ -2,16 +2,18 @@ package workbench
 
 import (
 	"strconv"
+	"strings"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
-// This file draws the status bar's item of a remote workspace (remote_workspace.go): the
-// connection and how it is doing, as the button that opens the connection's menu. It sits at the
-// leading end of the status bar, as the remote indicator of VS Code and of JetBrains Gateway does.
+// A remote workspace names its host before the title bar's project selector. The icon shows the
+// link state; the stable name does not grow as heartbeats and reconnect attempts come and go.
+// Its menu reuses the connection window's source, discovery and connection flows.
 
 // remoteStatusText is the item's text for r: the connection's name, with the round trip of the
 // last heartbeat while connected or with how the connection is doing otherwise.
@@ -39,50 +41,65 @@ func (a *App) remoteStatusLook(r *remoteProject) (gfx.Icon, gfx.Color) {
 	case remoteReconnecting:
 		return icons.LoaderCircle, a.colors.Subtle
 	case remoteDisconnected:
-		return icons.CircleX, a.theme.Danger
+		return icons.Link2Off, a.theme.Danger
 	}
-	return icons.Server, a.colors.Success
+	return icons.Link2, a.colors.Success
 }
 
-// remoteStatus declares the item of the open remote workspace, and nothing for a local project.
+// remoteStatus declares the title bar's host selector, and nothing for a local project.
 func (a *App) remoteStatus(c ui.C) {
 	p := a.project
 	if p == nil || p.remote == nil {
+		if a.remote.hostsOnly {
+			c.After(a.closeRemoteHostMenu)
+		}
 		return
 	}
 	r := p.remote
 	language := a.language()
 	text := remoteStatusText(language, r)
+	details := strings.Join([]string{text, r.host.address(), r.remoteLocation()}, "\n")
 	icon, color := a.remoteStatusLook(r)
 	k := c.Part("remote")
-	button := ui.Row(k).Height(chromeStatusItem).Shrink(0).Items(ui.Center).Gap(chromeGap).PadX(chromeStatusPad).
+	open := r.menuOpen
+	button := ui.Row(k).Height(chromeIconButton).Shrink(0).Items(ui.Center).Gap(chromeTitleGap).PadX(chromeEdge).
 		Radius(a.theme.Metrics.RadiusItem()).
 		HitWith(ui.ID(k), i18n.Shared(language, "desktop.remote.status.label"), gfx.HitOptions{
-			Role:       gfx.RoleButton,
-			Cursor:     gfx.PointerCursorHand,
-			Value:      text,
-			Expandable: true,
-			Expanded:   r.menuOpen,
-		})
-	if r.menuOpen {
-		button = button.Background(a.colors.Active)
+			Role:        gfx.RoleButton,
+			Cursor:      gfx.PointerCursorHand,
+			Value:       text,
+			Description: details,
+			Expandable:  true,
+			Expanded:    open,
+		}).Tooltip(details).TooltipOn(ui.TooltipBottom)
+	if open {
+		button = button.Background(a.colors.Hover)
 	} else {
 		button = button.Hover(ui.Look{}.Background(a.colors.Hover))
 	}
 	button.Children(func() {
-		ui.Icon(c, icon).Size(chromeMarkSize, chromeMarkSize).Shrink(0).Color(color)
-		a.chromeStatusLabel(k, text)
+		if r.link == remoteReconnecting {
+			ui.Spinner(k).Size(chromeIconSize, chromeIconSize).Shrink(0)
+		} else {
+			ui.Icon(k, icon).Size(chromeIconSize, chromeIconSize).Shrink(0).Color(color)
+		}
+		ui.Text(k, r.name).Color(a.colors.Text).LineHeight(chromeLineHeight).Ellipsis().MaxWidth(chromeBranchMax)
 		ui.Icon(c, icons.ChevronDown).Size(chromeMarkSize, chromeMarkSize).Shrink(0).Color(a.colors.Subtle)
 	})
-	if button.Clicked() && !r.menuOpen {
-		r.menuOpen = true
+	clicked := button.Clicked()
+	if open {
+		a.remoteStatusMenu(k, p, button)
+		if !r.menuOpen {
+			c.After(a.closeRemoteHostMenu)
+		}
 	}
-	a.remoteStatusMenu(k, p, button)
+	if clicked && !open {
+		c.After(a.openRemoteHostMenu)
+	}
 }
 
-// remoteStatusMenu declares the open menu of the connection above anchor: the host folder, why
-// connecting again failed, Reconnect while there is no session, Open File on Host while there
-// is one, Disconnect, which closes the workspace, and the Remote Development window.
+// remoteStatusMenu hangs below the host selector: the current link's details, available hosts,
+// and the actions for reconnecting, choosing folders/files, closing and managing connections.
 func (a *App) remoteStatusMenu(c ui.C, p *project, anchor ui.Box) {
 	r := p.remote
 	if !r.menuOpen {
@@ -90,14 +107,22 @@ func (a *App) remoteStatusMenu(c ui.C, p *project, anchor ui.Box) {
 	}
 	language := a.language()
 	ui.Menu(c, anchor, &r.menuOpen, func(menu *ui.MenuItems) {
-		menu.Above()
-		// Wide enough for why connecting again failed, which the menu shows on one line.
 		menu.WidthRange(240, 560)
+		icon, _ := a.remoteStatusLook(r)
+		menu.Item(remoteStatusText(language, r)).Description(r.host.address()).Icon(icon).Disabled(true)
 		menu.Label(r.remoteLocation())
 		if r.failure != nil && r.link == remoteDisconnected {
 			if text := remoteFailureText(language, r.failure); text != "" {
 				menu.Item(text).Icon(icons.CircleX).Disabled(true)
 			}
+		}
+		menu.Separator()
+		menu.Label(i18n.Shared(language, "desktop.remote.hostSwitcher.switch"))
+		a.remoteHostChoices(c, menu, r)
+		menu.Separator()
+		if menu.Item(i18n.Shared(language, "desktop.remote.hostSwitcher.chooseFolder")).Icon(icons.FolderOpen).Clicked() {
+			target := remoteReopen{connectionID: r.connectionID, host: r.host, name: r.name}
+			c.After(func() { a.chooseRemoteHost(target) })
 		}
 		if r.session == "" && r.reconnecting == nil {
 			if menu.Item(i18n.Shared(language, "desktop.remote.status.reconnect")).Icon(icons.RefreshCw).Clicked() {
@@ -122,4 +147,41 @@ func (a *App) remoteStatusMenu(c ui.C, p *project, anchor ui.Box) {
 			c.After(func() { a.openRemote(surfaceMenu) })
 		}
 	})
+}
+
+// remoteHostChoices presents the same Core sections and discovered rows as the connection
+// window. An SSH entry is reselected from the source before connecting, keeping edits current.
+func (a *App) remoteHostChoices(c ui.C, menu *ui.MenuItems, current *remoteProject) {
+	r := &a.remote
+	language := a.language()
+	if r.readErr != "" {
+		menu.Item(r.readErr).Icon(icons.CircleAlert).Disabled(true)
+	}
+	if !r.loaded || !r.wsl.loaded || !r.containers.loaded {
+		menu.Item(i18n.Shared(language, "native.loading")).Icon(icons.LoaderCircle).Disabled(true)
+	}
+	for _, row := range r.rows {
+		if row.heading {
+			menu.Label(remoteGroupHeading(language, row.group))
+			continue
+		}
+		var target remoteReopen
+		switch {
+		case row.entry != nil:
+			target = remoteReopen{connectionID: row.entry.ID, host: remoteHost{ssh: row.entry.Connection}, name: row.entry.Name}
+		case row.wsl != "":
+			wsl := core.WSLConnection{Distribution: row.wsl}
+			target = remoteReopen{connectionID: wsl.Identity(), host: remoteHost{wsl: &wsl}, name: row.wsl}
+		case row.container != nil:
+			container := core.ContainerConnection{Engine: row.container.engine, Container: row.container.Name}
+			target = remoteReopen{connectionID: container.Identity(), host: remoteHost{container: &container}, name: container.Container}
+		}
+		item := menu.Item(target.name).Description(target.host.address()).Icon(icons.Server).Chosen(target.connectionID == current.connectionID)
+		if item.Clicked() {
+			c.After(func() { a.switchRemoteHostRow(row) })
+		}
+	}
+	if r.loaded && r.wsl.loaded && r.containers.loaded && len(r.rows) == 0 && r.readErr == "" {
+		menu.Item(i18n.Shared(language, "desktop.remote.hostSwitcher.empty")).Disabled(true)
+	}
 }

@@ -74,6 +74,10 @@ func (a *App) treeDragDrop(source, target gfx.ID) {
 // moveTreeItem moves the item at rel into the folder dir (project-relative). The open files below
 // it are saved first and follow the new path; a name the folder already has is refused.
 func (a *App) moveTreeItem(p *project, rel, dir string) {
+	if p.remote != nil {
+		a.remoteMoveTreeItem(p, rel, dir)
+		return
+	}
 	language := a.language()
 	oldFull := filepath.Join(p.root, filepath.FromSlash(rel))
 	newFull := filepath.Join(p.root, filepath.FromSlash(dir), filepath.Base(filepath.FromSlash(rel)))
@@ -119,6 +123,10 @@ func (a *App) treeClipboardHas(p *project) bool {
 // treePaste puts the clipboard items into the folder n (or the folder of n when it is a file).
 // A cut item moves; a copied item is copied under a free name in the folder.
 func (a *App) treePaste(p *project, n *treeNode) {
+	if p.remote != nil {
+		a.remoteTreePaste(p, n)
+		return
+	}
 	language := a.language()
 	dir := n.path
 	if !n.dir {

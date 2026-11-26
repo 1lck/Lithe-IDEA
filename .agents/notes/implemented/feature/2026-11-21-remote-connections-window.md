@@ -6,6 +6,8 @@
 
 欢迎页的“远程开发”按钮（与新建项目、打开、克隆仓库并列，不收进菜单）和标题栏项目菜单里的“远程开发…”会打开一个窗口：左边是保存的 SSH 连接，右边是选中连接的表单、“测试连接”和测试到的主机信息。连接列表由 Rust Core 定义格式和规则（`remote.connections`、`remote.editConnections`），桌面端只负责读文件、把 Core 生成的整份文档原子写回。窗口里不保存任何秘密：密码、私钥口令和主机指纹确认都由 OpenSSH 在测试时经 AskPass（Lithe 自己充当 `SSH_ASKPASS` 程序，把问题转回主程序）提出，和 Git 认证共用同一个提问框。密码和私钥口令只有在用户勾选“记住”、而且这次真的登录成功后，才存进系统钥匙串或 Windows 凭据管理器；验证码和主机指纹确认从不记住。
 
+远程工作区在标题栏项目选择器之前显示“连接图标、主机名、下拉箭头”。用户可直接从下拉选择 SSH 主机、WSL 发行版或容器，连接成功后弹出同一个窗口选择文件夹；打开新文件夹后激活对应项目标签，原项目保留。
+
 ## 问题
 
 Issue #2231 要求远程开发先能“告诉 Lithe 连哪台机器、怎么登录”，并在打开项目前确认这台机器能用。旧客户端做过一版（见已归档的 `archived/feature/2026-10-24-remote-ssh-connections.md`），但它把密码记进钥匙串、把整张列表当工作副本编辑，而且字段规则写在 Swift 里。Viva 桌面端重新实现时要解决：
@@ -50,6 +52,14 @@ Issue #2231 要求远程开发先能“告诉 Lithe 连哪台机器、怎么登�
 
 Viva 的 `ListState.Select` 只能选到列表上一帧已经声明过的行。保存一个新连接后，表单立刻编辑它，但列表这一帧还不认识新行，选中会被截到旧的最后一行。因此：行高亮直接按“表单正在编辑的连接”画；列表声明完行之后，再调用 `syncListSelection` 把键盘选中行同步过去。这是 Viva 的既定行为，不是缺陷，不在 Viva 侧改。
 
+### 标题栏主机下拉复用连接窗口
+
+- 主机名保持稳定，不追加延迟或重连状态。正常连接用绿色链条，断开用红色断链，无响应用警告图标，重连用旋转进度图标；悬停提示、无障碍说明和下拉详情保留连接类型、完整地址、工作区主机路径、延迟及状态。
+- 点开下拉才读取已保存的连接及本机 WSL、Docker/Podman 容器。直接使用连接窗口的来源和 Core 分组，不保存另一份主机配置，也不增加轮询。发现结果可先显示；保存列表晚到时保留已经选中的发行版或容器，不选回第一个 SSH 主机。关闭菜单时取消未完成的发现请求，并通过打开代次丢弃过期结果；打开项目、分支、运行或设置菜单会关闭主机菜单。
+- 点击主机相当于在连接窗口选中该项并点击“连接”，不需要再点击一次；认证、部署、失败、重试、文件夹浏览和信任确认仍由现有流程处理。只有连接成功后才显示文件夹列表。正确做法是选中容器后让窗口的左侧也选中它；不要仅在后台改连接目标、让左侧仍高亮原主机。
+- 连接中、连接失败和取消选目录都保留原项目与会话。用户确认打开后沿用已有项目标签语义；已打开的相同工作区直接激活。不要在选主机时就关闭旧项目，以免连接失败或取消丢失当前工作。
+- 下拉继续提供重新连接、在当前主机打开其他文件夹、打开主机文件、断开并关闭以及远程开发管理入口。本地工作区不显示远程主机入口，底部只保留端口和路径等状态项。
+
 ## 考虑过的备选方案
 
 - **桌面端自己校验字段、自己定义 JSON 格式**：Go 里写一遍，将来换 UI 壳子还要再写一遍，和“通用逻辑进 Rust Core”的约定冲突。没有采用。
@@ -57,12 +67,14 @@ Viva 的 `ListState.Select` 只能选到列表上一帧已经声明过的行。�
 - **提交时立即写入，失败再删**：进程在两步之间退出时，记错的密码就留下了。改为登录成功后才写入。
 - **把整张列表当工作副本编辑，关窗口时统一保存**：可以批量修改，但关窗口时要么丢修改，要么要再问一次；和“保存后重新读取显示真实来源”的设置规则也不一致。没有采用。
 - **为远程连接单独做一个认证弹窗**：两个弹窗可能同时出现、互相遮挡。共用 Git 的队列后，同一时间只显示一个问题，按提出顺序逐个回答。
+- **为标题栏重新实现连接和文件夹对话框**：会重复认证、取消、信任和会话释放规则。下拉只是连接窗口的另一种呈现，选择主机后转成现有窗口；不增加第二套连接流程。
 
 ## 后果
 
 - 收益：字段规则只有 Core 一份；Windows 和 macOS 用同一份 Go 代码；秘密只在 OpenSSH、AskPass 和（用户勾选后的）系统钥匙串之间流动；并发修改不会互相覆盖。
 - 代价：每次保存都是一次完整的读、改、写和重新读取；Core 没有返回字段的错误只能显示在窗口底部；记住的答案在内存里仍是 `string`（#2332）。
-- Windows 上 OpenSSH 能否通过 GUI 子系统的 `lithe` 助手读到答案仍待实机验证；打开远程项目、文件夹选择和远端服务部署在后续阶段实现。
+- 顶部下拉每次打开都会重新发现本机目标；关闭时取消查询，避免常驻轮询。WSL 或容器引擎响应较慢时，已读到的主机可立即选择，其余仍显示加载状态。
+- Windows 上 OpenSSH 能否通过 GUI 子系统的 `lithe` 助手读到答案仍待实机验证；远端服务部署、文件夹选择和打开远程项目已复用现有连接流程，本轮主机切换的无头测试不替代真实远端和两端原生窗口验收。
 
 ## 验证
 
@@ -71,6 +83,8 @@ Viva 的 `ListState.Select` 只能选到列表上一帧已经声明过的行。�
 - `desktop/internal/remoteconn/answers_test.go`：只有密码和口令能记住；答案按登录身份和提问原文区分；替换、清除和不变时不写入；超过 8 条或超出系统凭据存储的大小上限时只留最新的；解不开的条目当作没有记住。
 - `desktop/internal/workbench/remote_answers_test.go`：用一个按脚本回答的假 `ssh` 走完“勾选但密码错不写入 → 登录成功才写入 → 第一次自动填入 → 被拒后改问并替换 → 取消勾选后删除”；“更多”菜单清除和删除连接时清除；后台重连只发记住的答案、第二次提问和验证码都被取消；按登录结果决定写入或删除的九种组合。
 - `desktop/internal/workbench/remote_connections_visual_test.go` 生成 `docs/assets/remote-connections/` 下的截图。
+- `desktop/internal/workbench/remote_host_switcher_test.go`：标题栏位置、各状态下名称和宽度稳定、SSH/WSL/容器单击后先连接再选目录、取消及连接失败保留原工作区、确认后激活新主机标签、菜单互斥，以及保存列表晚到时仍保留用户选择。测试的连接列表经过真实 Core 保存与读取；延迟用可取消的通道控制，网络和进程沿用测试替身，不代表真实远程主机或 Windows 原生验收已通过。
+- `desktop/internal/workbench/remote_workspace_visual_test.go`：中英文与明暗主题的顶部入口、主机下拉、无响应、重连、断开和切换后的文件夹窗口，截图通过 `LITHE_VISUAL_OUTPUT_DIR` 写到当前检出。
 
 ```bash
 scripts/desktop/desktop-go.sh test ./internal/remoteconn ./internal/workbench -run 'Remote|GitAuth|Answer|Rememberable' -count=1
@@ -79,3 +93,5 @@ scripts/desktop/desktop-go.sh test ./internal/remoteconn ./internal/workbench -r
 ## 适用范围
 
 `desktop/internal/remoteconn/`、`desktop/internal/workbench/remote.go`、`desktop/internal/workbench/remote_view.go`、`desktop/internal/workbench/remote_answers.go`，以及 `desktop/internal/workbench/git_auth.go` 中带 `Remote` 标记的提问。后续“打开远程工作区”“记住最近文件夹”都要通过同一个 `remoteconn` 和 Core 的 `remote.editConnections`，不要另存一份连接信息。
+
+标题栏入口在 `desktop/internal/workbench/remote_status_view.go`，交互接线在 `remote_host_switcher.go`，复用 `remote_shell_view.go` 的连接窗口和 `remote_browse.go` 的文件夹与项目标签流程。

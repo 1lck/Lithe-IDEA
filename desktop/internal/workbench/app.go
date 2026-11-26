@@ -222,6 +222,10 @@ type Kernel interface {
 	RemoteProbe(ctx context.Context, connection core.SSHConnection, preferences *string) (core.RemoteProbeResult, error)
 	RemoteListWSLDistributions(ctx context.Context) (core.RemoteWSLDistributions, error)
 	RemoteListContainers(ctx context.Context, engine, sessionID string) (core.RemoteContainers, error)
+	RemoteContainerRuntimes(ctx context.Context) (core.ContainerRuntimes, error)
+	RemoteDevcontainerPrepare(ctx context.Context, form core.DevcontainerForm) (core.PreparedDevcontainer, error)
+	RemoteDevcontainerRuntimeConfigs(ctx context.Context, folder string, runtime *core.ContainerRuntimeTarget) (core.DevcontainerFolder, error)
+	RemoteRuntimeContainers(ctx context.Context, runtime core.ContainerRuntimeTarget) (core.RemoteContainers, error)
 	RemoteDevcontainerConfigs(ctx context.Context, folder string) ([]core.DevcontainerConfig, error)
 	RemoteDevcontainerUp(ctx context.Context, request core.DevcontainerUpRequest, output func(core.DevcontainerOutput)) (core.DevcontainerUp, error)
 	RemoteAuthRespond(ctx context.Context, requestID string, answer *string) (bool, error)
@@ -235,6 +239,10 @@ type Kernel interface {
 	RemoteReadFile(ctx context.Context, sessionID, path string) ([]byte, core.RemoteFileVersion, error)
 	RemoteWriteFile(ctx context.Context, sessionID, path string, data []byte, expected *core.RemoteFileVersion, root ...string) (core.RemoteFileVersion, bool, error)
 	RemoteCreateDirectory(ctx context.Context, sessionID, path string) error
+	RemoteMakeDirectory(ctx context.Context, sessionID, path string) error
+	RemoteRename(ctx context.Context, sessionID, from, to string, overwrite bool) error
+	RemoteCopy(ctx context.Context, sessionID, from, to string, recursive, overwrite bool) error
+	RemoteTrash(ctx context.Context, sessionID, path string) error
 	RemoteServerState(ctx context.Context, sessionID string) error
 	SearchRemoteConnections(ctx context.Context, document *string, query string) (core.RemoteConnectionsState, error)
 	RemoteParseAddress(ctx context.Context, text string) (core.RemoteAddress, error)

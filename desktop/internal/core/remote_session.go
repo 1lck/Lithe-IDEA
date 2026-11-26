@@ -94,6 +94,7 @@ const (
 // malformed field by name ("container" or "user") with the reasons required and invalid, read by
 // RemoteConnectionFieldError.
 type ContainerConnection struct {
+	Context string `json:"context,omitempty"`
 	// Engine is ContainerEngineDocker or ContainerEnginePodman.
 	Engine string `json:"engine"`
 	// Container is the container's name or id, as remote.listContainers lists it.
@@ -106,10 +107,14 @@ type ContainerConnection struct {
 // engine:container, or engine:user@container, the form RemoteWorkspaceTrustTarget.Place uses.
 func (c ContainerConnection) Identity() string {
 	container, user := strings.TrimSpace(c.Container), strings.TrimSpace(c.User)
-	if user == "" {
-		return c.Engine + ":" + container
+	engine := c.Engine
+	if c.Context != "" {
+		engine += "[" + c.Context + "]"
 	}
-	return c.Engine + ":" + user + "@" + container
+	if user == "" {
+		return engine + ":" + container
+	}
+	return engine + ":" + user + "@" + container
 }
 
 // RemoteContainer is a running container remote.listContainers found.
@@ -582,6 +587,46 @@ func (c *Client) RemoteCreateDirectory(ctx context.Context, sessionID, path stri
 		Path      string `json:"path"`
 		Recursive bool   `json:"recursive"`
 	}{path, true}, nil)
+}
+
+// RemoteMakeDirectory creates the host folder path over the session sessionID without creating
+// missing parents; an existing entry at path fails with remoteCode ALREADY_EXISTS.
+func (c *Client) RemoteMakeDirectory(ctx context.Context, sessionID, path string) error {
+	return c.RemoteHostRequest(ctx, sessionID, "fs.createDir", struct {
+		Path      string `json:"path"`
+		Recursive bool   `json:"recursive"`
+	}{path, false}, nil)
+}
+
+// RemoteRename moves the host entry at from to to over the session sessionID. When overwrite is
+// false, an existing destination fails with remoteCode ALREADY_EXISTS.
+func (c *Client) RemoteRename(ctx context.Context, sessionID, from, to string, overwrite bool) error {
+	return c.RemoteHostRequest(ctx, sessionID, "fs.rename", struct {
+		From      string `json:"from"`
+		To        string `json:"to"`
+		Overwrite bool   `json:"overwrite"`
+	}{from, to, overwrite}, nil)
+}
+
+// RemoteCopy copies the host entry at from to to over the session sessionID, copying a directory
+// tree when recursive is set. When overwrite is false, an existing destination fails with
+// remoteCode ALREADY_EXISTS.
+func (c *Client) RemoteCopy(ctx context.Context, sessionID, from, to string, recursive, overwrite bool) error {
+	var ignored json.RawMessage
+	return c.RemoteHostRequest(ctx, sessionID, "fs.copy", struct {
+		From      string `json:"from"`
+		To        string `json:"to"`
+		Recursive bool   `json:"recursive"`
+		Overwrite bool   `json:"overwrite"`
+	}{from, to, recursive, overwrite}, &ignored)
+}
+
+// RemoteTrash moves the host entry at path to the host account's system trash over the session
+// sessionID.
+func (c *Client) RemoteTrash(ctx context.Context, sessionID, path string) error {
+	return c.RemoteHostRequest(ctx, sessionID, "fs.trash", struct {
+		Path string `json:"path"`
+	}{path}, nil)
 }
 
 // RemoteHostRequest performs the finite host method with params over the session sessionID and

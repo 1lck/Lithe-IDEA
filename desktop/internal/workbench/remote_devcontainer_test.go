@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -92,6 +93,10 @@ func remoteDevcontainerHarness(t *testing.T, folder string, trusting bool) (*har
 	if h.app.remote.devcontainer == nil || !h.shows(i18n.Shared(lang, "desktop.remote.devcontainer.title")) {
 		t.Fatal("the toolbar does not open the Dev Container page")
 	}
+	// The controlled CLI is usable; this UI test never probes a developer's daemon.
+	d := h.app.remote.devcontainer
+	d.runtimeID = "test-default"
+	d.runtimes.Runtimes = []core.ContainerRuntime{{ID: d.runtimeID, ContainerRuntimeTarget: core.ContainerRuntimeTarget{Engine: core.ContainerEngineDocker}, Available: true}}
 	h.driver.QueueOpenDirectory(folder, nil)
 	h.clickFront(i18n.Shared(lang, "desktop.remote.devcontainer.choose"))
 	awaitRemoteDevcontainerRead(t, h)
@@ -158,8 +163,8 @@ func TestRemoteDevcontainerBuildsAndOpensTheWorkspaceFolder(t *testing.T) {
 
 	h.clickFront(i18n.Shared(lang, "desktop.remote.devcontainer.build"))
 	p := awaitRemoteDevcontainerWorkspace(t, h)
-	want := core.DevcontainerUpRequest{Folder: folder, Config: remoteTestConfig, Engine: core.ContainerEngineDocker, ProjectCodeAllowed: true}
-	if got := k.devcontainers.requests; len(got) != 1 || got[0] != want {
+	want := core.DevcontainerUpRequest{Folder: folder, Config: remoteTestConfig, Engine: core.ContainerEngineDocker, ProjectCodeAllowed: true, Runtime: &core.ContainerRuntimeTarget{Engine: core.ContainerEngineDocker}}
+	if got := k.devcontainers.requests; len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Fatalf("asked for %d ups; want one for the folder's first configuration under Docker", len(got))
 	}
 	connection := core.ContainerConnection{Engine: core.ContainerEngineDocker, Container: remoteTestContainer, User: "app"}
@@ -344,7 +349,7 @@ func TestRemoteDevcontainerFolderErrors(t *testing.T) {
 			t.Fatalf("%s: the page does not explain the folder", typed.text)
 		}
 	}
-	if d.read != empty || len(d.configs) != 0 || d.buildable() || !h.showsWrapped(i18n.Shared(lang, "desktop.remote.devcontainer.none")) {
+	if d.read != empty || len(d.configs) != 0 || d.buildable() || !h.showsWrapped(i18n.Shared(lang, "desktop.remote.devcontainer.createMissing")) {
 		t.Fatal("a folder without devcontainer.json does not say so, or may be built")
 	}
 }

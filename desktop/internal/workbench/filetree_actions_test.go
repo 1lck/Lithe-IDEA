@@ -203,15 +203,58 @@ func TestProjectTreeExpandsAndCollapsesAll(t *testing.T) {
 	}
 }
 
+// expandLimitTreeKernel keeps the limit test independent of 512 native Git/ignore
+// queries. The root still comes from Core; each fixture child has its known file.
+// Small-tree expansion above covers real directory reads through the same queue.
+type expandLimitTreeKernel struct {
+	*testKernel
+	mu        sync.Mutex
+	fixtures  map[string]core.DirectoryListing
+	requested map[string]bool
+	maxBatch  int
+}
+
+func (k *expandLimitTreeKernel) ListDirectories(ctx context.Context, root string, paths []string) ([]core.DirectoryListing, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	k.mu.Lock()
+	k.maxBatch = max(k.maxBatch, len(paths))
+	listings := make([]core.DirectoryListing, 0, len(paths))
+	var native []string
+	for _, path := range paths {
+		listing, ok := k.fixtures[path]
+		if !ok {
+			native = append(native, path)
+			continue
+		}
+		k.requested[path] = true
+		listings = append(listings, listing)
+	}
+	k.mu.Unlock()
+	if len(native) != 0 {
+		actual, err := k.Client.ListDirectories(ctx, root, native)
+		if err != nil {
+			return nil, err
+		}
+		listings = append(listings, actual...)
+	}
+	return listings, nil
+}
+
 func TestProjectTreeExpandAllStopsAtItsLimit(t *testing.T) {
 	root := t.TempDir()
 	count := treeExpandAllLimit + 2
 	paths := make([]string, count)
+	fixtures := make(map[string]core.DirectoryListing, count)
 	for i := range paths {
-		paths[i] = fmt.Sprintf("d%04d/f.txt", i)
+		folder := fmt.Sprintf("d%04d", i)
+		paths[i] = folder + "/f.txt"
+		fixtures[folder] = core.DirectoryListing{Path: folder, Children: []core.WorkspaceNode{{Path: paths[i], Name: "f.txt", Leaf: true}}}
 	}
 	writeTreeFiles(t, root, paths...)
-	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	kernel := &expandLimitTreeKernel{testKernel: &testKernel{Client: core.NewClient()}, fixtures: fixtures, requested: make(map[string]bool)}
+	h := newHarness(t, kernel)
 	p := h.openTree(t, root)
 	// Observe this action's notice before unrelated native watcher completions
 	// can replace the single banner (Linux reaches its separate watch cap first).
@@ -233,6 +276,25 @@ func TestProjectTreeExpandAllStopsAtItsLimit(t *testing.T) {
 		t.Fatalf("Expand All opened %d folders, want %d", expanded, treeExpandAllLimit)
 	}
 	awaitDocumentState(t, h, func() bool { return treeIdle(p) })
+	kernel.mu.Lock()
+	defer kernel.mu.Unlock()
+	if len(kernel.requested) != treeExpandAllLimit || kernel.maxBatch > treeListingBatch {
+		t.Fatalf("read %d folders, largest batch %d; want %d folders in batches of at most %d", len(kernel.requested), kernel.maxBatch, treeExpandAllLimit, treeListingBatch)
+	}
+	loadedExpanded := 0
+	for _, child := range p.tree.root.children {
+		if child.expanded {
+			loadedExpanded++
+			if !child.listed || child.loading || !kernel.requested[child.path] || p.tree.find(child.path+"/f.txt") == nil {
+				t.Fatalf("expanded folder %q did not finish loading its file", child.path)
+			}
+		} else if child.listed || child.loading || kernel.requested[child.path] {
+			t.Fatalf("closed folder %q was read past the expansion limit", child.path)
+		}
+	}
+	if len(p.tree.root.children) != count || loadedExpanded != treeExpandAllLimit {
+		t.Fatalf("final tree has %d folders, %d expanded; want %d folders, %d expanded", len(p.tree.root.children), loadedExpanded, count, treeExpandAllLimit)
+	}
 }
 
 // recordingTreeKernel records the folders each listing asks for.

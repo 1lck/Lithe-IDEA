@@ -109,7 +109,7 @@ func TestRemoteWSLOpensAFolderInADistribution(t *testing.T) {
 	if got, want := h.app.projectDisplayName(p), "project [WSL: "+remoteTestWSL+"]"; got != want {
 		t.Fatalf("title %q, want %q", got, want)
 	}
-	if status := remoteStatusText(lang, p.remote); !strings.HasPrefix(status, "WSL: "+remoteTestWSL) || !h.shows(status) {
+	if status := remoteStatusText(lang, p.remote); !strings.HasPrefix(status, "WSL: "+remoteTestWSL) || !h.remoteHostHasStatus(p.remote) {
 		t.Fatalf("status %q does not name the distribution over WSL", status)
 	}
 	saved := savedRemoteConnections(t, h)

@@ -132,6 +132,7 @@ func (a *App) openBranches() {
 	if p == nil || !p.hasRepository() {
 		return
 	}
+	a.closeRemoteHostMenu()
 	a.title.projectOpen = false
 	a.title.gearOpen = false
 	a.title.runConfigOpen = false

@@ -49,13 +49,13 @@ func (m *treeApps) endFrame() {
 func (a *App) openInMenu(c ui.C, p *project, menu *ui.MenuItems, full string, dir bool) {
 	language := a.language()
 	menu.Sub(i18n.Shared(language, "desktop.files.openIn"), func(sub *ui.MenuItems) {
-		if !dir {
+		if p.remote == nil && !dir {
 			a.askTreeApps(full)
 			sub.Sub(i18n.Shared(language, "desktop.files.openWith"), func(apps *ui.MenuItems) {
 				a.openWithMenu(c, apps, full)
 			})
 		}
-		if sub.Item(fileManagerLabel(language)).Clicked() {
+		if p.remote == nil && sub.Item(fileManagerLabel(language)).Clicked() {
 			c.After(func() {
 				a.performed("workspace.tree.reveal", surfaceContextMenu)
 				a.revealPath(full)
