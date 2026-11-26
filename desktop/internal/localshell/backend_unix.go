@@ -76,6 +76,34 @@ func startBackend(config Config) (backend, error) {
 	}
 	// A terminal's shell is recorded until it ends, so a leftover can be offered for ending at start-up.
 	untrack := processledger.Track(processledger.KindTerminal, cmd.Process.Pid)
+	var interruptInput, closeAtInput func()
+	if bash && promptToken != "" {
+		interruptInput = func() {
+			// A terminal interrupt abandons even an unfinished multiline input.
+			_, _ = master.Write([]byte{3})
+		}
+		closeAtInput = func() {
+			// Invoke the close function and accept the line it leaves through the shell's
+			// own Readline bindings. Unlike written command text, the key sequences cannot
+			// become part of the user's unfinished input.
+			_, _ = master.Write([]byte("\x1b[9020~\x1b[9021~"))
+		}
+	}
+	var inputReady func() bool
+	if bash && promptToken != "" {
+		inputReady = func() bool {
+			control, err := master.SyscallConn()
+			if err != nil {
+				return false
+			}
+			input := false
+			readErr := control.Control(func(fd uintptr) {
+				attributes, err := unix.IoctlGetTermios(int(fd), ioctlReadTermios)
+				input = err == nil && attributes.Lflag&unix.ICANON == 0 && attributes.Lflag&unix.ECHO == 0
+			})
+			return readErr == nil && input
+		}
+	}
 	return backend{
 		io: master,
 		resize: func(cols, rows int) {
@@ -118,8 +146,10 @@ func startBackend(config Config) (backend, error) {
 			})
 			return readErr == nil && err == nil && group > 0 && group != cmd.Process.Pid
 		},
-		promptToken:         promptToken,
-		retryHangupAtPrompt: bash && promptToken != "",
+		promptToken:    promptToken,
+		inputReady:     inputReady,
+		interruptInput: interruptInput,
+		closeAtInput:   closeAtInput,
 	}, nil
 }
 

@@ -215,7 +215,7 @@ func bashIntegration(forceTrap bool) string {
 	if forceTrap {
 		force = "1"
 	}
-	return bashIntegrationHead + commandFinishedFunction + promptReportFunction + strings.ReplaceAll(bashIntegrationTail, "__MOTTY_FORCE__", force)
+	return bashIntegrationHead + commandFinishedFunction + closeFunction + promptReportFunction + strings.ReplaceAll(bashIntegrationTail, "__MOTTY_FORCE__", force)
 }
 
 const bashIntegrationHead = `_motty_runtime=$MOTTY_SHELL_DIR
@@ -237,6 +237,29 @@ const commandFinishedFunction = `__motty_command_finished() {
     printf '\033]133;D;%s__MOTTY_SUFFIX__\007' "$_motty_status"
     return "$_motty_status"
 }
+`
+
+// closeFunction forwards a terminal close to the jobs Bash still tracks and
+// then asks Bash to end. Disowned jobs are absent from jobs -p, so the user's
+// disown contract stays with the shell rather than a terminal-wide process
+// group kill. The first close key sequence synchronously forwards the jobs and
+// replaces the input line through Readline; the second accepts exactly the
+// resulting successful exit command, so closing does not rely on a signal reaching Bash's
+// interactive input loop.
+const closeFunction = `__motty_close() {
+    local _motty_job
+    for _motty_job in $(jobs -p); do
+        builtin kill -HUP -- "-$_motty_job" 2>/dev/null
+        builtin kill -CONT -- "-$_motty_job" 2>/dev/null
+    done
+    READLINE_LINE=exit 0
+    READLINE_POINT=6
+}
+for _motty_keymap in emacs vi-insert vi-command; do
+    bind -m "$_motty_keymap" -x '"\e[9020~":__motty_close' 2>/dev/null || :
+    bind -m "$_motty_keymap" '"\e[9021~":accept-line' 2>/dev/null || :
+done
+unset _motty_keymap
 `
 
 const bashIntegrationTail = `
