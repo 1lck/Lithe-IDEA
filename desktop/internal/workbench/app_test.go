@@ -171,7 +171,7 @@ func newHarnessWithDriver(t testing.TB, options Options, open func(app.Config) (
 // settle lets every background task finish and paints their results.
 func (h *harness) settle() {
 	h.t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
 	h.settleWithin(ctx)
 }
