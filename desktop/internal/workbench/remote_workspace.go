@@ -114,7 +114,7 @@ type remoteProject struct {
 	lost         uint64
 	// failure is why connecting again failed, nil while it has not.
 	failure *remoteProbeOutcome
-	// menuOpen is the status bar's menu of the connection.
+	// menuOpen is the title bar's menu of the connection and available hosts.
 	menuOpen bool
 	// watch is the host watch of the folder over the session (remote_watch.go), nil while none
 	// runs; watchWait is what it waits for then. watchNotified is set once the user was told the
@@ -548,7 +548,7 @@ func (a *App) refreshRemoteTree(p *project) {
 	a.resyncTreeListings(p)
 }
 
-// reconnectRemoteByUser is Reconnect in the status bar.
+// reconnectRemoteByUser is Reconnect in the connection menu.
 func (a *App) reconnectRemoteByUser(surface actionSurface) {
 	p := a.project
 	if p == nil || p.remote == nil || p.remote.session != "" || p.remote.reconnecting != nil || p.remote.leaving {
@@ -566,6 +566,9 @@ func (a *App) closeRemoteWorkspace(p *project) {
 		return
 	}
 	r.closed = true
+	if r.menuOpen {
+		a.closeRemoteHostMenu()
+	}
 	r.stopRemoteTimer()
 	r.ports.reset()
 	p.closeRemoteHostFiles()

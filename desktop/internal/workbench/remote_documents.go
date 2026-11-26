@@ -295,8 +295,11 @@ func (r *remoteDocuments) failed(session string, err error) error {
 			reason = errTooLarge
 		}
 	case core.CodeProcessFailed:
-		if remoteFailureCode(coreErr) == "TOO_LARGE" {
+		switch remoteFailureCode(coreErr) {
+		case "TOO_LARGE":
 			reason = errTooLarge
+		case "ALREADY_EXISTS":
+			reason = fs.ErrExist
 		}
 	}
 	return &remoteFileError{reason: reason, cause: remoteLogError(err)}

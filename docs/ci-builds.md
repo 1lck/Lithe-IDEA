@@ -70,6 +70,8 @@ macOS 的本地手动打包可用 `package-desktop.sh --ad-hoc-sign` 生成有�
 
 编辑器显示偏好仍存放在 `<os.UserConfigDir()>/Lithe Desktop/settings.json`。同目录的 `.settings.lock` 由原生设置存储持有，只协调各客户端进程的读取与原子保存；关闭事务句柄或进程退出即释放 OS 锁，空文件留在用户配置目录避免锁身份变化。每个进程对该目录最多保留一个非递归原生观察器，最后一个工作台关闭时释放。它们属于用户运行时状态，不跨工作树复制，不写应用安装目录，不影响代码签名或增量更新基线。
 
+标题栏远程连接状态的链条和断链图标由 `scripts/desktop/generate-desktop-icons.sh` 从固定的 Lucide 0.469.0 下载 SVG，用 `desktop/go.mod` 固定的 Viva 编译器生成 `desktop/internal/icons/icons.go`；生成数据由 Git 管理。SVG 和编译器仅在本次生成器的临时目录中存活，退出即删除，不作为跨工作树缓存复制。运行期只读取编译进程序的图标，不下载、不生成文件，不改变安装包签名或增量更新基线。`TestVisualRemoteWorkspace` 的主机下拉和切换文件夹截图可写入本检出的 `.artifacts/visual/remote-host-switcher/`；截图绑定本次源码、Core/Viva 修订、平台、语言和主题，不跨检出复制、不进入发行包，由开发者或 CI 清理。
+
 远程身份核验当前在平台临时目录创建随机的 `lithe-evidence-<random>/ssh.log`，目录仅当前用户可访问；它由这次连接尝试持有并在释放时清理，不是编译缓存，不跨工作树复制，也不写入 app bundle 或 Windows 安装目录。读取最多 64 KiB，但 OpenSSH 的持续写入尚未有界，连接仍持有已删除文件的情况也是待修复的发行阻塞。远端的 `<installRoot>/target-identity-v1` 是账户服务状态，由远端账户持有、随该状态目录删除；不得复制到另一目标作为缓存，否则可能复制目标身份。这些路径不属于本地签名或更新基线；新增 Core 临时证据路径的安装包内运行验证尚未完成。
 
 文件关联的打包声明由 `scripts/desktop/generate-file-associations.sh` 读取编辑器内置高亮元数据并调用 Core 生成，作为 `desktop/viva.toml` 的一部分由 Git 管理；打包前以 `--check` 拒绝目录漂移。生成器始终使用构建主机架构执行，即使包的目标架构不同；最终应用和辅助程序仍使用所选目标架构。它是构建输入，不是可跨工作树复制的缓存。运行期只读取系统默认应用，明确应用后写入 LaunchServices 或当前用户的 Windows 注册表，不生成偏好副本，也不改写 bundle、安装目录或插件资源，因此不影响签名和增量更新基线。`TestVisualFileAssociations` 的真实系统读取截图通过 `LITHE_VISUAL_OUTPUT_DIR` 写到当前检出的 `.artifacts/visual/file-associations/`，绑定本次源码、Core/Viva 修订、平台、语言和主题，不跨工作树复制、不进入发行包，由开发者或 CI 清理。
@@ -234,6 +236,15 @@ Go 的构建缓存（`go env GOCACHE`）和模块缓存（`go env GOMODCACHE`）
 cgo 参数），其余包命中缓存，模块不重新下载。
 新工作树第一次编译前，按 `develop-lithe` Skill 的“检出与编译缓存复用”一节判断能否从已有工作树复制
 `.artifacts/desktop/`（前提和实验结果见上文）；其他目录按本节各段的说明处理，写明不复制的就在本工作树重新生成。
+
+Dev Container 的显式集成验证可以把官方 `@devcontainers/cli` 安装到本检出的
+`.artifacts/desktop/devcontainer-cli/`，通过仅该测试子进程的 `PATH` 使用，不修改全局 npm 安装。
+2026-11-26 的验证固定为 0.91.0，需要 Node.js 20 或更新版本；此目录是开发者拥有的可删除下载缓存，
+不是宿主打包资源，也不是运行时自动安装机制。只有 CLI 版本、Node 支持范围、平台和架构均匹配，且目录完整时
+才可复制到另一个空闲工作树；不同平台或有原生 npm 依赖时重新安装，不共享可写目录。
+真实集成测试的临时工作区、容器、日志和截图属于本次测试，不复制：按唯一工作区标签清理测试容器，
+断开服务并删除临时工作区。用户确认创建的 `.devcontainer/devcontainer.json` 属于用户工作区，随工作区保存，
+不作为编译缓存搬运；创建、探测及 CLI 状态均不得写入 app bundle 或 Windows 安装目录。
 
 Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono 2.304 的 16 个静态 TTF、OFL 和作者信息，
 以及 Nerd Fonts v3.5.1 的 JetBrains Mono Nerd Font Mono 四个完整 TTF（常规、粗体、斜体、粗斜体）及 OFL 许可，

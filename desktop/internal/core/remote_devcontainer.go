@@ -34,6 +34,7 @@ func (c *Client) RemoteDevcontainerConfigs(ctx context.Context, folder string) (
 // DevcontainerUpRequest asks remote.devcontainerUp to build or reuse and start a folder's dev
 // container.
 type DevcontainerUpRequest struct {
+	Runtime *ContainerRuntimeTarget `json:"runtime,omitempty"`
 	// Folder is the absolute folder on this machine.
 	Folder string `json:"folder"`
 	// Config is one of the paths RemoteDevcontainerConfigs listed; empty lets the CLI search.
@@ -47,7 +48,8 @@ type DevcontainerUpRequest struct {
 
 // Devcontainer is the running container remote.devcontainerUp started and the folder to open in it.
 type Devcontainer struct {
-	Engine string `json:"engine"`
+	Runtime *ContainerRuntimeTarget `json:"runtime,omitempty"`
+	Engine  string                  `json:"engine"`
 	// Container is the container's name, or its id when the engine reports no name.
 	Container   string `json:"container"`
 	ContainerID string `json:"containerId"`
@@ -59,7 +61,11 @@ type Devcontainer struct {
 
 // Connection is the container as remote.connect's container field names it.
 func (d Devcontainer) Connection() ContainerConnection {
-	return ContainerConnection{Engine: d.Engine, Container: d.Container, User: d.User}
+	connection := ContainerConnection{Engine: d.Engine, Container: d.Container, User: d.User}
+	if d.Runtime != nil {
+		connection.Context = d.Runtime.Context
+	}
+	return connection
 }
 
 // DevcontainerUp is what remote.devcontainerUp reported.
@@ -113,4 +119,90 @@ func devcontainerOutputObserver(output func(DevcontainerOutput)) func(json.RawMe
 			output(DevcontainerOutput{Text: event.Text, Truncated: event.Truncated})
 		}
 	}
+}
+
+// ContainerRuntimeTarget identifies the exact daemon and host for build and connection.
+type ContainerRuntimeTarget struct {
+	Engine  string `json:"engine"`
+	Context string `json:"context,omitempty"`
+	WSL     string `json:"wsl,omitempty"`
+}
+
+// ContainerRuntime is an environment read from the engine CLI; labels are upstream text.
+type ContainerRuntime struct {
+	ID string `json:"id"`
+	ContainerRuntimeTarget
+	Label       string `json:"label"`
+	Current     bool   `json:"current"`
+	Available   bool   `json:"available"`
+	Diagnostics string `json:"diagnostics"`
+}
+
+// ContainerRuntimes contains installed local contexts and Windows WSL engines.
+type ContainerRuntimes struct {
+	SelectedRuntime string             `json:"selectedRuntime"`
+	Runtimes        []ContainerRuntime `json:"runtimes"`
+	Diagnostics     []string           `json:"diagnostics"`
+}
+
+// RemoteContainerRuntimes performs bounded read-only engine discovery in Core.
+func (c *Client) RemoteContainerRuntimes(ctx context.Context) (ContainerRuntimes, error) {
+	var result ContainerRuntimes
+	err := c.Execute(ctx, "remote.containerRuntimes", struct{}{}, &result)
+	return result, err
+}
+
+// DevcontainerForm is the user's draft; Core validates and renders standard CLI input.
+type DevcontainerForm struct {
+	Name              string `json:"name"`
+	Image             string `json:"image"`
+	Dockerfile        string `json:"dockerfile"`
+	BuildContext      string `json:"buildContext"`
+	RemoteUser        string `json:"remoteUser"`
+	WorkspaceFolder   string `json:"workspaceFolder"`
+	Ports             string `json:"ports"`
+	PostCreateCommand string `json:"postCreateCommand"`
+}
+
+// PreparedDevcontainer is a write plan, published only on the user's Create action.
+type PreparedDevcontainer struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+
+// RemoteDevcontainerPrepare performs no I/O and never runs project code.
+func (c *Client) RemoteDevcontainerPrepare(ctx context.Context, form DevcontainerForm) (PreparedDevcontainer, error) {
+	var result PreparedDevcontainer
+	err := c.Execute(ctx, "remote.devcontainerPrepare", form, &result)
+	return result, err
+}
+
+// RemoteDevcontainerRuntimeConfigs discovers a folder in its actual execution host.
+type DevcontainerFolder struct {
+	Configs      []DevcontainerConfig `json:"configs"`
+	NativeFolder string               `json:"nativeFolder"`
+}
+
+func (c *Client) RemoteDevcontainerRuntimeConfigs(ctx context.Context, folder string, runtime *ContainerRuntimeTarget) (DevcontainerFolder, error) {
+	var result DevcontainerFolder
+	request := struct {
+		Folder  string                  `json:"folder"`
+		Runtime *ContainerRuntimeTarget `json:"runtime,omitempty"`
+	}{folder, runtime}
+	if err := c.Execute(ctx, "remote.devcontainerConfigs", request, &result); err != nil {
+		return DevcontainerFolder{}, err
+	}
+	result.Configs = nonNil(result.Configs)
+	return result, nil
+}
+
+// RemoteRuntimeContainers lists the same daemon subsequent execs will enter.
+func (c *Client) RemoteRuntimeContainers(ctx context.Context, runtime ContainerRuntimeTarget) (RemoteContainers, error) {
+	var result RemoteContainers
+	request := struct {
+		Engine  string                 `json:"engine"`
+		Runtime ContainerRuntimeTarget `json:"runtime"`
+	}{runtime.Engine, runtime}
+	err := c.Execute(ctx, "remote.listContainers", request, &result)
+	return result, err
 }

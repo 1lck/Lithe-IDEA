@@ -47,6 +47,17 @@ var errRemoteDevcontainerFailed = errors.New("the Dev Container CLI reported a f
 
 // remoteDevcontainer is the page that opens a folder of this computer in its dev container.
 type remoteDevcontainer struct {
+	runtimes                                                                              core.ContainerRuntimes
+	runtimeID                                                                             string
+	detecting                                                                             bool
+	detectCancel                                                                          context.CancelFunc
+	readCancel                                                                            context.CancelFunc
+	creating                                                                              bool
+	create                                                                                bool
+	nativeFolder                                                                          string
+	source                                                                                string
+	name, image, dockerfile, buildContext, remoteUser, workspaceFolder, ports, postCreate ui.Field
+
 	// folder is the folder as typed or chosen; read is the one last read, "" before.
 	folder ui.Field
 	read   string
@@ -84,19 +95,35 @@ type remoteDevcontainer struct {
 // busy says whether the page is saving the trust or building: the folder, the choices and Cancel
 // wait for it.
 func (d *remoteDevcontainer) busy() bool {
-	return d.trusting || d.build != nil
+	return d.trusting || d.creating || d.build != nil
 }
 
 // buildable says whether Build may start: the folder was read and has a configuration, and it is
 // trusted or its trust can be saved.
 func (d *remoteDevcontainer) buildable() bool {
-	return !d.busy() && !d.reading && d.read != "" && len(d.configs) > 0 && (d.trusted || d.trust.Root != "")
+	return !d.busy() && !d.detecting && !d.reading && d.runtimeAvailable() && d.read != "" && len(d.configs) > 0 && !d.create && (d.trusted || d.trust.Root != "")
+}
+
+// runtimeAvailable reflects Core's probe result for the selected environment.
+func (d *remoteDevcontainer) runtimeAvailable() bool {
+	for _, runtime := range d.runtimes.Runtimes {
+		if runtime.ID == d.runtimeID {
+			return runtime.Available
+		}
+	}
+	return false
 }
 
 // forget drops what was read for the folder once it is edited, and any read still running.
 func (d *remoteDevcontainer) forget() {
+	if d.readCancel != nil {
+		d.readCancel()
+		d.readCancel = nil
+	}
 	d.reads++
 	d.reading, d.read, d.configs, d.config = false, "", nil, ""
+	d.nativeFolder = ""
+	d.create = false
 	d.trust, d.trusted, d.location = toolchain.WorkspaceTrust{}, false, false
 	d.err, d.diagnostics = "", ""
 }
@@ -123,7 +150,14 @@ func (a *App) openRemoteDevcontainer() {
 	a.performed("remote.devcontainer.open", surfaceButton)
 	r.stopProbe()
 	r.steps = nil
-	r.devcontainer = &remoteDevcontainer{engine: core.ContainerEngineDocker}
+	r.devcontainer = &remoteDevcontainer{engine: core.ContainerEngineDocker, source: "image"}
+	if r.containers.discovering {
+		r.devcontainer.detecting = true
+	} else if r.containers.discovered {
+		a.applyRemoteDevcontainerRuntimes(r.devcontainer, r.containers.runtimes)
+	} else {
+		a.detectRemoteDevcontainerRuntimes(r.devcontainer)
+	}
 }
 
 // leaveRemoteDevcontainer is Cancel and closing the window: a running build stops.
@@ -131,6 +165,14 @@ func (a *App) leaveRemoteDevcontainer() {
 	r := &a.remote
 	if d := r.devcontainer; d != nil && d.build != nil {
 		d.build.cancel()
+	}
+	if d := r.devcontainer; d != nil {
+		if d.detectCancel != nil {
+			d.detectCancel()
+		}
+		if d.readCancel != nil {
+			d.readCancel()
+		}
 	}
 	r.devcontainer = nil
 }
@@ -175,7 +217,7 @@ func (a *App) chooseRemoteDevcontainerFolder() {
 func (a *App) readRemoteDevcontainer() {
 	r := &a.remote
 	d := r.devcontainer
-	if d == nil || d.busy() {
+	if d == nil || d.busy() || d.detecting {
 		return
 	}
 	folder := strings.TrimSpace(d.folder.Text())
@@ -187,13 +229,14 @@ func (a *App) readRemoteDevcontainer() {
 	}
 	d.forget()
 	d.reading = true
+	target := d.runtimeTarget()
 	reads, generation, kernel, root, everyTrusted := d.reads, r.generation, a.kernel, a.globalToolchainRoot(), a.trustEveryWorkspace
-	a.background(nil, remoteDevcontainerReadTimeout, func(ctx context.Context) func(*App) {
-		configs, err := kernel.RemoteDevcontainerConfigs(ctx, folder)
+	d.readCancel = a.background(nil, remoteDevcontainerReadTimeout, func(ctx context.Context) func(*App) {
+		configs, err := kernel.RemoteDevcontainerRuntimeConfigs(ctx, folder, target)
 		var trust toolchain.WorkspaceTrust
 		var trustErr error
 		if err == nil && !everyTrusted {
-			trust, trustErr = toolchain.ReadWorkspaceTrust(ctx, kernel, root, folder)
+			trust, trustErr = toolchain.ReadWorkspaceTrust(ctx, kernel, root, configs.NativeFolder)
 		}
 		return func(a *App) {
 			r := &a.remote
@@ -201,7 +244,7 @@ func (a *App) readRemoteDevcontainer() {
 				// log-exempt: 用户取消：页面已离开或文件夹已改，不再应用读取结果。
 				return
 			}
-			d.reading = false
+			d.reading, d.readCancel = false, nil
 			language := a.language()
 			if err != nil {
 				a.operationFailed("remote_devcontainer_configs", remoteLogError(err))
@@ -216,9 +259,10 @@ func (a *App) readRemoteDevcontainer() {
 				}
 				return
 			}
-			d.read, d.configs = folder, configs
-			if len(configs) > 0 {
-				d.config = configs[0].Path
+			d.read, d.nativeFolder, d.configs = folder, configs.NativeFolder, configs.Configs
+			d.create = len(configs.Configs) == 0
+			if len(configs.Configs) > 0 {
+				d.config = configs.Configs[0].Path
 			}
 			switch {
 			case everyTrusted:
@@ -270,7 +314,7 @@ func (a *App) buildRemoteDevcontainer(d *remoteDevcontainer) {
 	d.build, d.stopped = build, false
 	d.lines, d.count, d.seen, d.truncated, d.log = nil, 0, 0, false, ui.ListState{}
 	d.err, d.diagnostics = "", ""
-	request := core.DevcontainerUpRequest{Folder: d.read, Config: d.config, Engine: d.engine, ProjectCodeAllowed: true}
+	request := core.DevcontainerUpRequest{Folder: d.read, Config: d.config, Engine: d.engine, ProjectCodeAllowed: true, Runtime: d.runtimeTarget()}
 	generation, kernel := r.generation, a.kernel
 	output := func(line core.DevcontainerOutput) {
 		a.post(func(a *App) {
@@ -332,7 +376,7 @@ func (a *App) finishRemoteDevcontainer(d *remoteDevcontainer, result core.Devcon
 		return
 	}
 	r.devcontainer = nil
-	r.selectRemoteContainer(remoteListedContainer{engine: c.Engine, RemoteContainer: core.RemoteContainer{ID: c.ContainerID, Name: c.Container}})
+	r.selectRemoteContainer(remoteListedContainer{engine: c.Engine, RemoteContainer: core.RemoteContainer{ID: c.ContainerID, Name: c.Container}, runtime: c.Runtime})
 	r.containers.user.SetText(c.User)
 	// The list shows the container once listed again, with its image and state.
 	a.loadRemoteContainers()
@@ -365,92 +409,92 @@ func remoteDevcontainerConfigLabel(language i18n.Language, configs []core.Devcon
 // engine, its trust, and the CLI's log.
 func (a *App) remoteDevcontainerView(c ui.C, language i18n.Language, d *remoteDevcontainer) {
 	small := a.theme.Metrics.FontSizeS
-	ui.Column(c.Part("devcontainer")).Fill().Gap(18).PadSides(20, 24, 16, 24).Children(func() {
-		h := c.Part("hero")
-		ui.Row(h).FillWidth().Shrink(0).Items(ui.Center).Gap(14).Children(func() {
-			ui.Row(h.Part("mark")).Size(40, 40).Shrink(0).Center().Radius(10).Background(a.colors.Hover).Stroke(1, a.colors.Line).Children(func() {
-				ui.Icon(h, icons.FileCode).Size(20, 20).Color(a.colors.Subtle)
-			})
-			ui.Column(h).Grow(1).Basis(0).MinWidth(0).Gap(4).Children(func() {
-				ui.Text(c, i18n.Shared(language, "desktop.remote.devcontainer.title")).FontSize(16).Weight(gfx.WeightSemibold).Ellipsis().MinWidth(0)
-				ui.Paragraph(c, i18n.Shared(language, "desktop.remote.devcontainer.about"), 3).FontSize(small).Color(a.colors.Subtle)
-			})
-		})
-		label := i18n.Shared(language, "desktop.remote.devcontainer.folder")
-		a.remoteSection(c.Part("folder"), label, "", nil, func() {
-			field := ui.TextField(c.Part("folder-field"), &d.folder, label, i18n.Shared(language, "desktop.remote.devcontainer.folderPlaceholder")).
-				Mono().FillWidth().Disabled(d.busy()).Action(icons.FolderOpen, i18n.Shared(language, "desktop.remote.devcontainer.choose"))
-			if field.Changed() {
-				c.After(d.forget)
-			}
-			if field.Submitted() {
-				c.After(func() {
-					a.performed("remote.devcontainer.read", surfaceShortcut)
-					a.readRemoteDevcontainer()
+	ui.Column(c.Part("devcontainer")).Fill().Gap(8).Children(func() {
+		body := c.Part("form-scroll")
+		ui.Scroll(body).Scrollbars().FillWidth().Grow(1).Basis(0).MinHeight(0).Children(func() {
+			ui.Column(body).FillWidth().Gap(16).PadSides(20, 24, 16, 24).Children(func() {
+				h := c.Part("hero")
+				ui.Row(h).FillWidth().Shrink(0).Items(ui.Center).Gap(14).Children(func() {
+					ui.Row(h.Part("mark")).Size(40, 40).Shrink(0).Center().Radius(10).Background(a.colors.Hover).Stroke(1, a.colors.Line).Children(func() {
+						ui.Icon(h, icons.FileCode).Size(20, 20).Color(a.colors.Subtle)
+					})
+					ui.Column(h).Grow(1).Basis(0).MinWidth(0).Gap(4).Children(func() {
+						ui.Text(c, i18n.Shared(language, "desktop.remote.devcontainer.title")).FontSize(16).Weight(gfx.WeightSemibold).Ellipsis().MinWidth(0)
+						a.remoteHelp(c, i18n.Shared(language, "desktop.remote.devcontainer.about"))
+					})
 				})
-			}
-			if field.ActionClicked() {
-				c.After(a.chooseRemoteDevcontainerFolder)
-			}
-			if d.reading {
-				ui.Text(c, i18n.Shared(language, "native.loading")).FontSize(small).Color(a.colors.Subtle)
-			}
-		})
-		if d.read != "" {
-			ui.Row(c.Part("choices")).FillWidth().Shrink(0).Gap(16).Items(ui.Start).Children(func() {
-				ui.Column(c.Part("config")).Grow(1).Basis(0).MinWidth(0).Children(func() {
-					config := i18n.Shared(language, "desktop.remote.devcontainer.config")
-					a.remoteSection(c, config, i18n.Shared(language, "desktop.remote.devcontainer.configHelp"), nil, func() {
-						if len(d.configs) == 0 {
-							ui.Paragraph(c, i18n.Shared(language, "desktop.remote.devcontainer.none"), 3).FontSize(small).Color(a.colors.Warning)
-							return
-						}
+				a.remoteDevcontainerRuntimeView(c.Part("runtime"), language, d)
+				label := i18n.Shared(language, "desktop.remote.devcontainer.folder")
+				a.remoteSection(c.Part("folder"), label, "", nil, func() {
+					field := ui.TextField(c.Part("folder-field"), &d.folder, label, i18n.Shared(language, "desktop.remote.devcontainer.folderPlaceholder")).
+						Mono().FillWidth().Disabled(d.busy()).Action(icons.FolderOpen, i18n.Shared(language, "desktop.remote.devcontainer.choose"))
+					if field.Changed() {
+						c.After(d.forget)
+					}
+					if field.Submitted() {
+						c.After(func() {
+							a.performed("remote.devcontainer.read", surfaceShortcut)
+							a.readRemoteDevcontainer()
+						})
+					}
+					if field.ActionClicked() {
+						c.After(a.chooseRemoteDevcontainerFolder)
+					}
+					if d.reading {
+						ui.Text(c, i18n.Shared(language, "native.loading")).FontSize(small).Color(a.colors.Subtle)
+					}
+				})
+				if d.read != "" {
+
+					configLabel := i18n.Shared(language, "desktop.remote.devcontainer.config")
+					a.remoteSection(c.Part("config"), configLabel, i18n.Shared(language, "desktop.remote.devcontainer.configHelp"), nil, func() {
 						paths := make([]string, len(d.configs))
 						for i, config := range d.configs {
 							paths[i] = config.Path
 						}
-						configs := d.configs
-						ui.Select(c.Part("config-select"), &d.config, paths, func(path string) string {
-							return remoteDevcontainerConfigLabel(language, configs, path)
-						}).Label(config).FillWidth().Disabled(d.busy())
+						if len(paths) > 0 && !d.create {
+							configs := d.configs
+							ui.Select(c.Part("config-select"), &d.config, paths, func(path string) string {
+								return remoteDevcontainerConfigLabel(language, configs, path)
+							}).Label(configLabel).FillWidth().Disabled(d.busy())
+						}
+						if len(paths) == 0 {
+							ui.Text(c, i18n.Shared(language, "desktop.remote.devcontainer.createMissing")).FontSize(small).Color(a.colors.Subtle)
+						}
 					})
-				})
-				ui.Column(c.Part("engine")).Width(180).Shrink(0).Children(func() {
-					engine := i18n.Shared(language, "desktop.remote.devcontainer.engine")
-					a.remoteSection(c, engine, i18n.Shared(language, "desktop.remote.devcontainer.engineHelp"), nil, func() {
-						ui.Select(c.Part("engine-select"), &d.engine, remoteContainerEngines, func(engine string) string {
-							return remoteContainerEngineName(language, engine)
-						}).Label(engine).FillWidth().Disabled(d.busy())
-					})
-				})
-			})
-			if !d.trusted && d.trust.Root != "" {
-				ui.Column(c.Part("trust")).FillWidth().Shrink(0).Gap(8).Children(func() {
-					a.remoteNotice(c, icons.ShieldCheck, a.colors.Warning, i18n.Shared(language, "desktop.remote.devcontainer.untrusted"))
-					if offered := d.trust.OfferedLocation; offered != nil {
-						home, _ := os.UserHomeDir()
-						text := i18n.SharedFormat(language, "desktop.trust.location", map[string]string{"folder": trustFolderLabel(*offered, home)})
-						ui.Checkbox(c.Part("location"), &d.location, text).Disabled(d.busy())
+					if d.create {
+						a.remoteDevcontainerFormView(c.Part("basic-form"), language, d)
 					}
-				})
-			}
-		}
-		if d.err != "" {
-			ui.Column(c.Part("error")).FillWidth().Shrink(0).Gap(8).Children(func() {
-				a.remoteNotice(c, icons.CircleX, a.theme.Danger, d.err)
-				if d.diagnostics != "" {
-					l := c.Part("diagnostics")
-					ui.Scroll(l).FillWidth().MaxHeight(120).Children(func() {
-						ui.Column(l).FillWidth().Pad(10).Radius(6).Background(a.colors.Hover).Stroke(1, a.colors.Line).Children(func() {
-							ui.Paragraph(c, d.diagnostics, 40).Mono().FontSize(small).Color(a.colors.Subtle)
+
+					if !d.trusted && d.trust.Root != "" {
+						ui.Column(c.Part("trust")).FillWidth().Shrink(0).Gap(8).Children(func() {
+							a.remoteNotice(c, icons.ShieldCheck, a.colors.Warning, i18n.Shared(language, "desktop.remote.devcontainer.untrusted"))
+							if offered := d.trust.OfferedLocation; offered != nil {
+								home, _ := os.UserHomeDir()
+								text := i18n.SharedFormat(language, "desktop.trust.location", map[string]string{"folder": trustFolderLabel(*offered, home)})
+								ui.Checkbox(c.Part("location"), &d.location, text).Disabled(d.busy())
+							}
 						})
+					}
+				}
+				if d.err != "" {
+					ui.Column(c.Part("error")).FillWidth().Shrink(0).Gap(8).Children(func() {
+						a.remoteNotice(c, icons.CircleX, a.theme.Danger, d.err)
+						if d.diagnostics != "" {
+							l := c.Part("diagnostics")
+							ui.Scroll(l).Scrollbars().FillWidth().MaxHeight(120).Children(func() {
+								ui.Column(l).FillWidth().Pad(10).Radius(6).Background(a.colors.Hover).Stroke(1, a.colors.Line).Children(func() {
+									ui.Paragraph(c, d.diagnostics, 40).Mono().FontSize(small).Color(a.colors.Subtle)
+								})
+							})
+						}
 					})
 				}
+				if d.stopped {
+					a.remoteNotice(c.Part("stopped"), icons.Info, a.colors.Subtle, i18n.Shared(language, "desktop.remote.devcontainer.stopped"))
+				}
 			})
-		}
-		if d.stopped {
-			a.remoteNotice(c.Part("stopped"), icons.Info, a.colors.Subtle, i18n.Shared(language, "desktop.remote.devcontainer.stopped"))
-		}
+		})
 		if d.build != nil || len(d.lines) > 0 {
 			a.remoteDevcontainerLog(c.Part("log"), language, d)
 		}
@@ -462,7 +506,7 @@ func (a *App) remoteDevcontainerView(c ui.C, language i18n.Language, d *remoteDe
 func (a *App) remoteDevcontainerLog(c ui.C, language i18n.Language, d *remoteDevcontainer) {
 	small := a.theme.Metrics.FontSizeS
 	title := i18n.Shared(language, "desktop.remote.devcontainer.log")
-	ui.Column(c).FillWidth().Grow(1).Basis(0).MinHeight(120).Gap(8).Children(func() {
+	ui.Column(c).FillWidth().Height(200).Shrink(0).Gap(8).Children(func() {
 		ui.Row(c.Part("head")).FillWidth().Height(22).Shrink(0).Items(ui.Center).Gap(4).Children(func() {
 			ui.Text(c, title).FontSize(small).Weight(gfx.WeightSemibold).Color(a.colors.Subtle).Shrink(0)
 			a.remoteHelp(c, i18n.Shared(language, "desktop.remote.devcontainer.logHelp"))
@@ -504,7 +548,7 @@ func (a *App) remoteDevcontainerFooter(c ui.C, language i18n.Language, d *remote
 			status = i18n.Shared(language, "desktop.remote.devcontainer.building")
 		}
 		ui.Text(c, status).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Grow(1).MinWidth(0).Ellipsis()
-		if ui.Button(c.Part("cancel"), i18n.Shared(language, "desktop.remote.cancel")).Outline().Disabled(d.trusting).Clicked() {
+		if ui.Button(c.Part("cancel"), i18n.Shared(language, "desktop.remote.cancel")).Outline().Disabled(d.trusting || d.creating).Clicked() {
 			c.After(func() {
 				a.performed("remote.devcontainer.cancel", surfaceButton)
 				a.leaveRemoteDevcontainer()
@@ -513,6 +557,12 @@ func (a *App) remoteDevcontainerFooter(c ui.C, language i18n.Language, d *remote
 		if d.build != nil {
 			if ui.Button(c.Part("stop"), i18n.Shared(language, "desktop.remote.stop")).Icon(icons.Square).Clicked() {
 				c.After(a.stopRemoteDevcontainer)
+			}
+			return
+		}
+		if d.create && d.read != "" {
+			if ui.Button(c.Part("create"), i18n.Shared(language, "desktop.remote.devcontainer.createConfig")).Disabled(d.busy() || d.reading).Clicked() {
+				c.After(a.createRemoteDevcontainerConfig)
 			}
 			return
 		}

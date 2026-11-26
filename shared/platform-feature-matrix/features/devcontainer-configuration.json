@@ -1,0 +1,36 @@
+{
+  "id": "devcontainer-configuration",
+  "area": "工作区",
+  "group": "远程开发",
+  "capability": "自动识别本机 Docker contexts、Docker Desktop、OrbStack 及 Windows WSL 容器环境，通过基础表单创建标准 Dev Container 配置，并在所选环境构建和连接",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/remote_devcontainer.go",
+      "desktop/internal/core/remote_devcontainer_test.go",
+      "desktop/internal/workbench/remote_container.go",
+      "desktop/internal/workbench/remote_devcontainer.go",
+      "desktop/internal/workbench/remote_devcontainer_form.go",
+      "desktop/internal/workbench/remote_devcontainer_form_test.go",
+      "desktop/internal/workbench/remote_devcontainer_integration_test.go",
+      "desktop/internal/workbench/remote_devcontainer_runtime_visual_test.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/remote_devcontainer.go",
+      "desktop/internal/core/remote_session.go",
+      "desktop/internal/workbench/remote_browse.go",
+      "desktop/internal/workbench/remote_container.go",
+      "desktop/internal/workbench/remote_devcontainer.go",
+      "desktop/internal/workbench/remote_devcontainer_form.go",
+      "desktop/internal/workbench/remote_devcontainer_form_test.go"
+    ]
+  },
+  "owner": "Remote",
+  "verification": "打开“远程开发 → 创建或打开 Dev Container”，环境选择器显示实际 context 名称、描述和可用状态：macOS 分别检查 OrbStack 和 Docker Desktop，Windows 分别检查原生 Docker Desktop 和用户 WSL 发行版中的 Docker，Linux 检查本机 Docker。刷新或切换环境后重新读取工作区和信任，不应用旧结果。空工作区显示基础表单，分别用镜像和 Dockerfile 创建；填写用户、端口和创建后命令，确认生成 .devcontainer/devcontainer.json，再信任并构建，连接后读写真实挂载工作区；构建、检查和连接始终使用同一环境，用户全局 Docker context 不变。草稿和取消不写文件，已有配置不覆盖，安装目录清单和哈希不变；环境未就绪时显示真实诊断并禁止构建。检查明暗主题、中英文、表单和日志的独立滚动。Windows 还要验证 C 盘路径和 WSL Linux 路径、发行版内 CLI 缺失提示及非默认 context 的连接。",
+  "notes": "2026-11-26：Core 负责发现、目标校验、WSL 路径解析、标准配置生成和官方 CLI 执行；Viva 共用表单，平台适配器只在明确创建后原子写工作区。JSON 继续供 Agent 和官方 CLI 使用。发现最多 24 个环境和 8 个 WSL 发行版，超时、取消和进程树清理有界。context 与发行版进入容器身份及信任键；不切全局 context，不为构建额外添加挂载或权限。macOS 已在真实 OrbStack + Alpine 3.21 完成配置创建、生命周期命令、选定 context 连接和远端文件读取，Docker Desktop 只验证了已发现但未就绪状态；明暗中英文无头截图已检查，因此完整多环境原生验收仍标 pending。Windows 目标 clippy 通过，原生 Docker Desktop / WSL 及原生 Linux 整机尚未验收。此能力无具体插件依赖。"
+}

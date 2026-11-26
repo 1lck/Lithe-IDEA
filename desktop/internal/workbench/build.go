@@ -1434,6 +1434,7 @@ func (a *App) runBuildTask(p *project, projectID, targetID, taskID string, userA
 	op := a.beginBuildOperation(p, "build", ideAPIBuildLabel(instance, taskID), "", restartWithInstance(instance.ID, func(a *App, p *project) {
 		_, _ = a.runBuildTask(p, projectID, targetID, taskID, userArguments)
 	}))
+	setRunGroupFromInstance(p, op.session, instance)
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
 		prepare, release := op.bind(ctx)
 		defer release()
@@ -1820,6 +1821,7 @@ func (a *App) startBuildEntry(p *project, instanceID, entryID string) {
 	op := a.beginRunOperation(p, entry.Name, "", "entry:"+instanceID+"/"+entryID, restartWithInstance(instance.ID, func(a *App, p *project) {
 		a.runBuildEntry(p, entryID)
 	}))
+	setRunGroupFromInstance(p, op.session, instance)
 	a.background(p, 0, func(ctx context.Context) func(*App) {
 		bounded, cancel := context.WithTimeout(ctx, runPreparationTimeout)
 		defer cancel()
@@ -1887,6 +1889,7 @@ func (a *App) beginBuildTarget(p *project, key, targetID string, run pluginservi
 		}
 		a.runBuildTarget(p, targetID, runID)
 	}))
+	setRunGroupFromInstance(p, op.session, instance)
 	var options *core.RunLaunchOptions
 	if (run.Execution != "" && run.Execution != "application") || debug != nil {
 		options = &core.RunLaunchOptions{Execution: run.Execution, RuntimeArguments: []string{}, Arguments: []string{}, Environment: map[string]string{}}

@@ -2,7 +2,7 @@
   "id": "run-console-soft-wrap",
   "area": "运行与调试",
   "group": "运行输出",
-  "capability": "运行控制台自动换行：右侧工具栏的“自动换行”开关让超出控制台宽度的行折成多行，关闭时长行在右边缘以省略号结尾",
+  "capability": "运行控制台自动换行与横向滚动：右侧工具栏的“自动换行”开关让超出控制台宽度的行折成多行，关闭时长行不再以省略号截断而是支持横向滚动浏览",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
@@ -28,6 +28,6 @@
     ]
   },
   "owner": "Run",
-  "verification": "运行一个会打印超长行的程序（例如带长编译参数的 make），确认默认状态下长行在控制台右边缘以“…”结尾，选中整行复制后得到完整内容；点击控制台右侧工具栏的“自动换行”开关，开关保持按下的背景，长行在空格处折成多行，ANSI 颜色和链接颜色跨行保留，点击折到下一行的链接仍能打开；拖动运行窗口的分隔条改变控制台宽度，折行随宽度重新排列；切换到另一个执行标签，开关状态相同；再次点击开关恢复省略号。读屏软件把开关读作开关并报告开/关状态。自动化：run_panels_test.go 的 TestRunConsoleWrapSwitchBreaksLongLinesInsteadOfCuttingThem，outputlinks_test.go 的 TestOutputBufferRevisionChangesWithEveryChangeItShows；Viva 无头截图由 run_console_wrap_visual_test.go 的 TestVisualRunConsoleWrap 生成（明暗主题 × 中英文 × 开关关/开）。",
-  "notes": "沿用 Git 控制台的做法：同一个 Viva textview，Wrap 由开关决定，未换行时 Ellipsis，Revision 取输出缓冲的修改计数，只在输出或宽度变化时重新折行；着色仍只走 textview 的 Spans。开关状态在整个应用内共用，退出前一直有效，不写入设置。测试窗口的失败输出不显示开关，保持省略号。和 Git 控制台一样不提供左右滚动，要看完整长行时打开自动换行。"
+  "verification": "运行一个会打印超长行的程序（例如带长编译参数的 make），确认默认关闭自动换行时长行不再出现“…”省略号，可通过横向滚轮或底部横向滚动条查看完整行内容，选中整行复制后得到完整内容；点击控制台右侧工具栏的“自动换行”开关，开关保持按下的背景，长行在空格处折成多行，ANSI 颜色和链接颜色跨行保留，点击折到下一行的链接仍能打开；拖动运行窗口的分隔条改变控制台宽度，折行随宽度重新排列；切换到另一个执行标签，开关状态相同；再次点击开关恢复横向滚动模式。读屏软件把开关读作开关并报告开/关状态。自动化：run_panels_test.go 的 TestRunConsoleWrapSwitchBreaksLongLinesInsteadOfCuttingThem，outputlinks_test.go 的 TestOutputBufferRevisionChangesWithEveryChangeItShows；Viva 无头截图由 run_console_wrap_visual_test.go 的 TestVisualRunConsoleWrap 生成（明暗主题 × 中英文 × 开关关/开）。",
+  "notes": "同一个 Viva textview：开启自动换行时由 textview 自身负责折行和纵向滚动（Revision 取输出缓冲的修改计数，只在输出或宽度变化时重新折行）；关闭自动换行时关闭 Ellipsis，外层使用 ui.Scroll(c).Sideways().Scrollbars().Follow(true) 提供双向滚动与横向滚动条，outputBuffer 增量缓存 maxCells 使每帧计算内容宽度保持 O(1)。着色仍只走 textview 的 Spans。开关状态在整个应用内共用，退出前一直有效，不写入设置。"
 }

@@ -94,6 +94,7 @@ func (k *remoteHostKernel) writeLocked(path string, data []byte) {
 	}
 	k.files[path] = slices.Clone(data)
 	k.modified[path]++
+	k.syncRemoteTreeLocked()
 }
 
 // put changes the host file path as someone on the host does.

@@ -123,9 +123,14 @@ func (a *App) applyEditorPreferences(stored core.EditorStoredPreferences, resolv
 }
 
 func (a *App) saveSettingsSnapshot() (string, error) {
+	geo, appliedGeo := a.sessions.applyWindowGeometry(&a.settings)
 	sub := a.settingsSubscription
 	if sub == nil {
-		return a.store.SaveWithBackup(settingsFile, a.settings)
+		backup, err := a.store.SaveWithBackup(settingsFile, a.settings)
+		if err == nil && appliedGeo {
+			a.sessions.noteSavedWindowGeometry(geo)
+		}
+		return backup, err
 	}
 	state := sub.editorPreferences
 	state.Lock()
@@ -134,6 +139,16 @@ func (a *App) saveSettingsSnapshot() (string, error) {
 	next := a.settings
 	next.EditorPreferences = state.latest.stored
 	state.Unlock()
+	// A queued snapshot is not saved yet, and an older completion must not
+	// acknowledge geometry superseded by a newer successful settings write.
+	noteGeometry := func(a *App) {
+		state.Lock()
+		latest := state.savedSerial == serial
+		state.Unlock()
+		if appliedGeo && latest {
+			a.sessions.noteSavedWindowGeometry(geo)
+		}
+	}
 	if err := os.MkdirAll(a.store.Dir(), 0o700); err != nil {
 		return "", err
 	}
@@ -143,7 +158,11 @@ func (a *App) saveSettingsSnapshot() (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return state.persistSettings(a.store, next, serial, unlock)
+		backup, err := state.persistSettings(a.store, next, serial, unlock)
+		if err == nil {
+			noteGeometry(a)
+		}
+		return backup, err
 	}
 	// A competing process must never stall the native UI thread. Freeze this
 	// whole-settings snapshot, then retry under an owned, bounded background task.
@@ -162,7 +181,12 @@ func (a *App) saveSettingsSnapshot() (string, error) {
 				backup, err = state.persistSettings(a.store, frozen, serial, unlock)
 			}
 		}
-		return func(a *App) { a.reportSettingsSave(backup, err) }
+		return func(a *App) {
+			a.reportSettingsSave(backup, err)
+			if err == nil {
+				noteGeometry(a)
+			}
+		}
 	})
 	return "", nil
 }
