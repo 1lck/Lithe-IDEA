@@ -707,6 +707,7 @@ func (w *window) editorPage(c ui.C) {
 			})
 		})
 		w.editorPresentationCard(c)
+		w.editorRainbowCard(c.Part("rainbow-settings"))
 		w.tabLimitCard(c)
 		semantic := !values.DisableSemanticHighlight
 		w.card(c, settings.EditorSemantic, settings.EditorSemanticHelp, func() {

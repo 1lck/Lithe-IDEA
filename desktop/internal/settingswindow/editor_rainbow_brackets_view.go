@@ -74,6 +74,12 @@ func (w *window) loadRainbowPalettes(value core.EditorPreferences) {
 	w.rainbowDark.load(value.RainbowBracketDarkColors)
 }
 
+func (w *window) editorRainbowCard(c ui.C) {
+	w.card(c, i18n.Shared(w.marketLanguage(), "desktop.editorPrefs.rainbowBrackets"), "", func() {
+		w.rainbowControls(c, w.sess.values.EditorPreferences)
+	})
+}
+
 func (w *window) rainbowControls(c ui.C, current core.EditorPreferences) {
 	lang := w.marketLanguage()
 	ui.Row(c).FillWidth().Items(ui.Center).Gap(20).Children(func() {

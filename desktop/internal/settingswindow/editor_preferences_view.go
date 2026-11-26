@@ -34,7 +34,6 @@ func (w *window) editorPresentationCard(c ui.C) {
 		if ui.Switch(c.Part("line-numbers"), &current.LineNumbers, i18n.Shared(lang, "desktop.editorPrefs.lineNumbers")).Changed() {
 			w.setEditorPresentation(current)
 		}
-		w.rainbowControls(c, current)
 		if ui.Switch(c.Part("whitespace"), &current.Whitespace, i18n.Shared(lang, "desktop.editorPrefs.whitespace")).Changed() {
 			w.setEditorPresentation(current)
 		}
