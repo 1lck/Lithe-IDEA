@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,8 +15,10 @@ import (
 // placement of its changes in the lists.
 func (h *harness) settleChain() {
 	h.t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
 	for range gitChainSteps {
-		h.settle()
+		h.settleWithin(ctx)
 	}
 }
 

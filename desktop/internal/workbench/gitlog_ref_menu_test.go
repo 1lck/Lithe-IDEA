@@ -40,7 +40,9 @@ func (h *harness) logRefMenu(short string) {
 	if err := h.driver.ClickButton(point.X, point.Y, gfx.PointerButtonSecondary); err != nil {
 		h.t.Fatal(err)
 	}
-	h.settle()
+	if err := h.driver.Pump(); err != nil {
+		h.t.Fatal(err)
+	}
 	if item := h.app.text.Branch.NewBranchFrom(short); !h.hasPopupItem(item) {
 		h.t.Fatalf("no menu item %q is shown after the right-click on %q", item, short)
 	}

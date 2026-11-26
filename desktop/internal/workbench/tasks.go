@@ -13,7 +13,7 @@ import (
 type taskQueue struct {
 	mu      sync.Mutex
 	pending []func(*App)
-	running sync.WaitGroup
+	running taskGroup
 	// painted is set by the first paint, which asks for the wake that results posted before
 	// the window opened lost (wakeForEarlyResults). The window thread alone reads and sets it.
 	painted bool
