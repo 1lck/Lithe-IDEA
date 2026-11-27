@@ -274,9 +274,9 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             .artifacts/desktop/lithe-core-rust
-          key: desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-release-${{ matrix.rust-target }}-${{ steps.core-pin.outputs.revision }}
+          key: desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-release-${{ matrix.os }}-${{ matrix.arch }}-${{ steps.core-pin.outputs.revision }}
           restore-keys: |
-            desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-release-${{ matrix.rust-target }}-
+            desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-release-${{ matrix.os }}-${{ matrix.arch }}-
 
       # Each platform receives only its own signing secrets.
       - name: Package

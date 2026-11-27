@@ -195,6 +195,9 @@ jobs:
       - name: Ensure Core fixtures checkout
         run: ./scripts/desktop/build-desktop-core.sh --checkout-only > /dev/null
 
+      - name: Stage release Core
+        run: ./scripts/desktop/desktop-go.sh --print-core-stage > /dev/null
+
       - name: Verify Core cgo cache invalidation
         run: |
           mkdir -p .artifacts/test-stability
@@ -436,6 +439,9 @@ jobs:
       - name: Ensure Core fixtures checkout
         run: ./scripts/desktop/build-desktop-core.sh --checkout-only > /dev/null
 
+      - name: Stage release Core
+        run: ./scripts/desktop/desktop-go.sh --print-core-stage > /dev/null
+
       - name: Verify Core cgo cache invalidation
         run: |
           mkdir -p .artifacts/test-stability
@@ -546,6 +552,9 @@ jobs:
 
       - name: Ensure Core fixtures checkout
         run: ./scripts/desktop/build-desktop-core.sh --checkout-only > /dev/null
+
+      - name: Stage release Core
+        run: ./scripts/desktop/desktop-go.sh --print-core-stage > /dev/null
 
       - name: Verify Core cgo cache invalidation
         run: |

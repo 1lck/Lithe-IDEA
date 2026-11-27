@@ -62,7 +62,7 @@ func TestDesktopGoFindsWindowsCargoImportLibraries(t *testing.T) {
 		cmd := exec.CommandContext(ctx, bash, filepath.Join(fixture, "scripts/desktop/desktop-go.sh"), "test")
 		for _, entry := range os.Environ() {
 			upper := strings.ToUpper(entry)
-			if !strings.HasPrefix(upper, "PATH=") && !strings.HasPrefix(upper, "GOARCH=") && !strings.HasPrefix(upper, "LITHE_CORE_TARGET=") && !strings.HasPrefix(upper, "CGO_CFLAGS=") && !strings.HasPrefix(upper, "CGO_LDFLAGS=") {
+			if !strings.HasPrefix(upper, "PATH=") && !strings.HasPrefix(upper, "GOARCH=") && !strings.HasPrefix(upper, "LITHE_CORE_TARGET=") && !strings.HasPrefix(upper, "LITHE_DESKTOP_CORE_PROFILE=") && !strings.HasPrefix(upper, "CGO_CFLAGS=") && !strings.HasPrefix(upper, "CGO_LDFLAGS=") {
 				cmd.Env = append(cmd.Env, entry)
 			}
 		}
