@@ -14,6 +14,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugininstall"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugintrust"
 )
 
@@ -348,6 +349,11 @@ func (a *App) applyPluginAutoUpdate(ctx context.Context, downloader *marketplace
 		return false, err
 	}
 	defer func() { a.recordPluginInstallCleanup(ctx, archive.Discard()) }()
+	finishStaging, err := pluginpkg.ProtectStaging(ctx, a.plugins.Root)
+	if err != nil {
+		return false, err
+	}
+	defer func() { a.recordPluginInstallCleanup(ctx, finishStaging()) }()
 	plan, err := a.preparePlugin(ctx, plugininstall.Request{
 		ArchivePath: archive.Path(), Root: a.plugins.Root, Source: plugintrust.Marketplace,
 		ArchiveSHA256:       plugin.Availability.SHA256,

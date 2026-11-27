@@ -69,7 +69,6 @@ type WelcomeMessages struct {
 	MenuPin    string
 	MenuUnpin  string
 	MenuRemove string
-	Pinned     string
 	// Missing marks a recent project whose folder no longer exists.
 	Missing string
 	// DropFolderOnly says that a dropped item was not a folder, so nothing opened.

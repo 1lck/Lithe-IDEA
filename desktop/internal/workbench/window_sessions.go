@@ -169,6 +169,7 @@ func (s *windowSessions) config() app.Config {
 		// An automatic update check that came due while the window was in the background
 		// runs now.
 		if s.active != nil {
+			s.active.refreshRecent()
 			s.active.resumeUpdateCheck()
 			s.active.resumePluginAutoUpdates()
 		}
@@ -196,12 +197,12 @@ func (s *windowSessions) config() app.Config {
 		s.closeAll(allow)
 	}
 	window.OnClosed = func() {
+		s.saveWindowGeometry()
 		for _, a := range s.list {
 			if closed := s.of(a).OnClosed; closed != nil {
 				closed()
 			}
 		}
-		s.saveWindowGeometry()
 		if logs := s.list[0].logs; logs != nil {
 			logs.Close()
 		}
@@ -331,7 +332,10 @@ func (s *windowSessions) closeAll(allow func()) {
 	a := s.active
 	a.requestCloseProject(func() {
 		if len(s.list) < 2 {
-			allow()
+			// Closing the settings window can itself enqueue its final size.
+			a.closeSettingsWindow()
+			s.saveWindowGeometry()
+			a.flushSettings(settingsFlushTimeout, allow)
 			return
 		}
 		s.leave(a)

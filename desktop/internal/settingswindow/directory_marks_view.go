@@ -579,12 +579,6 @@ func (w *window) directoryMarksPage(c ui.C) {
 								if ui.Button(c.Part("toggle-icon-picker"), toggleLabel).Outline().Disabled(!isCustom || d.busy).Clicked() {
 									d.iconPickerOpen = !d.iconPickerOpen
 								}
-								if isCustom && d.isCustomIcon(selected.Icon) {
-									delID := selected.Icon
-									if ui.Button(c.Part("del-custom-icon"), i18n.Shared(language, "desktop.directoryMarks.settings.deleteIcon")).Outline().Disabled(d.busy).Clicked() {
-										w.startDirectoryMarks(&directoryMarksWork{deleteIcon: delID})
-									}
-								}
 							})
 							if isCustom && customPtr != nil && d.iconPickerOpen {
 								w.directoryIconPicker(c, d, customPtr, language, dark)
@@ -899,6 +893,12 @@ func (w *window) directoryIconPicker(c ui.C, d *directoryMarksDraft, ct *core.Cu
 			ui.TextField(c.Part("icon-import-path"), &d.iconImportField, i18n.Shared(language, "desktop.directoryMarks.settings.importIconPath"), "").Grow(1).Disabled(d.busy)
 			if ui.Button(c.Part("icon-import-btn"), i18n.Shared(language, "desktop.directoryMarks.settings.importIcon")).Outline().Disabled(d.busy || strings.TrimSpace(d.iconImportField.Text()) == "").Clicked() {
 				w.startDirectoryMarks(&directoryMarksWork{importPath: strings.TrimSpace(d.iconImportField.Text())})
+			}
+			if d.isCustomIcon(ct.Icon) {
+				delID := ct.Icon
+				if ui.Button(c.Part("del-custom-icon"), i18n.Shared(language, "desktop.directoryMarks.settings.deleteIcon")).Outline().Disabled(d.busy).Clicked() {
+					w.startDirectoryMarks(&directoryMarksWork{deleteIcon: delID})
+				}
 			}
 		})
 	})

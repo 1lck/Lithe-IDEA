@@ -1,8 +1,12 @@
 package core
 
 import (
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
 // The broker tests run against the real Core. Open needs a helper file that
@@ -23,6 +27,28 @@ func TestIDEHostCatalogAndValidate(t *testing.T) {
 	}
 	if denied.OK || denied.Error == nil || denied.Error.Code != "PERMISSION_DENIED" {
 		t.Fatalf("execute without grant = %#v", denied)
+	}
+}
+
+// The pinned broker validates this same fixture against an already queued request.
+func TestIDEHostPollBudgetMatchesCoreFixture(t *testing.T) {
+	data, err := os.ReadFile(contractfixture.CoreFixture("ide-api/poll.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var poll IDEHostPollResult
+	if err := json.Unmarshal(data, &poll); err != nil {
+		t.Fatal(err)
+	}
+	if len(poll.Requests) != 1 {
+		t.Fatalf("got %d polled requests, want one", len(poll.Requests))
+	}
+	remaining := poll.Requests[0].RemainingMilliseconds
+	if remaining == nil {
+		t.Fatal("poll lost remainingMilliseconds from the Core fixture")
+	}
+	if *remaining != 30_000 {
+		t.Errorf("remainingMilliseconds = %d, want 30000", *remaining)
 	}
 }
 

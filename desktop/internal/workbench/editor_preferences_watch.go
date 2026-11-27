@@ -12,7 +12,7 @@ import (
 )
 
 // One native directory registration per preferences directory observes atomic
-// settings-file replacements made by independently launched client processes.
+// settings and recent history replacements made by independently launched clients.
 func (a *App) startEditorPreferencesWatch(state *editorPreferencesPublication) {
 	dir := a.store.Dir()
 	state.Lock()
@@ -61,6 +61,8 @@ func (a *App) drainEditorPreferencesWatch() {
 		return
 	}
 	changes := watch.Changes(nil)
+	initial := !state.watchReady
+	state.watchReady = !changes.Resync
 	if changes.Resync {
 		// Resync can mean the watched directory was replaced or the stream
 		// ended. Register a fresh stream before its initial full reload.
@@ -71,14 +73,26 @@ func (a *App) drainEditorPreferencesWatch() {
 		a.startEditorPreferencesWatch(state)
 		return
 	}
-	if !ready && !changes.Resync && !slices.Contains(changes.Names, settingsFile) {
+	recentChanged := initial || slices.Contains(changes.Names, recentFile) || slices.Contains(changes.Names, legacyRecentFile)
+	readSettings := initial || ready || state.readAgain || slices.Contains(changes.Names, settingsFile)
+	if !recentChanged && !readSettings {
 		state.Unlock()
 		return
 	}
-	state.reading = true
+	if readSettings {
+		state.reading = true
+		state.readAgain = false
+	}
 	generation := state.latest.generation
+	savedSerial := state.savedSerial
 	dir := a.store.Dir()
 	state.Unlock()
+	if recentChanged {
+		state.publishRecentChange()
+	}
+	if !readSettings {
+		return
+	}
 	a.background(nil, kernelCallTimeout, func(ctx context.Context) func(*App) {
 		var next settings
 		_, err := store.At(dir).Load(settingsFile, &next)
@@ -89,7 +103,7 @@ func (a *App) drainEditorPreferencesWatch() {
 		// Publication ownership outlives the initiating App when another
 		// project/window still uses this directory. Complete the shared read
 		// before posting UI work, even if that initiating window has closed.
-		state.completeEditorPreferencesRead(next.EditorPreferences, resolved, generation, err)
+		state.completeEditorPreferencesRead(next.EditorPreferences, resolved, generation, savedSerial, err)
 		return func(a *App) {
 			if err != nil {
 				a.backgroundFailed("editor_preferences_reload", err)
@@ -98,10 +112,15 @@ func (a *App) drainEditorPreferencesWatch() {
 	})
 }
 
-func (state *editorPreferencesPublication) completeEditorPreferencesRead(stored core.EditorStoredPreferences, resolved core.EditorPreferences, generation uint64, err error) {
+func (state *editorPreferencesPublication) completeEditorPreferencesRead(stored core.EditorStoredPreferences, resolved core.EditorPreferences, generation, savedSerial uint64, err error) {
 	state.Lock()
 	state.reading = false
-	if err == nil && generation == state.latest.generation && !state.pendingEditor && !reflect.DeepEqual(stored, state.latest.stored) {
+	if savedSerial != state.savedSerial {
+		// The read may have opened the file before our writer replaced it.
+		// Read the source again before publishing any external preferences.
+		state.readAgain = true
+		state.watchDirty.Store(true)
+	} else if err == nil && generation == state.latest.generation && !state.pendingEditor && !reflect.DeepEqual(stored, state.latest.stored) {
 		state.latest = editorPreferencesSnapshot{stored, resolved, state.latest.generation + 1}
 	}
 	state.Unlock()

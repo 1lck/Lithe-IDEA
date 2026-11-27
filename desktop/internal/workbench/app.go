@@ -76,7 +76,6 @@ type Kernel interface {
 	EditBuildIgnoredPaths(ctx context.Context, request core.BuildIgnoredPathsEditRequest) (core.BuildIgnoredPathsEdit, error)
 	IDEHostOpen(ctx context.Context, request core.IDEHostOpenRequest) (core.IDEHostOpenResult, error)
 	IDEHostPoll(ctx context.Context, hostID string) (core.IDEHostPollResult, error)
-	IDEHostClaim(ctx context.Context, hostID, requestID string) (core.IDEHostClaimResult, error)
 	IDEHostRespond(ctx context.Context, hostID, requestID string, result any) (core.IDEHostRespondResult, error)
 	IDEHostClose(ctx context.Context, hostID string) (core.IDEHostCloseResult, error)
 	IDEHostValidate(ctx context.Context, name string, arguments any, permissions core.IDEPermissions, toolExposure []core.IDEToolExposure) (core.IDEHostValidateResult, error)
@@ -534,7 +533,7 @@ type settings struct {
 
 const (
 	settingsFile = "settings.json"
-	recentFile   = "recent-projects.json"
+	recentFile   = "recent-projects-v2.json"
 )
 
 // project is an open project. A project is replaced, never reused: background work
@@ -674,11 +673,9 @@ type App struct {
 	// savedBackground is the window background last offered to the store (window_background.go).
 	savedBackground gfx.Color
 	focus           focusTarget
-	// debugHostedPort, debugInitializeWindow, and debugInitializeTrigger replace,
-	// in tests, asking the language server for a debug port and Core's initialize
-	// deadline. Production leaves all three zero.
+	// Tests can supply a hosted port and trigger the initialize deadline.
+	// Production leaves both nil.
 	debugHostedPort        func(ctx context.Context, p *project, adapter debugAdapter) (int, error)
-	debugInitializeWindow  time.Duration
 	debugInitializeTrigger <-chan struct{}
 	kernel                 Kernel
 	store                  *store.Store
@@ -765,6 +762,8 @@ type App struct {
 	consoleEncodings atomic.Pointer[settingswindow.ConsoleEncodings]
 
 	settingsSubscription *settingsSubscription
+	settingsPublication  *editorPreferencesPublication
+	settingsDiskWriter   func(*store.Store, settings) (string, error)
 	// plugins is the plugin stack, nil when the window was built without a plugin
 	// kernel or without a writable plugin root.
 	plugins *pluginservice.Service
@@ -872,8 +871,9 @@ type App struct {
 	projectToolLists func(context.Context, []string) (map[string]toolList, error)
 	projectCommand   func(context.Context, string) (projectgen.Command, error)
 	// pendingOpen is what a generator asked to open once its project is open.
-	pendingOpen pendingOpenFiles
-	recent      []core.RecentProject
+	pendingOpen  pendingOpenFiles
+	recent       []core.RecentProject
+	recentWrites recentWrites
 	// missing marks recent projects whose folder was gone when the list last changed.
 	missing map[string]bool
 
@@ -1008,10 +1008,22 @@ func New(options Options) *App {
 	if options.first == nil {
 		_, restoreErr = restorePendingSettings(a.store, buildinfo.InstalledChannel(), options.Version)
 	}
-	_, settingsErr := a.store.Load(settingsFile, &a.settings)
+	var settingsErr error
+	var queued *settings
+	var queuedGeometry settingsGeometry
+	if options.first != nil {
+		a.settingsPublication = options.first.settingsPublication
+		queued, queuedGeometry = a.settingsPublication.queuedSettings()
+	}
+	if queued != nil {
+		a.settings = queued.clone()
+	} else {
+		_, settingsErr = a.store.Load(settingsFile, &a.settings)
+	}
 	if settingsErr != nil {
 		a.settings = settings{}
 	}
+	queuedGeometry.apply(&a.settings)
 	consoleEncoding := a.settings.ConsoleEncoding
 	a.consoleEncoding.Store(&consoleEncoding)
 	// A value of a shape this version cannot take leaves only its own setting on the default;
@@ -1090,7 +1102,9 @@ func New(options Options) *App {
 		a.openPlugins(options)
 	}
 	a.settingsWindow = a.newSettingsWindow()
-	if !a.documentOnly {
+	if options.first != nil {
+		a.refreshRecent()
+	} else if !a.documentOnly {
 		a.loadRecent()
 	}
 	a.loadChrome()
@@ -1162,7 +1176,7 @@ func (a *App) openPlugins(options Options) {
 	}
 	service.RuntimeIssue = a.recordPluginRuntimeIssue
 	service.ContextIssue = func(ctx context.Context, err error) {
-		a.backgroundFailedIn(ctx, "plugin_workspace_context_notification", err)
+		a.backgroundFailedIn(ctx, "plugin_workspace_context_refresh", err)
 	}
 	service.SetRuntimeLanguage(a.language().Code())
 	if err := service.AttachWorkbench(pluginWorkbench{app: a}); err != nil {
@@ -1569,22 +1583,12 @@ func (a *App) setTheme(choice themeChoice) {
 	a.saveSettings()
 }
 
-func (a *App) saveSettings() {
-	// The background is the window's, which another tab may have changed since this one loaded.
-	a.settings.WorkbenchBackground = a.savedBackgroundState()
-	a.updates.store(&a.settings)
-	backup, err := a.saveSettingsSnapshot()
-	a.reportSettingsSave(backup, err)
-}
-
 func (a *App) reportSettingsSave(backup string, err error) {
 	if backup != "" {
 		a.noticeSettingsBackup(backup)
 	}
 	if err != nil {
-		a.operationFailed("settings_save", documentLogError(err))
 		a.notifyError(a.text.Errors.SaveFailed(err.Error()))
-		return
 	}
 }
 
@@ -1685,45 +1689,6 @@ func (a *App) hidePanel(s slot) {
 	}
 }
 
-// loadRecent reads the recent project list and lets the kernel order and bound it.
-func (a *App) loadRecent() {
-	var entries []core.RecentProject
-	if _, err := a.store.Load(recentFile, &entries); err != nil {
-		a.storedStateFailed("recent_projects", err)
-		a.notifyError(a.text.Errors.Core(err.Error()))
-		entries = nil
-	}
-	a.reduceRecent(entries, core.NormalizeRecent(), false)
-}
-
-// reduceRecent sends one change of the recent project list to the kernel and keeps
-// the result, saving it when save is set.
-func (a *App) reduceRecent(entries []core.RecentProject, action core.RecentAction, save bool) {
-	ctx, cancel := context.WithTimeout(a.operationContext(context.Background()), kernelCallTimeout)
-	defer cancel()
-	result, err := a.kernel.ReduceRecentProjects(ctx, entries, action, 0)
-	if err != nil {
-		a.operationFailed("workspace_recent_reduce", documentLogError(err))
-		a.notifyError(a.text.Errors.Core(err.Error()))
-		return
-	}
-	if save {
-		if err := a.store.Save(recentFile, result.Entries); err != nil {
-			a.operationFailed("workspace_recent_save", documentLogError(err))
-			a.notifyError(a.text.Errors.SaveFailed(err.Error()))
-			return
-		}
-	}
-	a.recent = result.Entries
-	clear(a.missing)
-	for _, entry := range a.recent {
-		if info, err := os.Stat(entry.Path); err != nil || !info.IsDir() {
-			a.missing[entry.Path] = true
-		}
-	}
-	a.refreshWelcomeBranches()
-}
-
 // chooseProject asks for a project folder and opens it; surface is where the user asked.
 // The system dialog runs off the window thread so the window keeps painting behind it.
 func (a *App) chooseProject(surface actionSurface) {
@@ -1768,7 +1733,7 @@ func (a *App) openProjectHere(path string) {
 // code allowed to run when trusted and in safe mode otherwise (workspace_trust.go).
 func (a *App) openProjectWithTrust(root string, trusted bool) {
 	a.requestCloseProject(func() {
-		a.reduceRecent(a.recent, core.RecordRecent(root, a.now()), true)
+		a.changeRecent(core.RecordRecent(root, a.now()), nil)
 		p := &project{root: root, name: filepath.Base(root), commit: newCommitState()}
 		p.trust.codeAllowed.Store(trusted)
 		// Every Git command the project runs is kept in the Git console, and in safe mode Core
@@ -1855,6 +1820,7 @@ func (a *App) finishCloseProject(p *project, after func()) {
 	} else {
 		// A project closed on its own leaves its tab when the window has others.
 		a.sessions.leave(a)
+		a.sessions.active.refreshRecent()
 	}
 }
 

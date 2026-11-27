@@ -106,10 +106,13 @@ LITHE_PLUGIN_CONTRACT_DIR="$(native_path "$CORE_CHECKOUT/shared/plugins/contract
 export LITHE_PLUGIN_CONTRACT_DIR
 LITHE_CORE_FIXTURE_DIR="$(native_path "$CORE_CHECKOUT/rust/fixtures")"
 export LITHE_CORE_FIXTURE_DIR
-if [[ -x "$STAGE_DIR/bin/lithe-mcp" ]]; then
-    export LITHE_IDE_HELPER="$STAGE_DIR/bin/lithe-mcp"
-elif [[ -x "$STAGE_DIR/bin/lithe-mcp.exe" ]]; then
-    export LITHE_IDE_HELPER="$STAGE_DIR/bin/lithe-mcp.exe"
+HELPER="$STAGE_DIR/bin/lithe-mcp"
+if [[ "$GOOS" == "windows" ]]; then
+    HELPER+=".exe"
+fi
+if [[ -x "$HELPER" ]]; then
+    LITHE_IDE_HELPER="$(native_path "$HELPER")"
+    export LITHE_IDE_HELPER
 fi
 # A development run connects to hosts with the server scripts/desktop/build-remote-server.sh staged,
 # when it staged one; nothing here builds it. A packaged client ignores the variable and uses the

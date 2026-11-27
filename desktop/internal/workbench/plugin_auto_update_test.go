@@ -6,10 +6,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -22,6 +24,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugintrust"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 )
 
 func TestAutoUpdateCandidatesRequireMatchingApprovedSourceAndNewerRelease(t *testing.T) {
@@ -75,9 +78,29 @@ func TestApprovedPluginAutoSourceOnlyMatchesSavedOrigins(t *testing.T) {
 // manual install. The previous approved version remains on disk while the next
 // version is selected, without any real plugin, network, or toolchain.
 func TestPluginAutoUpdateStagesAnApprovedNewVersionUntilRestart(t *testing.T) {
-	for _, scenario := range []string{"activate", "disabled before restart", "damaged package"} {
+	if root := os.Getenv("LITHE_TEST_PLUGIN_UPDATE_SWEEP_ROOT"); root != "" {
+		if _, err := pluginservice.Open(core.NewClient(), store.At(os.Getenv("LITHE_TEST_PLUGIN_UPDATE_SWEEP_PREFS")), root); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	for _, scenario := range []string{"activate", "disabled before restart", "damaged package", "another process starts during preparation"} {
 		t.Run(scenario, func(t *testing.T) { verifyPendingPluginUpdate(t, scenario) })
 	}
+}
+
+type startupSweepReviewKernel struct {
+	*core.Client
+	beforeReview func(context.Context) error
+}
+
+func (k *startupSweepReviewKernel) ReviewMarketplaceInstall(ctx context.Context, manifest json.RawMessage, id, version string, approved []json.RawMessage, capabilities map[string][]int) (core.MarketplaceReview, error) {
+	if k.beforeReview != nil {
+		if err := k.beforeReview(ctx); err != nil {
+			return core.MarketplaceReview{}, err
+		}
+	}
+	return k.Client.ReviewMarketplaceInstall(ctx, manifest, id, version, approved, capabilities)
 }
 
 func verifyPendingPluginUpdate(t *testing.T, scenario string) {
@@ -87,7 +110,8 @@ func verifyPendingPluginUpdate(t *testing.T, scenario string) {
 	const archiveURL = "https://plugins.example.test/auto-update.zip"
 
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
-	service, err := pluginservice.Open(core.NewClient(), h.store, t.TempDir())
+	kernel := &startupSweepReviewKernel{Client: core.NewClient()}
+	service, err := pluginservice.Open(kernel, h.store, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,6 +166,25 @@ func verifyPendingPluginUpdate(t *testing.T, scenario string) {
 	if err != nil || !found || previous.MarketplaceIndexURL != origin {
 		t.Fatalf("initial approved source = %+v, found = %v, error = %v", previous, found, err)
 	}
+	if scenario == "another process starts during preparation" {
+		binary, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The second startup runs after extraction and before the first
+		// process publishes the prepared package.
+		kernel.beforeReview = func(ctx context.Context) error {
+			childCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(childCtx, binary, "-test.run=^TestPluginAutoUpdateStagesAnApprovedNewVersionUntilRestart$")
+			cmd.Env = append(os.Environ(), "LITHE_TEST_PLUGIN_UPDATE_SWEEP_ROOT="+service.Root, "LITHE_TEST_PLUGIN_UPDATE_SWEEP_PREFS="+h.store.Dir())
+			if output, err := cmd.CombinedOutput(); err != nil {
+				t.Logf("other desktop startup: %s", output)
+				return err
+			}
+			return nil
+		}
+	}
 
 	nextBytes, nextDigest := archiveBytes("2.0.0")
 	requests := 0
@@ -194,7 +237,7 @@ func verifyPendingPluginUpdate(t *testing.T, scenario string) {
 		t.Fatal(activationErr)
 	}
 	versions, err = pluginpkg.List(service.Root)
-	if scenario != "activate" {
+	if scenario == "disabled before restart" || scenario == "damaged package" {
 		if err != nil || len(versions) != 1 || versions[0].Version != "1.0.0" {
 			t.Fatalf("ineligible plugin was updated: %+v, %v", versions, err)
 		}

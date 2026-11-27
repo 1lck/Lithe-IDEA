@@ -68,7 +68,7 @@ func (a *App) failChildDebug(p *project, child *debugSession, err error) {
 	if errors.Is(err, context.Canceled) {
 		return
 	}
-	message := a.launchFailureText(err)
+	message := a.debugFailureText(err)
 	var remote *debugRemoteError
 	if errors.As(err, &remote) {
 		message = a.text.Debug.Child.NeedsConfirmation

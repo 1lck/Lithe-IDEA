@@ -68,7 +68,9 @@ macOS 的本地手动打包可用 `package-desktop.sh --ad-hoc-sign` 生成有�
 
 ### 独立工作树的本地编译
 
-编辑器显示偏好仍存放在 `<os.UserConfigDir()>/Lithe Desktop/settings.json`。同目录的 `.settings.lock` 由原生设置存储持有，只协调各客户端进程的读取与原子保存；关闭事务句柄或进程退出即释放 OS 锁，空文件留在用户配置目录避免锁身份变化。每个进程对该目录最多保留一个非递归原生观察器，最后一个工作台关闭时释放。它们属于用户运行时状态，不跨工作树复制，不写应用安装目录，不影响代码签名或增量更新基线。
+最近项目存放在用户配置目录 `<os.UserConfigDir()>/Lithe Desktop/recent-projects-v2.json`。首次更新前读取旧版 `recent-projects.json`，旧版与新版此后各自写入自己的文件。旧 JSON 损坏时保留旧文件，首次成功写入建立新版历史。同目录的 `recent-projects-v2.json.lock` 由最近项目存储在首次更改时创建，写入完成或进程退出后释放系统锁，空锁文件留在原处供后续进程使用。两者属于用户运行时状态，无论版本、平台或工具链都不跨工作树复制，也不写入安装目录。安装包原样检查覆盖锁文件和历史写入，代码签名与增量更新基线保持一致。起始页截图由 `LITHE_VISUAL_OUTPUT_DIR` 写在当前检出的构建产物目录，绑定本次源码、Core/Viva 修订、平台、语言和主题，由测试执行者清理。
+
+编辑器显示偏好仍存放在 `<os.UserConfigDir()>/Lithe Desktop/settings.json`。同目录的 `.settings.lock` 由原生设置存储持有，只协调各客户端进程的读取与原子保存；关闭事务句柄或进程退出即释放 OS 锁，空文件留在用户配置目录避免锁身份变化。每个进程对该目录最多保留一个非递归原生观察器，编辑器偏好和最近项目共用该注册，最后一个工作台关闭时释放。它们属于用户运行时状态，不跨工作树复制，不写应用安装目录，不影响代码签名或增量更新基线。
 
 标题栏远程连接状态的链条和断链图标由 `scripts/desktop/generate-desktop-icons.sh` 从固定的 Lucide 0.469.0 下载 SVG，用 `desktop/go.mod` 固定的 Viva 编译器生成 `desktop/internal/icons/icons.go`；生成数据由 Git 管理。SVG 和编译器仅在本次生成器的临时目录中存活，退出即删除，不作为跨工作树缓存复制。运行期只读取编译进程序的图标，不下载、不生成文件，不改变安装包签名或增量更新基线。`TestVisualRemoteWorkspace` 的主机下拉和切换文件夹截图可写入本检出的 `.artifacts/visual/remote-host-switcher/`；截图绑定本次源码、Core/Viva 修订、平台、语言和主题，不跨检出复制、不进入发行包，由开发者或 CI 清理。
 
@@ -281,6 +283,8 @@ Go 构建在 windows/amd64 和 windows/arm64 上用 `go:embed` 把它们编译�
 - LSP workspace `-data`、运行时数据库、测试报告和其他会被进程修改的状态。
 
 已安装插件目录由 `desktop/internal/pluginpkg`（`pluginpkg.DefaultRoot()`）按平台管理：macOS 为 `~/Library/Application Support/Lithe Desktop/plugins`，Windows 为 `%LOCALAPPDATA%\Lithe Desktop\plugins`，Linux 为 `<os.UserConfigDir()>/lithe-desktop/plugins`。各个插件由自己的仓库负责构建、校验、签名与发布，桌面主仓库不内置插件打包器或签名密钥；宿主下载校验并经用户批准后，先在 `<plugin-root>/.staging/` 解压，再原子重命名到 `<plugin-root>/<plugin-id>/<version>/`，卸载时先移入 `<plugin-root>/.trash/` 再删除，可写状态统一落在 `<plugin-root>/.state/<plugin-id>/`。已安装版本目录在运行时只读，重装、回滚和卸载均由插件安装流程统一处理，且位于 app bundle 和 Windows 安装目录之外，不改变代码签名或桌面增量更新基线；它们属于用户运行时目录而非工作树构建缓存，任何情况下都不得跨 Git 工作树复制或共享。
+
+桌面进程在同一个可写插件根目录用 `.staging-sweep.lock` 协调启动清理与插件安装、后台暂存、卸载。锁文件由宿主管理，进程关闭句柄或退出时操作系统释放锁，文件名保留供下个进程使用。该文件位于应用安装目录之外，和插件暂存目录同属用户运行时状态，不能跨检出复制，对代码签名及 Sparkle 增量基线没有影响。
 
 Build Provider 的模型与依赖快照位于插件根（`pluginpkg.DefaultRoot`）下的 `.state/<plugin-id>/<version>/build/<workspace-digest>/`。会话拥有其缓存、日志和临时输出；模型失效可重建，插件卸载随所属状态清理。工作区摘要只是归属键，不是构建身份。
 它属于具体插件、构建系统和工作区的可变上游状态，没有版本/平台/架构/工具链 identity stamp，

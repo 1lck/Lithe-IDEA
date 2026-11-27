@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"errors"
 	"os"
 	"runtime"
 	"strconv"
@@ -146,7 +147,9 @@ func (a *App) readMemoryNames() {
 	}
 	a.background(nil, pluginStateTimeout, func(ctx context.Context) func(*App) {
 		entries, err := a.plugins.CurrentInstalled(ctx)
-		names := memoryNamesOf(installedPluginFacts(entries, nil))
+		facts, factsErr := installedPluginFacts(entries, nil)
+		err = errors.Join(err, factsErr)
+		names := memoryNamesOf(facts)
 		return func(a *App) {
 			if err != nil {
 				a.backgroundFailed("memory_plugin_names", err)

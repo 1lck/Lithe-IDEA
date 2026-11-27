@@ -618,6 +618,7 @@ func (a *App) openRemoteProject(target remoteTarget) {
 	// Its first terminal runs on the host once it is shown, over the session attached below.
 	a.openTerminals(p)
 	a.project = p
+	a.recordRemoteRecent(target)
 	// The tool windows of a remote workspace, such as Ports, are shown while it is open.
 	a.chrome.setRemote(true)
 	a.notice = ""

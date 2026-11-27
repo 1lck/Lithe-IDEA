@@ -58,6 +58,7 @@ func TestFlippedTerminalSwitchesReachOpenTerminals(t *testing.T) {
 	if !altSendsEscape() {
 		t.Fatal("the open terminal did not take Option as Meta")
 	}
+	h.settle()
 	var stored settings
 	if _, err := h.app.store.Load(settingsFile, &stored); err != nil {
 		t.Fatal(err)

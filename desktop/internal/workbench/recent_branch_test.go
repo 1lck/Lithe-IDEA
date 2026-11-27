@@ -81,8 +81,7 @@ func TestWelcomeBranchRowsGrowAndDoNotOverlap(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
-	h.app.recent = []core.RecentProject{{Path: root}, {Path: t.TempDir()}}
-	h.app.refreshWelcomeBranches()
+	h.seedRecent([]core.RecentProject{{Path: root}, {Path: t.TempDir()}})
 	if err := h.driver.Resize(900, 600); err != nil {
 		t.Fatal(err)
 	}
@@ -131,8 +130,7 @@ func TestWelcomeDiscardsStaleBranchReadAfterRecentListChanges(t *testing.T) {
 			close(k.release)
 		}
 	})
-	h.app.recent = []core.RecentProject{{Path: oldRoot}}
-	h.app.refreshWelcomeBranches()
+	h.seedRecent([]core.RecentProject{{Path: oldRoot}})
 	if err := h.driver.Resize(900, 600); err != nil {
 		t.Fatal(err)
 	}
@@ -141,8 +139,7 @@ func TestWelcomeDiscardsStaleBranchReadAfterRecentListChanges(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("old branch read did not start")
 	}
-	h.app.recent = []core.RecentProject{{Path: newRoot}}
-	h.app.refreshWelcomeBranches()
+	h.seedRecent([]core.RecentProject{{Path: newRoot}})
 	close(k.release)
 	released = true
 	awaitDocumentState(t, h, func() bool { return h.shows("new-branch") })

@@ -46,9 +46,18 @@ const (
 // computer when it is set alone, and on the SSH host ssh names or the WSL distribution wsl names
 // otherwise (remote_host_containers.go): the session logs in there and enters it.
 type remoteHost struct {
-	ssh       core.SSHConnection
-	wsl       *core.WSLConnection
-	container *core.ContainerConnection
+	ssh                  core.SSHConnection
+	sshTargetFingerprint string
+	wsl                  *core.WSLConnection
+	container            *core.ContainerConnection
+}
+
+// workspaceIdentity keeps local placeholder state separate across saved SSH targets.
+func (h remoteHost) workspaceIdentity(connectionID string) string {
+	if h.sshTargetFingerprint != "" {
+		return connectionID + "/" + h.sshTargetFingerprint
+	}
+	return connectionID
 }
 
 // hosted says whether the host is a container on an SSH host or a WSL distribution.

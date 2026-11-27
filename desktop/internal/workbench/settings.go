@@ -378,10 +378,8 @@ func (a *App) setMarketplaceWidth(width float32) {
 }
 
 // setSettingsWindowSize keeps the size the user gave the settings window, which the next one
-// opens at. Every project tab of the window holds its own copy of the settings and saves it
-// whole, so each tab takes the size: the next window opens at it whichever tab opens it, and no
-// tab writes the old size back. One owner for the settings of every tab and window (#1851)
-// replaces this.
+// opens at. Mirror the size to every tab so whichever tab later opens the window
+// or saves settings uses the new size.
 func (a *App) setSettingsWindowSize(width, height int) {
 	if a.settings.SettingsWindowWidth == width && a.settings.SettingsWindowHeight == height {
 		return
@@ -390,7 +388,7 @@ func (a *App) setSettingsWindowSize(width, height int) {
 		tab.settings.SettingsWindowWidth, tab.settings.SettingsWindowHeight = width, height
 	}
 	a.settings.SettingsWindowWidth, a.settings.SettingsWindowHeight = width, height
-	a.saveSettings()
+	a.enqueueSettingsSave(true, &settingsWindowSize{width, height})
 }
 
 // closeSettingsWindow closes the open settings window as this workbench closes. It keeps the

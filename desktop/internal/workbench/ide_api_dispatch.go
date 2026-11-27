@@ -339,6 +339,12 @@ func ideAPIDecodeArguments(arguments json.RawMessage, target any) error {
 func (a *App) ideAPIOnProject(ctx context.Context, conn *ideAPIConnection, fn func(*project) any) any {
 	answer := make(chan any, 1)
 	a.post(func(a *App) {
+		// The window may wake after dispatch timed out or the connection was revoked.
+		deadline, bounded := ctx.Deadline()
+		if ctx.Err() != nil || (bounded && !time.Now().Before(deadline)) {
+			answer <- ideAPITimeout()
+			return
+		}
 		p := a.project
 		if p == nil || filepath.Clean(p.root) != filepath.Clean(conn.workspaceKey) {
 			answer <- ideAPIFailure("WORKSPACE_CLOSED", "The connected project is not open")
