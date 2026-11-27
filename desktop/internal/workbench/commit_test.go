@@ -333,6 +333,7 @@ func TestCommitOptionsEditTheGenerationInstructions(t *testing.T) {
 	if got := h.app.aiCommitOptions().CustomInstructions; got != "Avoid long bodies" {
 		t.Fatalf("generation instructions = %q, want them trimmed", got)
 	}
+	h.settle()
 	var saved settings
 	if found, err := h.store.Load(settingsFile, &saved); err != nil || !found || saved.AIGeneration.CustomInstructions != " Avoid long bodies " {
 		t.Fatalf("saved instructions = %q (found %v, err %v)", saved.AIGeneration.CustomInstructions, found, err)

@@ -31,7 +31,7 @@ func TestEditorPreferencesContendedSaveAcknowledgesOnlyPersistedGeometry(t *test
 	if sessions.geometry.saved != initial {
 		t.Fatal("a queued settings snapshot acknowledged unsaved geometry")
 	}
-	// A second frozen snapshot overtakes the first one under the same lock.
+	// While the lock is busy, the latest snapshot replaces the pending one.
 	if err := h.driver.Resize(1600, 980); err != nil {
 		t.Fatal(err)
 	}

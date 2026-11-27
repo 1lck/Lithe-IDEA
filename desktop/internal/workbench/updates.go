@@ -841,52 +841,63 @@ func (a *App) installUpdate() {
 			return
 		}
 		a.changeUpdate(func(s *settingswindow.UpdateStatus) { s.Installing, s.Failure = true, "" })
-		if target.cross {
-			// Moving to the other channel keeps the settings as this channel leaves them, and
-			// brings back the ones kept when Lithe last left the new channel if asked to.
-			if err := a.keepSettingsForSwitch(target.channel, feed.Latest.Version, restore); err != nil {
+		finishInstall := func(a *App) {
+			options := appupdate.InstallOptions{Artifact: artifact, Payload: payload, Asset: asset, Version: feed.Latest.Version, App: buildinfo.UpdateApp}
+			if runtime.GOOS != "darwin" {
+				options.App = ""
+			}
+			quit := updateQuit(a)
+			err := installUpdateArchive(options, func() {
+				// The installer has copied the rebuilt application into its own staging
+				// directory by now, and the window ends once quit returns.
 				a.removeUpdatePayload(payload)
-				a.updateFailed(err)
+				quit()
+			})
+			if err == nil {
 				return
 			}
-		}
-		options := appupdate.InstallOptions{Artifact: artifact, Payload: payload, Asset: asset, Version: feed.Latest.Version, App: buildinfo.UpdateApp}
-		if runtime.GOOS != "darwin" {
-			options.App = ""
-		}
-		quit := updateQuit(a)
-		err := installUpdateArchive(options, func() {
-			// The installer has copied the rebuilt application into its own staging
-			// directory by now, and the window ends once quit returns.
 			a.removeUpdatePayload(payload)
-			quit()
-		})
-		if err == nil {
-			return
-		}
-		a.removeUpdatePayload(payload)
-		if target.cross {
-			a.dropPendingRestore()
-		}
-		managed, unwritable := errors.Is(err, appupdate.ErrManagedExternally), errors.Is(err, appupdate.ErrNotWritable)
-		if payload == "" || managed || unwritable {
-			a.updateFailed(err)
-			if payload != "" {
-				a.changeUpdate(func(s *settingswindow.UpdateStatus) { s.Ready = false })
+			if target.cross {
+				a.dropPendingRestore()
 			}
-			if managed || unwritable {
-				// The installation cannot replace itself: the dialog offers the downloads page.
-				text := i18n.Shared(a.language(), "desktop.updates.manual.notWritable")
-				if managed {
-					text = i18n.Shared(a.language(), "desktop.updates.manual.managed")
+			managed, unwritable := errors.Is(err, appupdate.ErrManagedExternally), errors.Is(err, appupdate.ErrNotWritable)
+			if payload == "" || managed || unwritable {
+				a.updateFailed(err)
+				if payload != "" {
+					a.changeUpdate(func(s *settingswindow.UpdateStatus) { s.Ready = false })
 				}
-				a.changeUpdate(func(s *settingswindow.UpdateStatus) { s.Manual = text })
+				if managed || unwritable {
+					// The installation cannot replace itself: the dialog offers the downloads page.
+					text := i18n.Shared(a.language(), "desktop.updates.manual.notWritable")
+					if managed {
+						text = i18n.Shared(a.language(), "desktop.updates.manual.managed")
+					}
+					a.changeUpdate(func(s *settingswindow.UpdateStatus) { s.Manual = text })
+				}
+				return
 			}
+			a.deltaFellBack(a.operationContext(context.Background()), deltaStageInstall, feed.Latest.Version, err)
+			a.changeUpdate(func(s *settingswindow.UpdateStatus) { s.Installing, s.Ready = false, false })
+			a.downloadUpdate()
+		}
+		if !target.cross {
+			finishInstall(a)
 			return
 		}
-		a.deltaFellBack(a.operationContext(context.Background()), deltaStageInstall, feed.Latest.Version, err)
-		a.changeUpdate(func(s *settingswindow.UpdateStatus) { s.Installing, s.Ready = false, false })
-		a.downloadUpdate()
+		// Snapshot the settings after the writer has published them, before the
+		// installer can restart into the new build.
+		batch := a.queueSettingsSave()
+		a.background(nil, settingsFlushTimeout, func(ctx context.Context) func(*App) {
+			err := a.keepSettingsForSwitch(ctx, batch, target.channel, feed.Latest.Version, restore)
+			return func(a *App) {
+				if err != nil {
+					a.removeUpdatePayload(payload)
+					a.updateFailed(err)
+					return
+				}
+				finishInstall(a)
+			}
+		})
 	}
 	if a.sessions == nil {
 		a.requestCloseProject(install)

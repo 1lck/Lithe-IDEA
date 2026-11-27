@@ -45,6 +45,8 @@ type windowGeometryState struct {
 	current   windowGeometry
 	saved     windowGeometry
 	persisted bool
+	requested bool
+	lastSave  windowGeometry
 }
 
 func newWindowGeometryState(saved settings) windowGeometryState {
@@ -79,13 +81,15 @@ func (s *windowSessions) applyWindowGeometry(dst *settings) (windowGeometry, boo
 	if s == nil {
 		return windowGeometry{}, false
 	}
-	if !s.geometry.persisted && s.geometry.current == s.geometry.saved {
+	if !s.geometry.persisted && !s.geometry.requested && s.geometry.current == s.geometry.saved {
 		return windowGeometry{}, false
 	}
 	geo := s.geometry.current
 	dst.WindowWidth = geo.width
 	dst.WindowHeight = geo.height
 	dst.WindowMaximized = geo.maximized
+	s.geometry.requested = true
+	s.geometry.lastSave = geo
 	return geo, true
 }
 
@@ -107,7 +111,13 @@ func (s *windowSessions) noteSavedWindowGeometry(geo windowGeometry) {
 // saveWindowGeometry persists the window's final size and maximized state when they changed
 // since the last save.
 func (s *windowSessions) saveWindowGeometry() {
-	if s == nil || s.geometry.current == s.geometry.saved {
+	if s == nil {
+		return
+	}
+	g := &s.geometry
+	// A write that has not yet acknowledged a resize can still land, even if
+	// the window already returned to its last persisted size.
+	if g.current == g.saved && (!g.requested || g.current == g.lastSave) {
 		return
 	}
 	target := s.active

@@ -538,6 +538,7 @@ func TestMinimapButtonHidesAndShowsTheMinimap(t *testing.T) {
 	if _, ok := shown(d.input.Parts().At(0)); ok {
 		t.Fatal("the minimap still shows after it was hidden")
 	}
+	h.settle()
 	var saved settings
 	if found, err := h.store.Load(settingsFile, &saved); err != nil || !found || !saved.HideMinimap {
 		t.Fatalf("saved settings = %+v (found %v, %v), want the minimap hidden", saved, found, err)

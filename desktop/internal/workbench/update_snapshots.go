@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -121,7 +122,7 @@ func (a *App) updateSnapshots() map[string]string {
 // new build to bring back the copy kept when Lithe last left channel. A copy that cannot be
 // kept is logged and the update goes on; a restore that cannot be prepared fails the update,
 // since the user asked for it.
-func (a *App) keepSettingsForSwitch(channel, version string, restore bool) error {
+func (a *App) keepSettingsForSwitch(ctx context.Context, batch *settingsSaveBatch, channel, version string, restore bool) error {
 	kept := a.updateSnapshotStore()
 	if kept == nil {
 		return nil
@@ -130,15 +131,16 @@ func (a *App) keepSettingsForSwitch(channel, version string, restore bool) error
 	u.mu.Lock()
 	installed, restoring := u.installed, u.snapshots[channel]
 	u.mu.Unlock()
-	a.saveSettings()
-	if data, err := os.ReadFile(a.store.Path(settingsFile)); err != nil {
-		a.backgroundFailed("update_snapshot", err)
+	if err := batch.wait(ctx); err != nil {
+		a.backgroundFailedIn(ctx, "update_snapshot", documentLogError(err))
+	} else if data, err := os.ReadFile(a.store.Path(settingsFile)); err != nil {
+		a.backgroundFailedIn(ctx, "update_snapshot", err)
 	} else {
 		name := installed + "-" + a.version + "-" + time.Now().UTC().Format(updateSnapshotStamp) + ".json"
 		if err := kept.WriteFile(name, data); err != nil {
-			a.backgroundFailed("update_snapshot", err)
+			a.backgroundFailedIn(ctx, "update_snapshot", err)
 		} else {
-			a.pruneUpdateSnapshots(kept, restoring)
+			a.pruneUpdateSnapshots(ctx, kept, restoring)
 			u.mu.Lock()
 			u.snapshots[installed] = name
 			u.mu.Unlock()
@@ -156,13 +158,13 @@ func (a *App) keepSettingsForSwitch(channel, version string, restore bool) error
 
 // pruneUpdateSnapshots deletes all but the newest updateSnapshotsKept copies, never the one a
 // restore is about to use.
-func (a *App) pruneUpdateSnapshots(kept *store.Store, keep string) {
+func (a *App) pruneUpdateSnapshots(ctx context.Context, kept *store.Store, keep string) {
 	for i, name := range updateSnapshotFiles(kept.Dir()) {
 		if i < updateSnapshotsKept || name == keep {
 			continue
 		}
 		if err := kept.Remove(name); err != nil {
-			a.backgroundFailed("update_snapshot", err)
+			a.backgroundFailedIn(ctx, "update_snapshot", err)
 		}
 	}
 }

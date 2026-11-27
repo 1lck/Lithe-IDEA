@@ -987,6 +987,7 @@ func TestMarketplaceWidthPersistsWithOtherSettings(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	h.app.setLanguage("zh-Hans")
 	h.app.setMarketplaceWidth(420)
+	h.settle()
 	var saved settings
 	found, err := h.store.Load(settingsFile, &saved)
 	if err != nil || !found {
@@ -1004,6 +1005,7 @@ func TestSettingsWindowSizePersistsWithOtherSettings(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	h.app.setLanguage("zh-Hans")
 	h.app.setSettingsWindowSize(1100, 760)
+	h.settle()
 	var saved settings
 	found, err := h.store.Load(settingsFile, &saved)
 	if err != nil || !found {
@@ -1057,6 +1059,7 @@ func TestSettingsChangesUpdateSharedStateAndPersist(t *testing.T) {
 	if h.app.shared.text.Load() != i18n.For(i18n.English) || h.app.shared.dark.Load() {
 		t.Fatal("shared window state did not reflect the selected language and appearance")
 	}
+	h.settle()
 	var saved settings
 	found, err := h.store.Load(settingsFile, &saved)
 	if err != nil || !found || saved.Language != "en" || saved.Theme != themeLight {
