@@ -31,6 +31,7 @@ type DirectoryMarksSnapshot struct {
 	GitIgnoreEnabled    bool
 	CustomTypes         []core.CustomDirectoryType
 	CustomIcons         []core.CustomDirectoryIcon
+	PluginTypes         []core.PluginDirectoryType
 }
 
 // DirectoryMarksSource loads, saves, imports/deletes custom SVG icons and opens config files.
@@ -198,6 +199,9 @@ func cloneDirectoryMarksSnapshot(src DirectoryMarksSnapshot) DirectoryMarksSnaps
 	if len(src.CustomIcons) > 0 {
 		out.CustomIcons = append([]core.CustomDirectoryIcon(nil), src.CustomIcons...)
 	}
+	if len(src.PluginTypes) > 0 {
+		out.PluginTypes = append([]core.PluginDirectoryType(nil), src.PluginTypes...)
+	}
 	return out
 }
 
@@ -295,6 +299,23 @@ func (d *directoryMarksDraft) findSelectedCustomType() *core.CustomDirectoryType
 func (d *directoryMarksDraft) findSelectedType(language i18n.Language) (core.CustomDirectoryType, bool) {
 	if ct := d.findSelectedCustomType(); ct != nil {
 		return *ct, true
+	}
+	for _, pt := range d.working.PluginTypes {
+		if pt.ID == d.selectedID {
+			return core.CustomDirectoryType{
+				ID:              pt.ID,
+				Name:            pt.Name,
+				Tag:             pt.Tag,
+				Icon:            pt.Icon,
+				Color:           pt.Color,
+				TintBg:          pt.TintBg,
+				TintText:        pt.TintText,
+				InheritBg:       pt.InheritBg,
+				ExcludeIndexing: pt.ExcludeIndexing,
+				ReadOnlyHint:    pt.ReadOnlyHint,
+				MatchGlob:       pt.MatchGlob,
+			}, false
+		}
 	}
 	for _, bt := range builtinDirectoryTypes(language) {
 		if bt.ID == d.selectedID {
@@ -494,7 +515,7 @@ func (w *window) directoryMarksPage(c ui.C) {
 					ui.Row(c).FillWidth().Height(34).PadX(12).Items(ui.Center).Children(func() {
 						ui.Text(c, i18n.Shared(language, "desktop.directoryMarks.settings.typeList")).FontSize(12).Weight(gfx.WeightSemibold).Color(w.bp.sub)
 						ui.Spacer(c)
-						ui.Text(c, i18n.SharedFormat(language, "desktop.directoryMarks.settings.typeCount", map[string]string{"count": strconv.Itoa(totalTypes)})).FontSize(11).Color(w.bp.faint)
+						ui.Text(c, i18n.SharedFormat(language, "desktop.directoryMarks.settings.typeCount", map[string]string{"count": strconv.Itoa(totalTypes + len(d.working.PluginTypes))})).FontSize(11).Color(w.bp.faint)
 					})
 					ui.Row(c).FillWidth().Height(1).Background(w.pal.line)
 
@@ -510,6 +531,25 @@ func (w *window) directoryMarksPage(c ui.C) {
 						} else {
 							for _, item := range d.working.CustomTypes {
 								w.dirTypeListRow(c, d, item, language, dark)
+							}
+						}
+
+						if len(d.working.PluginTypes) > 0 {
+							ui.Text(c, i18n.Shared(language, "desktop.directoryMarks.settings.groupPlugin")).FontSize(10.5).Weight(gfx.WeightSemibold).Color(w.bp.faint).PadSides(10, 6, 4, 6)
+							for _, pt := range d.working.PluginTypes {
+								w.dirTypeListRow(c, d, core.CustomDirectoryType{
+									ID:              pt.ID,
+									Name:            pt.Name,
+									Tag:             pt.Tag,
+									Icon:            pt.Icon,
+									Color:           pt.Color,
+									TintBg:          pt.TintBg,
+									TintText:        pt.TintText,
+									InheritBg:       pt.InheritBg,
+									ExcludeIndexing: pt.ExcludeIndexing,
+									ReadOnlyHint:    pt.ReadOnlyHint,
+									MatchGlob:       pt.MatchGlob,
+								}, language, dark)
 							}
 						}
 					})
@@ -533,6 +573,8 @@ func (w *window) directoryMarksPage(c ui.C) {
 						badgeLabel := i18n.Shared(language, "desktop.directoryMarks.settings.badgeBuiltin")
 						if isCustom {
 							badgeLabel = i18n.Shared(language, "desktop.directoryMarks.settings.badgeCustom")
+						} else if strings.HasPrefix(selected.ID, "plugin.") {
+							badgeLabel = i18n.Shared(language, "desktop.directoryMarks.settings.badgePlugin")
 						}
 						w.dirBadge(c, badgeLabel, w.bp.sub, w.pal.sidebar)
 						ui.Spacer(c)

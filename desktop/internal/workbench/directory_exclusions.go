@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -72,6 +73,13 @@ type projectIndexing struct {
 	status              core.IndexingStatus
 	presentation        map[string]core.ResolvedDirectoryEntry
 	customIconCache     map[string]gfx.Icon
+	pluginTypesByKey    map[string][]core.PluginDirectoryType
+	pluginMarksByKey    map[string][]core.PluginDirectoryMark
+	// policyExcluded is the set of folders the installed indexing policy excludes; nil until a
+	// policy is installed. globRequeued holds the glob-matched folders that asked for a new
+	// policy no installation has covered yet, so one the directory walk cannot reach asks once.
+	policyExcluded map[string]struct{}
+	globRequeued   map[string]struct{}
 	// generation rejects an installation a newer one replaced; presGeneration does the same for presentation.
 	generation     uint64
 	presGeneration uint64
@@ -96,7 +104,7 @@ type directoryMetaKernel interface {
 	UpsertCustomDirectoryIcon(ctx context.Context, dirIcon core.CustomDirectoryIcon, rules json.RawMessage) (bool, json.RawMessage, error)
 	DeleteCustomDirectoryIcon(ctx context.Context, id string, rules json.RawMessage) (bool, json.RawMessage, error)
 	RelocateDirectoryRules(ctx context.Context, source, destination string, caseInsensitive bool, rules json.RawMessage) (json.RawMessage, error)
-	ResolveDirectoryPresentation(ctx context.Context, rules, sharedRules json.RawMessage, gitExcluded []string, caseInsensitive bool, paths []string) (core.DirectoryPresentationResult, error)
+	ResolveDirectoryPresentation(ctx context.Context, rules, sharedRules json.RawMessage, pluginTypes []core.PluginDirectoryType, pluginMarks []core.PluginDirectoryMark, gitExcluded []string, caseInsensitive bool, paths []string) (core.DirectoryPresentationResult, error)
 }
 
 // directoryColorSwatch is one preset color offered in the quick color menu and settings.
@@ -136,6 +144,8 @@ func (a *App) installIndexing(p *project, refresh bool) {
 	loaded, rules, gitIgnore := ix.loaded, ix.rules, ix.gitIgnore
 	sharedEnabled, sharedPath, sharedRules := ix.sharedConfigEnabled, ix.sharedConfigPath, ix.sharedRules
 	hideBgTint, hideTags, seeded := ix.hideBgTint, ix.hideTags, ix.customTypesSeeded
+	pluginTypes := p.pluginDirectoryTypes()
+	pluginMarks := p.pluginDirectoryMarks()
 	lang := a.language()
 	a.background(p, kernelCallTimeout, func(ctx context.Context) func(*App) {
 		var readFailure error
@@ -186,11 +196,17 @@ func (a *App) installIndexing(p *project, refresh bool) {
 		if sharedEnabled && len(sharedRules) > 0 {
 			effectiveShared = sharedRules
 		}
-		policy := resolveEffectiveIndexingPolicy(ctx, a.kernel, root, rules, effectiveShared, gitIgnore)
+		policy, pluginErr, policyErr := resolveEffectiveIndexingPolicy(ctx, a.kernel, root, rules, effectiveShared, pluginTypes, pluginMarks, gitIgnore)
 		status, err := kernel.ConfigureIndexing(ctx, root, owner, policy, refresh)
 		return func(a *App) {
 			if ix.generation != generation {
 				return
+			}
+			if pluginErr != nil {
+				a.backgroundFailed("workspace_directory_plugin_layers", pluginErr)
+			}
+			if policyErr != nil {
+				a.backgroundFailed("workspace_directory_policy", policyErr)
 			}
 			if !loaded && !ix.loaded {
 				ix.rules, ix.gitIgnore, ix.loaded = rules, gitIgnore, true
@@ -208,12 +224,17 @@ func (a *App) installIndexing(p *project, refresh bool) {
 				return
 			}
 			ix.status = status
+			ix.installed(policy.ManualExcludedDirectories)
 			if status.GitIgnoreFailed && !ix.warned {
 				ix.warned = true
 				a.notifyInfo(i18n.Shared(a.language(), "indexing.gitFailed"))
 			}
-			// Search results cached under the previous policy are stale.
-			a.searchView.reset()
+			// Results found under the previous policy are stale. A plugin or a new folder can
+			// install a policy at any moment, so run the search again with what the user typed
+			// rather than clearing the Find in Files form; opening a project clears it already.
+			if strings.TrimSpace(p.search.want.text) != "" {
+				a.refreshProjectSearch(p)
+			}
 			a.refreshDirectoryPresentation(p)
 		}
 	})
@@ -250,11 +271,16 @@ func (a *App) refreshDirectoryPresentation(p *project) {
 	if ix.sharedConfigEnabled {
 		shared = ix.sharedRules
 	}
+	pluginTypes := p.pluginDirectoryTypes()
+	pluginMarks := p.pluginDirectoryMarks()
 	a.background(p, kernelCallTimeout, func(ctx context.Context) func(*App) {
-		res, err := meta.ResolveDirectoryPresentation(ctx, rules, shared, gitExcluded, false, paths)
+		res, pluginErr, err := resolveDirectoryLayers(ctx, meta, rules, shared, pluginTypes, pluginMarks, gitExcluded, paths)
 		return func(a *App) {
 			if ix.presGeneration != gen {
 				return
+			}
+			if pluginErr != nil {
+				a.backgroundFailed("workspace_directory_plugin_layers", pluginErr)
 			}
 			if err != nil {
 				a.operationFailed("workspace_directory_presentation", err)
@@ -264,8 +290,52 @@ func (a *App) refreshDirectoryPresentation(p *project) {
 			if p.tree.wake != nil {
 				p.tree.wake()
 			}
+			if ix.staleGlobExclusions(res.Entries) {
+				a.installIndexing(p, true)
+			}
 		}
 	})
+}
+
+// installed records the folders an indexing policy just installed excludes. A folder the
+// policy now covers may ask again later, after it is renamed away and back; one it still does
+// not cover, such as a folder past the directory walk's limit, keeps its single request so it
+// cannot install the policy over and over.
+func (ix *projectIndexing) installed(excluded []string) {
+	ix.policyExcluded = make(map[string]struct{}, len(excluded))
+	for _, dir := range excluded {
+		ix.policyExcluded[dir] = struct{}{}
+		delete(ix.globRequeued, dir)
+	}
+}
+
+// staleGlobExclusions reports whether Core matches a shown folder to an excluding glob that
+// the installed indexing policy does not exclude yet. Globs reach the policy through a walk
+// of the folders present when it was installed, so a folder created or renamed since then
+// would otherwise stay searchable until the project reopens. Each folder asks once until a
+// policy covers it.
+func (ix *projectIndexing) staleGlobExclusions(entries map[string]core.ResolvedDirectoryEntry) bool {
+	if ix.policyExcluded == nil {
+		return false
+	}
+	stale := false
+	for dir, entry := range entries {
+		if entry.Source != "glob" || !entry.Excluded {
+			continue
+		}
+		if _, ok := ix.policyExcluded[dir]; ok {
+			continue
+		}
+		if _, ok := ix.globRequeued[dir]; ok {
+			continue
+		}
+		if ix.globRequeued == nil {
+			ix.globRequeued = make(map[string]struct{})
+		}
+		ix.globRequeued[dir] = struct{}{}
+		stale = true
+	}
+	return stale
 }
 
 // releaseIndexing gives up the project's lease as it closes. It runs past the project's end.
@@ -321,9 +391,49 @@ func directoryRulesFingerprint(storeDir, root string) (string, error) {
 
 const maxGlobWalkDirs = 50_000
 
-// hasExcludingGlob reports whether any custom directory type in rules or sharedRules
-// combines excludeIndexing with a non-empty matchGlob pattern.
-func hasExcludingGlob(rules, sharedRules json.RawMessage) bool {
+// pluginDirectoryTypes returns all active plugin-contributed directory types for p in
+// deterministic order: by plugin and type ID, and for the same plugin and ID in two of its
+// sessions or contexts, by lease key.
+func (p *project) pluginDirectoryTypes() []core.PluginDirectoryType {
+	if p == nil || len(p.indexing.pluginTypesByKey) == 0 {
+		return nil
+	}
+	var out []core.PluginDirectoryType
+	for _, key := range slices.Sorted(maps.Keys(p.indexing.pluginTypesByKey)) {
+		out = append(out, p.indexing.pluginTypesByKey[key]...)
+	}
+	slices.SortStableFunc(out, func(a, b core.PluginDirectoryType) int {
+		if c := strings.Compare(a.PluginID, b.PluginID); c != 0 {
+			return c
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	return out
+}
+
+// pluginDirectoryMarks returns all active plugin-contributed directory marks for p in
+// deterministic order: by plugin and path, and for the same plugin and path in two of its
+// sessions or contexts, by lease key.
+func (p *project) pluginDirectoryMarks() []core.PluginDirectoryMark {
+	if p == nil || len(p.indexing.pluginMarksByKey) == 0 {
+		return nil
+	}
+	var out []core.PluginDirectoryMark
+	for _, key := range slices.Sorted(maps.Keys(p.indexing.pluginMarksByKey)) {
+		out = append(out, p.indexing.pluginMarksByKey[key]...)
+	}
+	slices.SortStableFunc(out, func(a, b core.PluginDirectoryMark) int {
+		if c := strings.Compare(a.PluginID, b.PluginID); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Path, b.Path)
+	})
+	return out
+}
+
+// hasExcludingGlob reports whether any custom or plugin directory type combines
+// excludeIndexing with a non-empty matchGlob pattern.
+func hasExcludingGlob(rules, sharedRules json.RawMessage, pluginTypes []core.PluginDirectoryType) bool {
 	for _, raw := range []json.RawMessage{rules, sharedRules} {
 		if len(raw) == 0 {
 			continue
@@ -332,6 +442,11 @@ func hasExcludingGlob(rules, sharedRules json.RawMessage) bool {
 			if ct.ExcludeIndexing && strings.TrimSpace(ct.MatchGlob) != "" {
 				return true
 			}
+		}
+	}
+	for _, pt := range pluginTypes {
+		if pt.ExcludeIndexing && strings.TrimSpace(pt.MatchGlob) != "" {
+			return true
 		}
 	}
 	return false
@@ -376,29 +491,45 @@ func walkWorkspaceDirs(root string) []string {
 	return dirs
 }
 
+// resolveDirectoryLayers asks Core to resolve every layer and, when that fails while plugins
+// contribute, once more without the plugin layers, so what plugins registered can never take
+// the user's and the team's rules away. pluginErr is the failure the plugin layers caused and
+// err the failure of the answer returned.
+func resolveDirectoryLayers(ctx context.Context, meta directoryMetaKernel, rules, sharedRules json.RawMessage, pluginTypes []core.PluginDirectoryType, pluginMarks []core.PluginDirectoryMark, gitExcluded, paths []string) (res core.DirectoryPresentationResult, pluginErr, err error) {
+	res, err = meta.ResolveDirectoryPresentation(ctx, rules, sharedRules, pluginTypes, pluginMarks, gitExcluded, false, paths)
+	if err == nil || (len(pluginTypes) == 0 && len(pluginMarks) == 0) {
+		return res, nil, err
+	}
+	pluginErr = err
+	res, err = meta.ResolveDirectoryPresentation(ctx, rules, sharedRules, nil, nil, gitExcluded, false, paths)
+	return res, pluginErr, err
+}
+
 // resolveEffectiveIndexingPolicy asks Core for effective manual exclusions (honoring
-// user > shared > glob precedence and includedDirectories) and falls back to IndexingPolicyOf
-// when the kernel does not implement directoryMetaKernel.
-func resolveEffectiveIndexingPolicy(ctx context.Context, k any, root string, rules, sharedRules json.RawMessage, gitIgnore bool) core.IndexingPolicy {
-	policy := core.IndexingPolicyOf(rules, gitIgnore)
+// user > shared > plugin > glob precedence and includedDirectories) and falls back to
+// IndexingPolicyOf when the kernel does not implement directoryMetaKernel or cannot resolve
+// even without the plugin layers. pluginErr is the failure the plugin layers caused and err
+// the failure that left only the local rules' exclusions.
+func resolveEffectiveIndexingPolicy(ctx context.Context, k any, root string, rules, sharedRules json.RawMessage, pluginTypes []core.PluginDirectoryType, pluginMarks []core.PluginDirectoryMark, gitIgnore bool) (policy core.IndexingPolicy, pluginErr, err error) {
+	policy = core.IndexingPolicyOf(rules, gitIgnore)
 	meta, ok := k.(directoryMetaKernel)
 	if !ok {
-		return policy
+		return policy, nil, nil
 	}
 	var globCandidates []string
-	if hasExcludingGlob(rules, sharedRules) {
+	if hasExcludingGlob(rules, sharedRules, pluginTypes) {
 		globCandidates = walkWorkspaceDirs(root)
 	}
-	res, err := meta.ResolveDirectoryPresentation(ctx, rules, sharedRules, nil, false, globCandidates)
+	res, pluginErr, err := resolveDirectoryLayers(ctx, meta, rules, sharedRules, pluginTypes, pluginMarks, nil, globCandidates)
 	if err != nil {
-		return policy
+		return policy, pluginErr, err
 	}
 	if res.ManualExcludedDirectories == nil {
 		policy.ManualExcludedDirectories = []string{}
 	} else {
 		policy.ManualExcludedDirectories = res.ManualExcludedDirectories
 	}
-	return policy
+	return policy, pluginErr, nil
 }
 
 // readSharedDirectoryRules reads an optional workspace-relative shared directory rules file.

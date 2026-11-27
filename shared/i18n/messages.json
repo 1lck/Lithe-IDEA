@@ -110853,6 +110853,13 @@
       ]
     },
     {
+      "id": "desktop.directoryMarks.settings.groupPlugin",
+      "description": "Group header for plugin-contributed directory types",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.directoryMarks.settings.badgeBuiltin",
       "description": "Badge for built-in directory role",
       "platforms": [
@@ -110862,6 +110869,13 @@
     {
       "id": "desktop.directoryMarks.settings.badgeCustom",
       "description": "Badge for user custom directory type",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.badgePlugin",
+      "description": "Badge for plugin-contributed directory type",
       "platforms": [
         "desktop"
       ]

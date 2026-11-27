@@ -587,6 +587,18 @@ func (a *App) directoryMarkMenu(c ui.C, p *project, n *treeNode, menu *ui.MenuIt
 			}
 		}
 
+		if pluginTypes := p.pluginDirectoryTypes(); len(pluginTypes) > 0 {
+			sub.Separator()
+			sub.Label(i18n.Shared(language, "desktop.directoryMarks.settings.groupPlugin"))
+			for _, pt := range pluginTypes {
+				pluginTypeID := pt.ID
+				checked := hasMeta && entry.Role == pluginTypeID
+				if sub.Item(pt.Name).Icon(directoryIcon(pt.Icon, a.colors.Dark)).Checked(checked).Clicked() {
+					c.After(func() { a.setDirectoryRole(p, n.path, pluginTypeID) })
+				}
+			}
+		}
+
 		sub.Separator()
 		sub.Label(i18n.Shared(language, "desktop.directoryMarks.quickColor"))
 		swatches := directoryColorSwatchesFor(language)
