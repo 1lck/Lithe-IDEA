@@ -1831,7 +1831,13 @@ func (a *App) requestCloseProject(after func()) {
 		}
 		a.confirmProcessExit(p, lifecycle, func() {
 			// A remote workspace then decides the programs its host runs (remote_close.go).
-			a.confirmRemoteClose(p, func() { a.finishCloseProject(p, after) })
+			a.confirmRemoteClose(p, func() {
+				p.tree.afterTreeRemovals(func() {
+					if a.project == p {
+						a.finishCloseProject(p, after)
+					}
+				})
+			})
 		})
 	})
 }

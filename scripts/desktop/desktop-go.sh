@@ -131,6 +131,13 @@ NATIVE_STATIC_LIBS="$(<"$STAGE_DIR/native-static-libs.txt")"
 NATIVE_SEARCH_FLAGS=""
 CORE_LINK_INPUTS=("$STAGE_DIR/lib/liblithe_core.a" "$STAGE_DIR/include/lithe_core.h" "$STAGE_DIR/native-static-libs.txt")
 if [[ "$GOOS" == "windows" ]]; then
+    # Include any Cargo import archives staged directly under $STAGE_DIR/lib/ (e.g. from Linux
+    # cross-compilation), and fall back to scanning Cargo's target build output when present.
+    for staged_archive in "$STAGE_DIR/lib"/*.a; do
+        [[ -f "$staged_archive" ]] || continue
+        [[ "$staged_archive" == "$STAGE_DIR/lib/liblithe_core.a" ]] && continue
+        CORE_LINK_INPUTS+=("$staged_archive")
+    done
     CARGO_HOST_TARGET="$(rustc -vV | sed -n 's/^host: //p')"
     CARGO_BUILD_ROOT="$ROOT_DIR/.artifacts/desktop/lithe-core-rust/target"
     if [[ "$LITHE_CORE_TARGET" != "$CARGO_HOST_TARGET" ]]; then
@@ -153,6 +160,7 @@ if [[ "$GOOS" == "windows" ]]; then
             used_dir=false
             for arg in "${NATIVE_ARGS[@]}"; do
                 case "$arg" in -l*) lib_name="${arg#-l}" ;; *) continue ;; esac
+                [[ -f "$STAGE_DIR/lib/lib$lib_name.a" ]] && continue
                 archive="$native_dir/lib$lib_name.a"
                 [[ -f "$archive" ]] || continue
                 for i in "${!FOUND_NAMES[@]}"; do

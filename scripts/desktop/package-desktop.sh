@@ -40,6 +40,7 @@ OUT_DIR=""
 SIGN_ARGS=()
 STABLE=0
 CHANNEL=""
+SKIP_FILE_ASSOCIATIONS_CHECK="${LITHE_SKIP_FILE_ASSOCIATIONS_CHECK:-0}"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --arch)
@@ -70,8 +71,9 @@ while [[ $# -gt 0 ]]; do
         --ad-hoc-sign) SIGN_ARGS=(--sign-identity -); shift ;;
         --stable) STABLE=1; shift ;;
         --autobuild) CHANNEL=autobuild; shift ;;
+        --skip-file-associations-check) SKIP_FILE_ASSOCIATIONS_CHECK=1; shift ;;
         *)
-            printf '%s\n' "Usage: $0 [--arch arm64|amd64] [--format LIST] [--out DIR] [--no-sign|--ad-hoc-sign] [--stable|--autobuild]" >&2
+            printf '%s\n' "Usage: $0 [--arch arm64|amd64] [--format LIST] [--out DIR] [--no-sign|--ad-hoc-sign] [--stable|--autobuild] [--skip-file-associations-check]" >&2
             exit 2
             ;;
     esac
@@ -120,7 +122,12 @@ fi
 MANIFEST="$ROOT_DIR/desktop/viva.toml"
 # Refuse stale native declarations before signing. The same Core projection feeds
 # Settings; runtime registration never rewrites the signed bundle or installer.
-LITHE_DESKTOP_CORE_PROFILE=release "$ROOT_DIR/scripts/desktop/generate-file-associations.sh" --check
+# Cross-architecture CI lanes may pass --skip-file-associations-check (or
+# LITHE_SKIP_FILE_ASSOCIATIONS_CHECK=1) so they do not compile a second host-arch
+# release Core when native-arch lanes of the same run already verify viva.toml.
+if [[ "$SKIP_FILE_ASSOCIATIONS_CHECK" != 1 ]]; then
+    LITHE_DESKTOP_CORE_PROFILE=release "$ROOT_DIR/scripts/desktop/generate-file-associations.sh" --check
+fi
 VERSION="$(awk '
     /^\[app\][[:space:]]*$/ { in_app = 1; next }
     /^\[/ { in_app = 0 }

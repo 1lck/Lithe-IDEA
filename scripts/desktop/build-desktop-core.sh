@@ -408,8 +408,15 @@ fi
 # cgo's external MinGW linker already supplies the Windows system import libraries.
 # winapi's supported switch avoids depending on libwinapi_* archives under a
 # Cargo registry/build-script directory that is not part of the staged Core.
+# When cross-compiling for x86_64-pc-windows-gnu from a non-Windows host (e.g. Linux CI),
+# default the MinGW-w64 cross toolchain so cc-rs and rustc link without extra host config.
 if [[ "$RUST_TARGET" == *-windows-gnu ]]; then
     export WINAPI_NO_BUNDLED_LIBRARIES=1
+    if [[ "$HOST_TARGET" != *-windows-* && "$RUST_TARGET" == "x86_64-pc-windows-gnu" ]]; then
+        export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="${CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER:-x86_64-w64-mingw32-gcc}"
+        export CC_x86_64_pc_windows_gnu="${CC_x86_64_pc_windows_gnu:-x86_64-w64-mingw32-gcc}"
+        export AR_x86_64_pc_windows_gnu="${AR_x86_64_pc_windows_gnu:-x86_64-w64-mingw32-ar}"
+    fi
 fi
 
 ARTIFACTS_DIR="$ROOT_DIR/.artifacts/desktop"
@@ -427,6 +434,48 @@ fi
 # tokio_macros and futures_macro. Build scripts and proc macros are never shipped, so they are
 # left unstripped; the static library is still built with the profile as the core defines it.
 export CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP="${CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP:-false}"
+
+HELPER_EXE=""
+if [[ "$RUST_TARGET" == *windows* ]]; then
+    HELPER_EXE=".exe"
+fi
+RUSTC_VERSION="$(rustc -V)"
+
+format_identity() {
+    local revision="$1" dirty="$2" source="$3"
+    printf 'core-revision=%s\n' "$revision"
+    printf 'core-worktree=%s\n' "$dirty"
+    printf 'core-source=%s\n' "$source"
+    printf 'rustc=%s\n' "$RUSTC_VERSION"
+    printf 'target=%s\n' "$RUST_TARGET"
+    printf 'profile=%s\n' "$PROFILE"
+    if [[ "$RUST_TARGET" == *-windows-gnu ]]; then
+        printf 'winapi-import-libraries=mingw-system\n'
+    fi
+    if [[ "$RUST_TARGET" == *-apple-darwin ]]; then
+        printf 'macos-deployment-target=%s\n' "$MACOSX_DEPLOYMENT_TARGET"
+    fi
+}
+
+# Fast-path for pinned builds: when the staged archive, header, native-static-libs and lithe-mcp
+# helper already match this exact revision, rustc, target and profile, skip git and cargo.
+# Local LITHE_CORE_RUST_DIR overrides and --checkout-only never take this path. If a pinned
+# checkout already exists, require its rust/Cargo.toml to still be intact so a deleted worktree
+# manifest still fails closed.
+if [[ "$CHECKOUT_ONLY" == "no" && -z "${LITHE_CORE_RUST_DIR:-}" ]]; then
+    PINNED_SOURCE_DIR="$ARTIFACTS_DIR/lithe-core-rust/source"
+    EXPECTED_IDENTITY="$(format_identity "$PINNED_CORE_REVISION" "clean" "pinned")"
+    if [[ ( ! -d "$PINNED_SOURCE_DIR/.git" || -f "$PINNED_SOURCE_DIR/rust/Cargo.toml" ) \
+        && -f "$STAGE_DIR/identity.txt" \
+        && "$(cat "$STAGE_DIR/identity.txt")" == "$EXPECTED_IDENTITY" \
+        && -s "$STAGE_DIR/lib/liblithe_core.a" \
+        && -s "$STAGE_DIR/include/lithe_core.h" \
+        && -s "$STAGE_DIR/native-static-libs.txt" \
+        && -x "$STAGE_DIR/bin/lithe-mcp$HELPER_EXE" ]]; then
+        printf '%s\n' "$STAGE_DIR"
+        exit 0
+    fi
+fi
 
 if [[ -n "${LITHE_CORE_RUST_DIR:-}" ]]; then
     CORE_DIR="$(cd "$LITHE_CORE_RUST_DIR" && pwd -P)"
@@ -510,13 +559,48 @@ fi
 install -m 0644 "$LIBRARY_DIR/liblithe_core.a" "$STAGE_DIR/lib/liblithe_core.a"
 install -m 0644 "$CORE_DIR/rust/crates/core/include/lithe_core.h" "$STAGE_DIR/include/lithe_core.h"
 
+# On Windows GNU targets, copy any Cargo-supplied native import archives referenced by
+# native-static-libs.txt into $STAGE_DIR/lib/ so the staged directory is self-contained and can
+# be produced by Linux cross-compilation and linked on Windows without carrying target/.
+if [[ "$RUST_TARGET" == *-windows-gnu ]]; then
+    CARGO_BUILD_ROOT="$LIBRARY_DIR/build"
+    NATIVE_STATIC_LIBS="$(<"$NATIVE_LIBS_FILE")"
+    read -r -a NATIVE_ARGS <<< "$NATIVE_STATIC_LIBS"
+    FOUND_NAMES=()
+    FOUND_ARCHIVES=()
+    for output in "$CARGO_BUILD_ROOT"/*/output; do
+        [[ -f "$output" ]] || continue
+        while IFS= read -r line; do
+            line="${line%$'\r'}"
+            case "$line" in
+                cargo:rustc-link-search=native=*) native_dir="${line#cargo:rustc-link-search=native=}" ;;
+                cargo::rustc-link-search=native=*) native_dir="${line#cargo::rustc-link-search=native=}" ;;
+                *) continue ;;
+            esac
+            if command -v cygpath >/dev/null 2>&1; then
+                native_dir="$(cygpath -u "$native_dir")"
+            fi
+            for arg in "${NATIVE_ARGS[@]}"; do
+                case "$arg" in -l*) lib_name="${arg#-l}" ;; *) continue ;; esac
+                archive="$native_dir/lib$lib_name.a"
+                [[ -f "$archive" ]] || continue
+                for i in "${!FOUND_NAMES[@]}"; do
+                    if [[ "${FOUND_NAMES[$i]}" == "$lib_name" ]] && ! cmp -s "$archive" "${FOUND_ARCHIVES[$i]}"; then
+                        printf 'Conflicting Cargo import libraries for %s: %s and %s\n' "$lib_name" "$archive" "${FOUND_ARCHIVES[$i]}" >&2
+                        exit 1
+                    fi
+                done
+                FOUND_NAMES+=("$lib_name")
+                FOUND_ARCHIVES+=("$archive")
+                install -m 0644 "$archive" "$STAGE_DIR/lib/lib$lib_name.a"
+            done
+        done < "$output"
+    done
+fi
+
 # The IDE API helper is the lithe-ide-host crate's lithe-mcp binary from the same pinned
 # checkout. It is staged here so packaging can embed it; nothing at runtime reads this
 # directory, and the installed client runs only the copy it installs under application data.
-HELPER_EXE=""
-if [[ "$RUST_TARGET" == *windows* ]]; then
-    HELPER_EXE=".exe"
-fi
 mkdir -p "$STAGE_DIR/bin"
 cargo build --manifest-path "$MANIFEST_NATIVE" -p lithe-ide-host --bin lithe-mcp --features mcp \
     "${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"}" >&2
@@ -526,18 +610,5 @@ if [[ ! -f "$HELPER" ]]; then
     exit 1
 fi
 install -m 0755 "$HELPER" "$STAGE_DIR/bin/lithe-mcp$HELPER_EXE"
-{
-    printf 'core-revision=%s\n' "$CORE_REVISION"
-    printf 'core-worktree=%s\n' "$CORE_DIRTY"
-    printf 'core-source=%s\n' "$CORE_SOURCE"
-    printf 'rustc=%s\n' "$(rustc -V)"
-    printf 'target=%s\n' "$RUST_TARGET"
-    printf 'profile=%s\n' "$PROFILE"
-    if [[ "$RUST_TARGET" == *-windows-gnu ]]; then
-        printf 'winapi-import-libraries=mingw-system\n'
-    fi
-    if [[ "$RUST_TARGET" == *-apple-darwin ]]; then
-        printf 'macos-deployment-target=%s\n' "$MACOSX_DEPLOYMENT_TARGET"
-    fi
-} > "$STAGE_DIR/identity.txt"
+format_identity "$CORE_REVISION" "$CORE_DIRTY" "$CORE_SOURCE" > "$STAGE_DIR/identity.txt"
 printf '%s\n' "$STAGE_DIR"

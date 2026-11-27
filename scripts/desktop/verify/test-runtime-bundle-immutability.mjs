@@ -7,6 +7,7 @@ import test from "node:test";
 
 // The workflows the script requires to keep an installed-package test.
 const installedPackageWorkflows = [
+  ["desktop/internal/workbench/remote_devcontainer_form_test.go", "TestRemoteDevcontainerConfigurationLeavesInstalledPackageUnchanged"],
   ["desktop/internal/remoteserver/remoteserver_test.go", "TestResolveLeavesTheInstalledPackageUnchanged"],
   ["desktop/internal/remoteplaceholder/remoteplaceholder_test.go", "TestEnsureLeavesTheInstalledPackageUnchanged"],
   ["desktop/internal/idehelp/idehelp_test.go", "TestInstallLeavesTheInstalledPackageUnchanged"],

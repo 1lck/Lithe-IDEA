@@ -10719,6 +10719,7 @@
     "desktop.files.paste": "Paste",
     "desktop.files.moveFailed": "Could not move the item: {reason}",
     "desktop.files.crossBoundaryMove": "Moving or renaming between WSL distributions, or between a distribution and a local folder, is not supported",
+    "desktop.files.removalInProgress": "These files are being deleted. Wait for the deletion to finish before changing them",
     "desktop.files.pasteFailed": "Could not paste the item: {reason}",
     "desktop.github.settingsTitle": "GitHub Account",
     "desktop.github.settingsHelp": "Sign in to list, check out and review pull requests of this repository.",
