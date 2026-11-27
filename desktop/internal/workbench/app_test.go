@@ -1018,10 +1018,12 @@ func TestSettingsWindowSizePersistsWithOtherSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.app.setSettingsWindowSize(1100, 760)
+	h.settle()
 	if _, err := os.Stat(filepath.Join(h.store.Dir(), settingsFile)); !os.IsNotExist(err) {
 		t.Fatalf("an unchanged size saved the settings again: %v", err)
 	}
 	h.app.setSettingsWindowSize(1180, 820)
+	h.settle()
 	reloaded := newHarnessWithOptions(t, Options{Kernel: &testKernel{Client: core.NewClient()}, Store: h.store, Languages: []string{"zh-Hans"}})
 	if got := reloaded.app.settings; got.SettingsWindowWidth != 1180 || got.SettingsWindowHeight != 820 {
 		t.Fatalf("reloaded settings window size = %dx%d, want 1180x820", got.SettingsWindowWidth, got.SettingsWindowHeight)
