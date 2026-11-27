@@ -15,6 +15,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/legacyimport"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -312,14 +313,32 @@ func (a *App) applyLegacyImport() {
 	if fonts, ok := legacyFonts(a.settings.Fonts, f, chosen[legacyEditorFont], chosen[legacyTerminalFont]); ok {
 		a.setFonts(fonts)
 	}
-	a.saveSettings()
+	batch := a.queueSettingsSave()
 	language := a.language()
-	if err := a.verifySettingsSaved(); err != nil {
-		a.operationFailed("settings_import_legacy_apply", err)
-		a.notifyError(i18n.SharedFormat(language, "desktop.legacyImport.failed", map[string]string{"error": err.Error()}))
-		return
-	}
-	if !chosen[legacyRecent] {
+	expected := a.settings.clone()
+	dir := a.store.Dir()
+	a.background(nil, settingsFlushTimeout, func(ctx context.Context) func(*App) {
+		err := batch.wait(ctx)
+		if err == nil {
+			var stored settings
+			_, err = store.At(dir).Load(settingsFile, &stored)
+			if err == nil {
+				err = sameJSON(stored, expected)
+			}
+		}
+		return func(a *App) {
+			if err != nil {
+				a.operationFailed("settings_import_legacy_apply", err)
+				a.notifyError(i18n.SharedFormat(language, "desktop.legacyImport.failed", map[string]string{"error": err.Error()}))
+				return
+			}
+			a.finishLegacyImport(f, chosen[legacyRecent], language)
+		}
+	})
+}
+
+func (a *App) finishLegacyImport(f legacyimport.Found, includeRecent bool, language i18n.Language) {
+	if !includeRecent {
 		a.notifySuccess(i18n.SharedFormat(language, "desktop.legacyImport.done", map[string]string{"recent": "0"}))
 		return
 	}
@@ -359,15 +378,6 @@ func legacyFonts(current []fontprefs.Font, f legacyimport.Found, editor, termina
 		return nil, false
 	}
 	return append(fonts, current...), true
-}
-
-// verifySettingsSaved reads settingsFile back and compares it with the settings in use.
-func (a *App) verifySettingsSaved() error {
-	var stored settings
-	if _, err := a.store.Load(settingsFile, &stored); err != nil {
-		return err
-	}
-	return sameJSON(stored, a.settings)
 }
 
 func sameJSON(stored, current any) error {

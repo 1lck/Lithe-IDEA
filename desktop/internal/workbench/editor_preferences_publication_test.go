@@ -47,7 +47,9 @@ func TestEditorPreferencesPublicationProtectsEveryWindowSave(t *testing.T) {
 	// whole-settings write must not restore the old rainbow preferences on disk.
 	for _, target := range []*App{h.app, second.app} {
 		target.settings.HideProjectColors = true
-		target.saveSettings()
+		if err := target.queueSettingsSave().wait(ctx); err != nil {
+			t.Fatal(err)
+		}
 		var saved settings
 		if _, err := h.store.Load(settingsFile, &saved); err != nil {
 			t.Fatal(err)
@@ -86,6 +88,7 @@ func TestEditorPreferencesWatchReadsExternalChangesAndPreservesThemOnSave(t *tes
 	}
 	h.app.settings.HideProjectColors = true
 	h.app.saveSettings()
+	h.settle()
 	var saved settings
 	if _, err := external.Load(settingsFile, &saved); err != nil {
 		t.Fatal(err)
@@ -181,6 +184,7 @@ func TestEditorPreferencesFailedUnrelatedSaveDoesNotDiscardExternalRead(t *testi
 	// completion is delivered explicitly, without racing native watcher timing.
 	state.Lock()
 	generation := state.latest.generation
+	savedSerial := state.savedSerial
 	state.reading = true
 	state.Unlock()
 	on := true
@@ -201,12 +205,32 @@ func TestEditorPreferencesFailedUnrelatedSaveDoesNotDiscardExternalRead(t *testi
 		t.Fatal(err)
 	}
 	h.app.settings.HideProjectColors = true
-	if _, err := h.app.saveSettingsSnapshot(); err == nil {
+	if err := h.app.queueSettingsSave().wait(ctx); err == nil {
 		t.Fatal("the invalid transaction lock did not reject the unrelated save")
 	}
-	state.completeEditorPreferencesRead(want, resolved, generation, nil)
+	state.completeEditorPreferencesRead(want, resolved, generation, savedSerial, nil)
 	h.app.drain()
 	if !reflect.DeepEqual(h.app.settings.EditorPreferences, want) || !h.app.editorPreferences.RainbowVariables {
 		t.Fatal("a failed unrelated save discarded the completed external preferences read")
+	}
+}
+
+func TestEditorPreferencesReadBeforeSaveCannotRepublishOldValues(t *testing.T) {
+	on := true
+	state := &editorPreferencesPublication{
+		latest: editorPreferencesSnapshot{
+			stored:     core.EditorStoredPreferences{RainbowVariables: &on},
+			generation: 2,
+		},
+		savedSerial: 1,
+		reading:     true,
+	}
+	// The watcher started reading before the writer published this generation.
+	state.completeEditorPreferencesRead(core.EditorStoredPreferences{}, core.EditorPreferences{}, 2, 0, nil)
+	if state.latest.stored.RainbowVariables == nil || !*state.latest.stored.RainbowVariables {
+		t.Fatal("the read republished preferences from before the save")
+	}
+	if state.reading || !state.readAgain || !state.watchDirty.Load() {
+		t.Fatal("the source was not scheduled to be read again")
 	}
 }

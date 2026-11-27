@@ -164,6 +164,15 @@ func newHarnessWithDriver(t testing.TB, options Options, open func(app.Config) (
 			t.Errorf("cleanup: %v (%s)", err, h.taskState())
 		}
 		closeDriver()
+		// The headless driver closes directly. OnClosed can enqueue a final
+		// geometry save, which production waits for after its window loop.
+		if idle := h.app.settingsPublication.settingsSaveIdle(); idle != nil {
+			select {
+			case <-idle:
+			case <-ctx.Done():
+				t.Errorf("waiting for settings after driver close: %v", ctx.Err())
+			}
+		}
 	})
 	return h
 }
@@ -987,6 +996,7 @@ func TestMarketplaceWidthPersistsWithOtherSettings(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	h.app.setLanguage("zh-Hans")
 	h.app.setMarketplaceWidth(420)
+	h.settle()
 	var saved settings
 	found, err := h.store.Load(settingsFile, &saved)
 	if err != nil || !found {
@@ -1004,6 +1014,7 @@ func TestSettingsWindowSizePersistsWithOtherSettings(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	h.app.setLanguage("zh-Hans")
 	h.app.setSettingsWindowSize(1100, 760)
+	h.settle()
 	var saved settings
 	found, err := h.store.Load(settingsFile, &saved)
 	if err != nil || !found {
@@ -1016,10 +1027,12 @@ func TestSettingsWindowSizePersistsWithOtherSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.app.setSettingsWindowSize(1100, 760)
+	h.settle()
 	if _, err := os.Stat(filepath.Join(h.store.Dir(), settingsFile)); !os.IsNotExist(err) {
 		t.Fatalf("an unchanged size saved the settings again: %v", err)
 	}
 	h.app.setSettingsWindowSize(1180, 820)
+	h.settle()
 	reloaded := newHarnessWithOptions(t, Options{Kernel: &testKernel{Client: core.NewClient()}, Store: h.store, Languages: []string{"zh-Hans"}})
 	if got := reloaded.app.settings; got.SettingsWindowWidth != 1180 || got.SettingsWindowHeight != 820 {
 		t.Fatalf("reloaded settings window size = %dx%d, want 1180x820", got.SettingsWindowWidth, got.SettingsWindowHeight)
@@ -1057,6 +1070,7 @@ func TestSettingsChangesUpdateSharedStateAndPersist(t *testing.T) {
 	if h.app.shared.text.Load() != i18n.For(i18n.English) || h.app.shared.dark.Load() {
 		t.Fatal("shared window state did not reflect the selected language and appearance")
 	}
+	h.settle()
 	var saved settings
 	found, err := h.store.Load(settingsFile, &saved)
 	if err != nil || !found || saved.Language != "en" || saved.Theme != themeLight {

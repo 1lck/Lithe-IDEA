@@ -385,8 +385,11 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # and preserves the selected context and distribution through build, connection and trust.
 # Lithe-core-rust main at c269c411 (#201): built-in rainbow bracket/variable colors,
 # indent guide preferences, and Unicode whole-identifier document highlights.
-# Lithe-core-rust #205: recent project pin order, tags, remote identities and filtering.
-PINNED_CORE_REVISION="6d0526ef2f6bd55842e52cc6c085af9b2dcf4e59"
+# Lithe-core-rust main at 2b0a391c (#207): global executable settings for system-command debug adapters.
+# Lithe-core-rust main at 6a644acd (#209): polled MCP requests carry their remaining
+# enqueue budget so the workbench can enforce the deadline for each window action.
+# Lithe-core-rust main at ed924028 (#205): recent project pin order, tags, remote identities and filtering.
+PINNED_CORE_REVISION="ed924028fcd681b84791b7d6e3593282b08a2582"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

@@ -137,6 +137,7 @@ func TestConsoleEncodingSettingIsCapturedForEachNewDecoder(t *testing.T) {
 			t.Fatalf("decoded = %+v, err = %v, want %q", chunk, err, scenario.want)
 		}
 	}
+	h.settle()
 	var stored settings
 	if _, err := h.store.Load(settingsFile, &stored); err != nil || stored.ConsoleEncoding != "utf-8" {
 		t.Fatalf("saved encoding = %q, err = %v", stored.ConsoleEncoding, err)

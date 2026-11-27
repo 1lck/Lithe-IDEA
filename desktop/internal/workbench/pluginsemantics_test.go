@@ -619,6 +619,7 @@ func TestAutoCompletionSettingKeepsManualCompletion(t *testing.T) {
 	f := newSemanticFixture(t)
 	f.h.app.semantics.autoDelay = -1
 	f.h.app.setDisableAutoCompletion(true)
+	f.h.settle()
 	var saved settings
 	if found, err := f.h.store.Load(settingsFile, &saved); err != nil || !found || !saved.DisableAutoCompletion {
 		t.Fatalf("disabled setting was not saved: found=%v, disabled=%v, err=%v", found, saved.DisableAutoCompletion, err)

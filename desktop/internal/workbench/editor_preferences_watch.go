@@ -74,11 +74,17 @@ func (a *App) drainEditorPreferencesWatch() {
 		return
 	}
 	recentChanged := initial || slices.Contains(changes.Names, recentFile) || slices.Contains(changes.Names, legacyRecentFile)
-	readSettings := initial || slices.Contains(changes.Names, settingsFile)
+	readSettings := initial || ready || state.readAgain || slices.Contains(changes.Names, settingsFile)
+	if !recentChanged && !readSettings {
+		state.Unlock()
+		return
+	}
 	if readSettings {
 		state.reading = true
+		state.readAgain = false
 	}
 	generation := state.latest.generation
+	savedSerial := state.savedSerial
 	dir := a.store.Dir()
 	state.Unlock()
 	if recentChanged {
@@ -97,7 +103,7 @@ func (a *App) drainEditorPreferencesWatch() {
 		// Publication ownership outlives the initiating App when another
 		// project/window still uses this directory. Complete the shared read
 		// before posting UI work, even if that initiating window has closed.
-		state.completeEditorPreferencesRead(next.EditorPreferences, resolved, generation, err)
+		state.completeEditorPreferencesRead(next.EditorPreferences, resolved, generation, savedSerial, err)
 		return func(a *App) {
 			if err != nil {
 				a.backgroundFailed("editor_preferences_reload", err)
@@ -106,10 +112,15 @@ func (a *App) drainEditorPreferencesWatch() {
 	})
 }
 
-func (state *editorPreferencesPublication) completeEditorPreferencesRead(stored core.EditorStoredPreferences, resolved core.EditorPreferences, generation uint64, err error) {
+func (state *editorPreferencesPublication) completeEditorPreferencesRead(stored core.EditorStoredPreferences, resolved core.EditorPreferences, generation, savedSerial uint64, err error) {
 	state.Lock()
 	state.reading = false
-	if err == nil && generation == state.latest.generation && !state.pendingEditor && !reflect.DeepEqual(stored, state.latest.stored) {
+	if savedSerial != state.savedSerial {
+		// The read may have opened the file before our writer replaced it.
+		// Read the source again before publishing any external preferences.
+		state.readAgain = true
+		state.watchDirty.Store(true)
+	} else if err == nil && generation == state.latest.generation && !state.pendingEditor && !reflect.DeepEqual(stored, state.latest.stored) {
 		state.latest = editorPreferencesSnapshot{stored, resolved, state.latest.generation + 1}
 	}
 	state.Unlock()

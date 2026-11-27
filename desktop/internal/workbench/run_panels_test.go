@@ -193,6 +193,7 @@ func TestRunPerformanceCollapseKeepsSummaryAndPersistsTheChoice(t *testing.T) {
 	if !h.shows(h.app.text.Run.Performance.CPU("25")) || !h.shows(h.app.text.Run.Performance.Memory("96")) || !h.shows("a running process emitted this line") {
 		t.Fatal("collapsing hid the summary or output")
 	}
+	h.settle()
 	var savedCollapsed settings
 	if _, err := h.store.Load(settingsFile, &savedCollapsed); err != nil || !savedCollapsed.RunPerformanceCollapsed {
 		t.Fatalf("collapse preference was not saved: %+v, err=%v", savedCollapsed, err)
@@ -275,6 +276,7 @@ func TestRunPerformanceCollapseKeepsSummaryAndPersistsTheChoice(t *testing.T) {
 	if got := reopened.driver.Snapshot().Focused; got != reopenedExpandedHit.ID {
 		t.Fatalf("keyboard focus moved after expanding: got %v, want %v", got, reopenedExpandedHit.ID)
 	}
+	reopened.settle()
 	var savedExpanded settings
 	if _, err := reopened.store.Load(settingsFile, &savedExpanded); err != nil || savedExpanded.RunPerformanceCollapsed {
 		t.Fatalf("expansion preference was not saved: %+v, err=%v", savedExpanded, err)

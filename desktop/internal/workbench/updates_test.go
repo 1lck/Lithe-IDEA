@@ -263,6 +263,7 @@ func replaceUpdateNotes(t *testing.T, fetch func(context.Context, string, int64)
 // savedSettings reads the settings file afresh, so a field the file leaves out reads as unset.
 func savedSettings(t *testing.T, h *harness) settings {
 	t.Helper()
+	h.settle()
 	var saved settings
 	if _, err := h.store.Load(settingsFile, &saved); err != nil {
 		t.Fatalf("read the saved settings: %v", err)

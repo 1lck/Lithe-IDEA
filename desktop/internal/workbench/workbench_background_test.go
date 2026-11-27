@@ -149,6 +149,7 @@ func (h *harness) frontLabeled(label string) gfx.Rect {
 // savedBackgroundSetting is the background the settings file keeps.
 func (h *harness) savedBackgroundSetting() savedBackground {
 	h.t.Helper()
+	h.settle()
 	var saved settings
 	if _, err := h.store.Load(settingsFile, &saved); err != nil {
 		h.t.Fatal(err)

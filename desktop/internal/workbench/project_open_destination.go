@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -104,10 +105,30 @@ func (a *App) askProjectOpenDestination(path string) {
 // openProjectInNewWindow starts another client that opens path; the window keeps its
 // own project.
 func (a *App) openProjectInNewWindow(path string) {
-	if err := launchClient(path); err != nil {
-		a.operationFailed("project_open_new_window", documentLogError(err))
-		a.notifyError(i18n.SharedFormat(a.language(), "desktop.projectOpen.newWindowFailed", map[string]string{"reason": treeErrorReason(err)}))
-	}
+	a.launchProjectWindow(path, launchClient)
+}
+
+func (a *App) launchProjectWindow(path string, launch func(string) error) {
+	idle := a.settingsPublication.settingsSaveIdle()
+	a.background(nil, settingsFlushTimeout, func(ctx context.Context) func(*App) {
+		// The new process loads its own settings, including the remembered
+		// destination when the user just chose "Don't ask again".
+		if idle != nil {
+			select {
+			case <-idle:
+			case <-ctx.Done():
+				a.backgroundFailedIn(ctx, "project_open_new_window", ctx.Err())
+			}
+		}
+		err := launch(path)
+		if err == nil {
+			return nil
+		}
+		return func(a *App) {
+			a.operationFailed("project_open_new_window", documentLogError(err))
+			a.notifyError(i18n.SharedFormat(a.language(), "desktop.projectOpen.newWindowFailed", map[string]string{"reason": treeErrorReason(err)}))
+		}
+	})
 }
 
 // launchClient starts this executable on path as a separate client and does not wait for it.
