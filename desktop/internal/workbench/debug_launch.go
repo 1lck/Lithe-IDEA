@@ -123,6 +123,10 @@ func (a *App) resolveAdapterProcess(ctx context.Context, adapter debugAdapter, p
 					return "", nil, nil, &exec.Error{Name: path, Err: exec.ErrNotFound}
 				}
 				executable, err = exec.LookPath(path)
+				// Windows can append a PATHEXT suffix even to an absolute path.
+				if err == nil && executable != path {
+					err = &exec.Error{Name: path, Err: exec.ErrNotFound}
+				}
 			} else {
 				lookup := a.installedCommands().Lookup(adapter.PluginID, func(name string) (string, error) { return debugLookupCommand(ctx, name) })
 				executable, err = pluginhost.ResolveCommand(plan.Launch.Commands, lookup)

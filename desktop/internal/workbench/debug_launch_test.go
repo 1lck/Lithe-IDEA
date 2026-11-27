@@ -30,11 +30,13 @@ func TestDebugAdapterExecutableOverride(t *testing.T) {
 	suffix := ""
 	if buildPlatform() == "windows" {
 		suffix = ".exe"
+		t.Setenv("PATHEXT", ".EXE")
 	}
 	onPath := filepath.Join(directory, command+suffix)
 	configured := filepath.Join(t.TempDir(), "custom adapter"+suffix)
 	missing := filepath.Join(t.TempDir(), "missing adapter"+suffix)
-	for _, path := range []string{onPath, configured} {
+	neighbor := filepath.Join(t.TempDir(), "adjacent adapter")
+	for _, path := range []string{onPath, configured, neighbor + ".exe"} {
 		if err := os.WriteFile(path, nil, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -47,6 +49,7 @@ func TestDebugAdapterExecutableOverride(t *testing.T) {
 		{"default", "", onPath},
 		{"override", configured, configured},
 		{"missing", missing, ""},
+		{"no extension substitution", neighbor, ""},
 		{"relative", command, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
