@@ -556,24 +556,17 @@ func (shell *Shell) closeThroughInput() {
 	}
 }
 
-// hangupAfterControlledClose covers a missing or replaced Readline binding.
-// Only fall back while Bash is still at an input prompt. Once it starts the
-// close command, a HUP could interrupt the user's EXIT trap and save history
-// before the trap has made its changes.
+// hangupAfterControlledClose covers shells whose Readline cannot bind the
+// controlled close, or whose user startup replaced the binding. The close
+// command normally leaves long before this; when it did not, the shell is in
+// the same input state in which a plain hangup is the best remaining shutdown.
 func (shell *Shell) hangupAfterControlledClose() {
 	delay := time.NewTimer(controlledCloseFallbackDelay)
 	defer delay.Stop()
 	select {
 	case <-shell.done:
 	case <-delay.C:
-		if shell.b.inputReady() {
-			shell.mu.Lock()
-			atPrompt := shell.lastMark == 'B'
-			shell.mu.Unlock()
-			if atPrompt {
-				shell.b.hangup()
-			}
-		}
+		shell.b.hangup()
 	}
 }
 

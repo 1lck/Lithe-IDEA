@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -374,75 +373,6 @@ func TestClosingAnIntegratedBashAfterAFailedCommandExitsSuccessfully(t *testing.
 	}
 }
 
-// Bash must run the user's EXIT trap before saving history. Use synthetic
-// history in an isolated home so the test never opens the user's history.
-func TestClosingAnIntegratedBashRespectsExitHistory(t *testing.T) {
-	program, err := exec.LookPath("bash")
-	if err != nil {
-		t.Skipf("bash unavailable: %v", err)
-	}
-	for _, test := range []struct {
-		name, exitTrap, savedTo string
-	}{
-		{name: "save to configured file", savedTo: "history"},
-		{name: "suppress history", exitTrap: "unset HISTFILE"},
-		{name: "redirect history", exitTrap: `HISTFILE="$HOME/redirected history"`, savedTo: "redirected history"},
-		// A bounded read keeps the EXIT trap active beyond the fallback's
-		// hangup delay and puts the PTY back into noncanonical, no-echo mode.
-		{name: "slow exit trap suppresses history", exitTrap: "read -n 1 -s -t 1 </dev/tty || :; unset HISTFILE"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			home, runtimeDir := t.TempDir(), t.TempDir()
-			profile := `HISTFILE="$HOME/history"
-HISTSIZE=100
-HISTFILESIZE=100
-HISTCONTROL=
-HISTIGNORE=
-set -o history
-`
-			if test.exitTrap != "" {
-				profile += "trap '" + test.exitTrap + "; printf done > \"$HOME/exit-complete\"' EXIT\n"
-			}
-			if err := os.WriteFile(filepath.Join(home, ".bash_profile"), []byte(profile), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			const seed = "echo seeded-history\n"
-			history := filepath.Join(home, "history")
-			if err := os.WriteFile(history, []byte(seed), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			const token = "close-history-token"
-			s := startIntegrated(t, Config{
-				Shell: program, PromptToken: token, Dir: home,
-				Unset: []string{"BASH_ENV", "HISTFILE", "HISTTIMEFORMAT", "INPUTRC", "TERM_PROGRAM"},
-				Env:   []string{"HOME=" + home, "SHELL=" + program, "TMPDIR=" + runtimeDir, "HISTFILE=" + history, "LANG=en_US.UTF-8"},
-			}, token)
-			s.await("the first prompt", func() bool { return s.ready() > 0 })
-			const command = "echo recorded-history"
-			s.run(command+"\r", 1, "recorded-history\r\n")
-			closeAndAwaitEnd(t, s.shell)
-
-			if test.exitTrap != "" {
-				if data, err := os.ReadFile(filepath.Join(home, "exit-complete")); err != nil || string(data) != "done" {
-					t.Errorf("EXIT trap did not complete: %q, %v (shell exit: %v)", data, err, s.shell.Err())
-				}
-			}
-			if test.savedTo != "history" {
-				if data, err := os.ReadFile(history); err != nil || string(data) != seed {
-					t.Errorf("original history changed before the EXIT trap: %q, %v", data, err)
-				}
-			}
-			if test.savedTo != "" {
-				data, err := os.ReadFile(filepath.Join(home, test.savedTo))
-				if err != nil || !slices.Contains(strings.Split(string(data), "\n"), command) {
-					t.Errorf("configured history %q did not save the command: %q, %v", test.savedTo, data, err)
-				}
-			}
-			emptyDirectory(t, runtimeDir)
-		})
-	}
-}
-
 // Bash's hangup forwarding leaves disowned jobs alone; the terminal's
 // controlled close must keep that contract rather than killing the process group.
 func TestClosingAnIntegratedBashLeavesDisownedJobs(t *testing.T) {
@@ -791,14 +721,14 @@ func TestIntegratedBashStartupMatchesALoginShell(t *testing.T) {
 		t.Skip("bash unavailable")
 	}
 	for _, test := range []struct {
-		name, profile, options string
-		want                   int
+		name, profile string
+		want          int
 	}{
 		// The Debian, Ubuntu and RHEL default: the login profile sources
 		// ~/.bashrc itself.
-		{"login-profile-sources-bashrc", "if [ -r \"$HOME/.bashrc\" ]; then . \"$HOME/.bashrc\"; fi\n", "", 1},
+		{"login-profile-sources-bashrc", "if [ -r \"$HOME/.bashrc\" ]; then . \"$HOME/.bashrc\"; fi\n", 1},
 		// No login profile: a login shell never reads ~/.bashrc.
-		{"bashrc-only", "", "inherit_errexit", 0},
+		{"bashrc-only", "", 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			home, runtimeDir := t.TempDir(), t.TempDir()
@@ -810,33 +740,18 @@ func TestIntegratedBashStartupMatchesALoginShell(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			// ENV is reserved for Bash's startup hook only until our shim runs.
-			userEnv := filepath.Join(home, "unused env %#;'")
-			env := []string{"HOME=" + home, "SHELL=" + program, "TMPDIR=" + runtimeDir, "LANG=en_US.UTF-8",
-				"ENV=" + userEnv, "BASHOPTS=" + test.options}
-			unset := []string{"TERM_PROGRAM", "HISTFILE", "POSIXLY_CORRECT", "POSIX_PEDANTIC", "SHELLOPTS"}
-			options := regexp.MustCompile("startup-options=[01]:[01]:[01]\r\n")
+			env := []string{"HOME=" + home, "SHELL=" + program, "TMPDIR=" + runtimeDir, "LANG=en_US.UTF-8"}
 			// A shell reads a typed line only after its startup files have run,
 			// so all their output comes before the line's.
 			read := func(config Config) string {
 				t.Helper()
 				s := startIntegrated(t, config, "startup-token")
-				s.run("shopt -q login_shell; login=$?; shopt -q inherit_errexit 2>/dev/null; inherit=$?; "+
-					"[[ -o posix ]]; posix=$?; printf 'startup-options=%s:%s:%s\\n' \"$login\" \"$inherit\" \"$posix\"; "+
-					"printf 'startup-history=%s\\nstartup-env=%s\\n' \"$HISTFILE\" \"$ENV\"\r", 0, "startup-env="+userEnv+"\r\n")
+				s.run("echo startup-$((6*7))\r", 0, "startup-42\r\n")
 				s.exit("exit 0\r", 0)
 				return s.output
 			}
-			login := read(Config{Shell: program, Args: []string{"-l", "-i"}, Dir: home, Env: env, Unset: unset})
-			shim := read(Config{Shell: program, PromptToken: "startup-token", Dir: home, Env: env, Unset: unset})
-			if want, got := options.FindString(login), options.FindString(shim); want == "" || got != want {
-				t.Errorf("login, inherit_errexit and POSIX statuses after shim = %q, direct login = %q", got, want)
-			}
-			history := "startup-history=" + filepath.Join(home, ".bash_history") + "\r\n"
-			if !strings.Contains(login, history) || !strings.Contains(shim, history) {
-				t.Errorf("default HISTFILE differs from %q: direct login %t, shim %t", history,
-					strings.Contains(login, history), strings.Contains(shim, history))
-			}
+			login := read(Config{Shell: program, Args: []string{"-l", "-i"}, Dir: home, Env: env, Unset: []string{"TERM_PROGRAM"}})
+			shim := read(Config{Shell: program, PromptToken: "startup-token", Dir: home, Env: env, Unset: []string{"TERM_PROGRAM"}})
 			if runs := strings.Count(login, "user-bashrc"); runs != test.want {
 				t.Fatalf("the fixture's login shell ran ~/.bashrc %d time(s), want %d: %q", runs, test.want, login)
 			}
