@@ -57,6 +57,9 @@ func startBackend(config Config) (backend, error) {
 			if made, err := os.MkdirTemp(temporaryDirectory(env), "motty-shell."); err == nil {
 				program, args, runtime = "/bin/sh", integrationArgs(program, config.PromptToken, made), made
 				promptToken = config.PromptToken
+				if bash {
+					args = append(args, bashStartupOption(env))
+				}
 			}
 		}
 	}
@@ -151,6 +154,31 @@ func startBackend(config Config) (backend, error) {
 		interruptInput: interruptInput,
 		closeAtInput:   closeAtInput,
 	}, nil
+}
+
+// bashStartupOption preserves options the caller requested before the private
+// startup shim temporarily enters POSIX mode. Read the invoking environment
+// before /bin/sh can replace Bash's option variables with its own.
+func bashStartupOption(env []string) string {
+	var shellOpts, bashOpts string
+	for _, setting := range env {
+		name, value, _ := strings.Cut(setting, "=")
+		switch name {
+		case "POSIXLY_CORRECT", "POSIX_PEDANTIC":
+			return "posix"
+		case "SHELLOPTS":
+			shellOpts = value
+		case "BASHOPTS":
+			bashOpts = value
+		}
+	}
+	if strings.Contains(":"+shellOpts+":", ":posix:") {
+		return "posix"
+	}
+	if strings.Contains(":"+bashOpts+":", ":inherit_errexit:") {
+		return "inherit-errexit"
+	}
+	return ""
 }
 
 // temporaryDirectory is the TMPDIR of the environment env, the shell's, or

@@ -98,10 +98,19 @@ trap 'exit 143' TERM
 `
 	}
 	if name == "bash" {
-		script += "cat > \"$_motty_dir/bashrc\" <<'MOTTY_BASH'\n" + bashIntegration(forceTrap) + "\nMOTTY_BASH\n" +
-			`umask "$_motty_umask"
-MOTTY_SHELL_DIR=$_motty_dir ` + launch + `"$1" --rcfile "$_motty_dir/bashrc" -i
+		script += "cat > \"$_motty_dir/bashrc\" <<'MOTTY_BASH'\n" + bashIntegration(forceTrap, owned) + "\nMOTTY_BASH\n"
+		if owned {
+			script += `umask "$_motty_umask"
+if [ "${4-}" = posix ]; then exec "$1" -i; fi
+MOTTY_SHELL_DIR=$_motty_dir MOTTY_SHELL_ORIGINAL_ENV="${ENV+x}${ENV-}" \
+    MOTTY_SHELL_HAS_HISTFILE="${HISTFILE+x}" MOTTY_SHELL_STARTUP="${4-}" \
+    ENV='${MOTTY_SHELL_DIR}/bashrc' exec "$1" --login --posix -i
 `
+		} else {
+			script += `umask "$_motty_umask"
+MOTTY_SHELL_DIR=$_motty_dir "$1" --rcfile "$_motty_dir/bashrc" -i
+`
+		}
 	} else {
 		script += `cat > "$_motty_dir/.zshenv" <<'MOTTY_ENV'
 _motty_runtime=$ZDOTDIR
@@ -210,13 +219,35 @@ const promptReportFunction = `__motty_report() {
     return "$_motty_status"
 }`
 
-func bashIntegration(forceTrap bool) string {
+func bashIntegration(forceTrap, controlledClose bool) string {
 	force := "0"
 	if forceTrap {
 		force = "1"
 	}
-	return bashIntegrationHead + commandFinishedFunction + closeFunction + promptReportFunction + strings.ReplaceAll(bashIntegrationTail, "__MOTTY_FORCE__", force)
+	startup, close := "", ""
+	if controlledClose {
+		startup, close = bashLoginBootstrap, closeFunction
+	}
+	return startup + bashIntegrationHead + commandFinishedFunction + close + promptReportFunction + strings.ReplaceAll(bashIntegrationTail, "__MOTTY_FORCE__", force)
 }
+
+// Bash skips --rcfile for login shells. Its POSIX-mode ENV hook lets us load
+// the private shim before history is read, then restore normal Bash options
+// and the inherited ENV before any login profile runs. Bash initializes
+// HISTFILE even earlier, using a different default in POSIX mode.
+const bashLoginBootstrap = `builtin set +o posix
+if [[ ${MOTTY_SHELL_STARTUP-} != inherit-errexit ]]; then
+    builtin shopt -u inherit_errexit 2>/dev/null || :
+fi
+case ${MOTTY_SHELL_ORIGINAL_ENV-} in
+    x*) ENV=${MOTTY_SHELL_ORIGINAL_ENV#x} ;;
+    *) unset ENV ;;
+esac
+if [[ -z ${MOTTY_SHELL_HAS_HISTFILE-} && -n ${HISTFILE+x} ]]; then
+    HISTFILE=~/.bash_history
+fi
+unset MOTTY_SHELL_ORIGINAL_ENV MOTTY_SHELL_HAS_HISTFILE MOTTY_SHELL_STARTUP
+`
 
 const bashIntegrationHead = `_motty_runtime=$MOTTY_SHELL_DIR
 unset MOTTY_SHELL_DIR
@@ -239,15 +270,15 @@ const commandFinishedFunction = `__motty_command_finished() {
 }
 `
 
-// closeFunction asks Bash to handle SIGHUP from an interactive command, where
-// its handler forwards the signal to jobs. Only Bash can see the disown -h
-// flag on jobs that remain listed by jobs -p. Restore the default handler for
-// shutdown so a custom HUP trap cannot prevent the close from reaching jobs.
+// closeFunction enables Bash's native job hangup on login-shell exit. Normal
+// exit runs the user's EXIT trap before saving history. Bash then sends HUP
+// to its jobs using the same disown -h flags as its signal handler.
 // The Readline macro works on Bash 3.2 too. In vi command mode it first enters
 // insertion mode so Bash reads the function as command text.
 const closeFunction = `__motty_close() {
-    builtin trap - HUP
-    builtin kill -HUP "$$"
+    builtin shopt -s huponexit
+    # Bash's first exit can refuse because of stopped jobs or checkjobs.
+    builtin exit 0 || builtin exit 0
 }
 bind -m emacs '"\e[9020~":"__motty_close\n"' 2>/dev/null || :
 bind -m vi-insert '"\e[9020~":"__motty_close\n"' 2>/dev/null || :

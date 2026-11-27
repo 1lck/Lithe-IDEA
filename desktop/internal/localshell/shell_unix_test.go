@@ -261,7 +261,7 @@ func TestCloseLetsTheShellHandleHangupBeforeReleasingThePTY(t *testing.T) {
 
 func TestHangupWaitsForTheBashInputModeBeforeForcingExit(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		signals := make(chan string, 5)
+		signals := make(chan string, 6)
 		shell := resizeTestShell(backend{
 			hangup: func() { signals <- "hangup" },
 			inputReady: func() bool {
@@ -285,7 +285,7 @@ func TestHangupWaitsForTheBashInputModeBeforeForcingExit(t *testing.T) {
 		case <-time.After(killGrace + 2*promptGrace + time.Millisecond):
 			t.Fatal("the fallback did not end the shell within its original grace period")
 		}
-		for _, want := range []string{"input ready", "interrupt", "close command", "hangup", "kill"} {
+		for _, want := range []string{"input ready", "interrupt", "close command", "input ready", "hangup", "kill"} {
 			select {
 			case got := <-signals:
 				if got != want {
