@@ -324,9 +324,17 @@
   .md pre code { background: none; color: #E2E8F0; padding: 0; }
   .md blockquote { border-left: 3px solid var(--line); padding-left: 12px; color: var(--ink-2); margin: 8px 0; }
   .md img { max-width: 100%; border: 1px solid var(--line); border-radius: 6px; margin: 8px 0; display: block; }
+  /* An image links to its own file; when the file can't be fetched, the link stays as text. */
+  .md a.md-img { display: block; width: fit-content; max-width: 100%; cursor: zoom-in; }
+  .md a.md-img:hover img, .md a.md-img:focus-visible img { border-color: var(--blue); }
+  .md .img-fail { display: none; margin: 8px 0; padding: 6px 10px; border: 1px dashed var(--line); border-radius: 6px; color: var(--blue); font-size: 12.5px; cursor: pointer; }
+  .md a.md-img.fail { cursor: pointer; }
+  .md a.md-img.fail img { display: none; }
+  .md a.md-img.fail .img-fail { display: inline-block; }
   .md a.ext-link { color: var(--blue); }
   .md table { border-collapse: collapse; width: 100%; font-size: 13px; margin: 10px 0; }
-  .md th, .md td { border: 1px solid var(--line); padding: 5px 8px; text-align: left; vertical-align: top; }
+  /* break-word, not the body's anywhere: a cell's minimum width keeps whole words, so a wide image in one column can't squeeze another down to a letter or two. */
+  .md th, .md td { border: 1px solid var(--line); padding: 5px 8px; text-align: left; vertical-align: top; overflow-wrap: break-word; }
   .md th { background: #F8FAFC; }
   .md .tw { overflow-x: auto; }
   .md hr { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
@@ -699,10 +707,14 @@ function renderMarkdown(text, ctx) {
     }
     return out + v.slice(at);
   }
+  // The image loads from its own address (nothing is copied) and opens in a new tab when
+  // clicked: the file itself, or the target of a linked image. alt and url arrive escaped.
+  const image = (alt, url, href = url) => `<a class="md-img" target="_blank" rel="noopener" href="${href}" title="在新标签页打开图片"><img loading="lazy" alt="${alt}" src="${url}"><span class="img-fail">图片没有载入${alt ? `（${alt}）` : ''}，点击在新标签页打开</span></a>`;
   function inline(raw) {
     let v = esc(raw);
     v = v.replace(/`([^`\n]+)`/g, (_, c) => stash(`<code>${c}</code>`));
-    v = v.replace(/!\[([^\]]*)\]\((https:\/\/[^)\s]+)\)/g, (_, alt, url) => stash(`<img loading="lazy" alt="${alt}" src="${url}">`));
+    v = v.replace(/\[!\[([^\]]*)\]\((https:\/\/[^)\s]+)\)\]\(([^)\s]+)\)/g, (_, alt, url, href) => stash(image(alt, url, /^https?:\/\//i.test(href) ? href : url)));
+    v = v.replace(/!\[([^\]]*)\]\((https:\/\/[^)\s]+)\)/g, (_, alt, url) => stash(image(alt, url)));
     v = v.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, t, href) => stash(link(t, unesc(href))));
     v = linkRefs(v);
     v = v.replace(/https?:\/\/[^\s<\u0000]*[^\s<\u0000.,;:!?)\]）。，；：]/g, (url) => stash(`<a class="ext-link" target="_blank" rel="noopener" href="${url}">${url}</a>`));
@@ -1433,6 +1445,10 @@ function renderStatus() {
 
 /* ---------- 事件 ---------- */
 function resetPage(scope) { if (scope in S.shown) S.shown[scope] = PAGE; }
+// An image that can't be fetched (offline, blocked, deleted) shows its link as text instead of a broken icon.
+document.addEventListener('error', (e) => {
+  if (e.target instanceof HTMLImageElement) e.target.closest('a.md-img')?.classList.add('fail');
+}, true);
 document.addEventListener('click', (e) => {
   const expand = e.target.closest('[data-expand]');
   if (expand) { expand.nextElementSibling.hidden = false; expand.remove(); return; }
