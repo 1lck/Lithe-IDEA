@@ -389,10 +389,12 @@ func TestClosingAnIntegratedBashLeavesDisownedJobs(t *testing.T) {
 func TestClosingAnIntegratedBashLeavesHangupExemptJobs(t *testing.T) {
 	for _, test := range []struct {
 		name, shell, setup string
+		dropInterrupt      bool
 	}{
-		{"default HUP", "bash", ""},
-		{"ignored HUP in the shell", "bash", "trap '' HUP && "},
-		{"system Bash", "/bin/bash", ""},
+		{name: "default HUP", shell: "bash"},
+		{name: "ignored HUP in the shell", shell: "bash", setup: "trap '' HUP && "},
+		{name: "lost input interrupt", shell: "bash", setup: "trap '' HUP && ", dropInterrupt: true},
+		{name: "system Bash", shell: "/bin/bash"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			s := startHangupShell(t, test.shell, nil)
@@ -407,6 +409,19 @@ func TestClosingAnIntegratedBashLeavesHangupExemptJobs(t *testing.T) {
 			s.run("disown -h %2 && "+test.setup+"echo marked=$(jobs -p %2)\r",
 				1, "marked="+strconv.Itoa(exempt)+"\r\n")
 
+			if test.dropInterrupt {
+				// Drop the first interrupt at the PTY boundary. The close
+				// must recover even when Bash ignores an external hangup.
+				interrupt := s.shell.b.interruptInput
+				first := true
+				s.shell.b.interruptInput = func() {
+					if first {
+						first = false
+						return
+					}
+					interrupt()
+				}
+			}
 			closeAndAwaitEnd(t, s.shell)
 			awaitProcessEnd(t, ordinary)
 			assertJobSurvived(t, exempt)
