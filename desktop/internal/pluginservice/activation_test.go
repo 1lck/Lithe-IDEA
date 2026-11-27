@@ -77,7 +77,12 @@ func TestWorkspaceContextObserverReportsRelayFailureOutsideLock(t *testing.T) {
 		reported <- report{err, unlocked}
 	}
 	service.Contexts.SetObserver(service.contextsChanged)
-	service.Contexts.Open(t.TempDir())
+	path := t.TempDir()
+	t.Cleanup(func() {
+		service.Contexts.SetObserver(nil)
+		service.Contexts.Close(path)
+	})
+	service.Contexts.Open(path)
 
 	deadline, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
@@ -104,6 +109,7 @@ func TestWorkspaceContextRefreshReportsOncePerRevisionAndRetriesOnChange(t *test
 	var reports []error
 	service.ContextIssue = func(_ context.Context, err error) { reports = append(reports, err) }
 	path := t.TempDir()
+	t.Cleanup(func() { service.Contexts.Close(path) })
 	service.Contexts.Open(path)
 	service.refreshWorkspaceContexts(t.Context())
 	service.refreshWorkspaceContexts(t.Context())
