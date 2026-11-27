@@ -239,21 +239,15 @@ const commandFinishedFunction = `__motty_command_finished() {
 }
 `
 
-// closeFunction forwards a terminal close to the jobs Bash still tracks and
-// then asks Bash to end. Disowned jobs are absent from jobs -p, so the user's
-// disown contract stays with the shell rather than a terminal-wide process
-// group kill. The close key sequence is a Readline macro rather than a Bash
-// bind -x command, so Bash 3.2 (still macOS's /bin/bash) handles it too. In vi
-// command mode the macro first enters insertion mode; the other keymaps are
-// already reading command text. Closing therefore does not rely on a signal
-// reaching Bash's interactive input loop.
+// closeFunction asks Bash to handle SIGHUP from an interactive command, where
+// its handler forwards the signal to jobs. Only Bash can see the disown -h
+// flag on jobs that remain listed by jobs -p. Restore the default handler for
+// shutdown so a custom HUP trap cannot prevent the close from reaching jobs.
+// The Readline macro works on Bash 3.2 too. In vi command mode it first enters
+// insertion mode so Bash reads the function as command text.
 const closeFunction = `__motty_close() {
-    local _motty_job
-    for _motty_job in $(jobs -p); do
-        builtin kill -HUP -- "-$_motty_job" 2>/dev/null
-        builtin kill -CONT -- "-$_motty_job" 2>/dev/null
-    done
-    builtin exit 0
+    builtin trap - HUP
+    builtin kill -HUP "$$"
 }
 bind -m emacs '"\e[9020~":"__motty_close\n"' 2>/dev/null || :
 bind -m vi-insert '"\e[9020~":"__motty_close\n"' 2>/dev/null || :
