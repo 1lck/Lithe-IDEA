@@ -10719,6 +10719,7 @@
     "desktop.files.paste": "粘贴",
     "desktop.files.moveFailed": "无法移动该项目：{reason}",
     "desktop.files.crossBoundaryMove": "不支持在不同 WSL 发行版之间、或在发行版与本地文件夹之间移动或重命名",
+    "desktop.files.removalInProgress": "这些文件正在删除。请等待删除完成后再修改",
     "desktop.files.pasteFailed": "无法粘贴该项目：{reason}",
     "desktop.github.settingsTitle": "GitHub 账号",
     "desktop.github.settingsHelp": "登录后可以查看、检出和评审本仓库的 Pull Request。",

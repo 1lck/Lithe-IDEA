@@ -115,6 +115,7 @@ require_plain "core revision" "$CORE_REVISION" '^[0-9a-f]{40}$'
 require_plain "server version" "$SERVER_VERSION" '^[0-9A-Za-z][0-9A-Za-z.+-]*$'
 require_plain "rustc version" "$RUSTC_VERSION" '^[0-9A-Za-z .:()+-]+$'
 
+TARGET_ARGS=()
 for target in "${TARGETS[@]}"; do
     # The musl targets are self-contained: rust-lld links the C runtime and libunwind that come
     # with the target's standard library, and no C compiler is involved.
@@ -129,8 +130,13 @@ for target in "${TARGETS[@]}"; do
         mkdir -p "$CARGO_TARGET_DIR_BASH"
         printf '%s\n' "$CORE_DIR" > "$built_from_file"
     fi
-    cargo build --manifest-path "$MANIFEST_NATIVE" --locked --release --target "$target" \
-        -p lithe-remote --bin "$SERVER_BINARY" --no-default-features --features server >&2
+    TARGET_ARGS+=(--target "$target")
+done
+# Build both Linux musl targets in one Cargo invocation so proc-macros and build scripts run once
+# and target compilation shares CPU cores.
+cargo build --manifest-path "$MANIFEST_NATIVE" --locked --release "${TARGET_ARGS[@]}" \
+    -p lithe-remote --bin "$SERVER_BINARY" --no-default-features --features server >&2
+for target in "${TARGETS[@]}"; do
     if [[ ! -f "$CARGO_TARGET_DIR_BASH/$target/release/$SERVER_BINARY" ]]; then
         printf 'cargo did not build %s for %s.\n' "$SERVER_BINARY" "$target" >&2
         exit 1

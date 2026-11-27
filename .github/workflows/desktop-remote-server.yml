@@ -38,6 +38,16 @@ jobs:
         with:
           targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
 
+      - name: Resolve pinned Core revision
+        id: core-pin
+        run: |
+          rev="$(sed -n 's/^PINNED_CORE_REVISION="\([0-9a-f]\{40\}\)"$/\1/p' scripts/desktop/build-desktop-core.sh)"
+          if [[ -z "$rev" ]]; then
+            printf '%s\n' 'Could not read PINNED_CORE_REVISION from scripts/desktop/build-desktop-core.sh.' >&2
+            exit 1
+          fi
+          printf 'revision=%s\n' "$rev" >> "$GITHUB_OUTPUT"
+
       - name: Restore the core build
         uses: actions/cache@v6
         with:
@@ -46,7 +56,7 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             .artifacts/desktop/lithe-core-rust
-          key: remote-server-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-${{ hashFiles('scripts/desktop/build-desktop-core.sh', 'scripts/desktop/build-remote-server.sh') }}
+          key: remote-server-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-${{ steps.core-pin.outputs.revision }}-${{ hashFiles('scripts/desktop/build-remote-server.sh') }}
           restore-keys: |
             remote-server-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-
 

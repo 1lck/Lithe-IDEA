@@ -361,6 +361,9 @@ func (a *App) createTreeItem(p *project) {
 		return
 	}
 	rel := path.Join(pr.node.path, name)
+	if a.rejectRemovalWrite(p, "project_tree_create", rel) {
+		return
+	}
 	full := filepath.Join(p.root, filepath.FromSlash(rel))
 	if _, err := os.Lstat(full); err == nil {
 		pr.err = i18n.Shared(language, "desktop.files.nameExists")
@@ -410,6 +413,9 @@ func (a *App) renameTreeItem(p *project) {
 	}
 	oldRel := node.path
 	newRel := path.Join(path.Dir(oldRel), name)
+	if a.rejectRemovalWrite(p, "project_tree_rename", oldRel, newRel) {
+		return
+	}
 	oldFull := filepath.Join(p.root, filepath.FromSlash(oldRel))
 	newFull := filepath.Join(p.root, filepath.FromSlash(newRel))
 	if oldInfo, err := os.Lstat(oldFull); err == nil {
@@ -459,6 +465,12 @@ func (a *App) documentsUnder(p *project, target string) []*document {
 // failed save or a conflicting disk copy stops the action: it must not be taken on content
 // the window could not keep.
 func (a *App) saveDocumentsThen(p *project, docs []*document, then func()) {
+	a.saveDocumentsThenOrAbort(p, docs, then, func() {})
+}
+
+// saveDocumentsThenOrAbort is saveDocumentsThen with a callback for the failure path, so a caller
+// that already reserved exclusive work can release it when the writes never start.
+func (a *App) saveDocumentsThenOrAbort(p *project, docs []*document, then, abort func()) {
 	for len(docs) > 0 {
 		d := docs[0]
 		docs = docs[1:]
@@ -467,7 +479,9 @@ func (a *App) saveDocumentsThen(p *project, docs []*document, then func()) {
 		}
 		a.saveBeforeClose(p, d, func(ok bool) {
 			if ok {
-				a.saveDocumentsThen(p, docs, then)
+				a.saveDocumentsThenOrAbort(p, docs, then, abort)
+			} else {
+				abort()
 			}
 		})
 		return
