@@ -180,6 +180,9 @@
   }
   .ref:hover { border-color: var(--blue); color: var(--blue); background: var(--blue-soft); }
   .ref.out { border-style: dashed; }
+  /* A #N that goes straight to GitHub; the row or card around it still opens the drawer. */
+  a.gh { color: inherit; text-decoration: none; border-radius: 3px; }
+  a.gh:hover, a.gh:focus-visible { color: var(--blue); text-decoration: underline; text-underline-offset: 2px; }
   .ref.plain { cursor: default; color: var(--ink-3); }
   .ref.plain:hover { background: #fff; border-color: var(--line); color: var(--ink-3); }
   .ref .s { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
@@ -321,9 +324,17 @@
   .md pre code { background: none; color: #E2E8F0; padding: 0; }
   .md blockquote { border-left: 3px solid var(--line); padding-left: 12px; color: var(--ink-2); margin: 8px 0; }
   .md img { max-width: 100%; border: 1px solid var(--line); border-radius: 6px; margin: 8px 0; display: block; }
+  /* An image links to its own file; when the file can't be fetched, the link stays as text. */
+  .md a.md-img { display: block; width: fit-content; max-width: 100%; cursor: zoom-in; }
+  .md a.md-img:hover img, .md a.md-img:focus-visible img { border-color: var(--blue); }
+  .md .img-fail { display: none; margin: 8px 0; padding: 6px 10px; border: 1px dashed var(--line); border-radius: 6px; color: var(--blue); font-size: 12.5px; cursor: pointer; }
+  .md a.md-img.fail { cursor: pointer; }
+  .md a.md-img.fail img { display: none; }
+  .md a.md-img.fail .img-fail { display: inline-block; }
   .md a.ext-link { color: var(--blue); }
   .md table { border-collapse: collapse; width: 100%; font-size: 13px; margin: 10px 0; }
-  .md th, .md td { border: 1px solid var(--line); padding: 5px 8px; text-align: left; vertical-align: top; }
+  /* break-word, not the body's anywhere: a cell's minimum width keeps whole words, so a wide image in one column can't squeeze another down to a letter or two. */
+  .md th, .md td { border: 1px solid var(--line); padding: 5px 8px; text-align: left; vertical-align: top; overflow-wrap: break-word; }
   .md th { background: #F8FAFC; }
   .md .tw { overflow-x: auto; }
   .md hr { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
@@ -511,6 +522,8 @@ const repoInfo = (full) => S.repoBy.get(full) || { full, label: full, role: 'oth
 const refName = (repo, n) => (repo === primary() ? `#${n}` : `${repoInfo(repo).label} #${n}`);
 const repoTag = (repo) => (repo === primary() ? '' : `<span class="repo-tag role-${repoInfo(repo).role}" title="${esc(repo)}">${esc(repoInfo(repo).label)}</span>`);
 const ghItemUrl = (repo, n, kind) => `https://github.com/${repo}/${kind === 'pr' ? 'pull' : 'issues'}/${n}`;
+// The number of a PR or Issue links to its GitHub page in a new tab, wherever it is printed.
+const ghLink = (it, text = `#${it.n}`) => `<a class="gh" href="${esc(ghItemUrl(it.repo, it.n, it.kind))}" target="_blank" rel="noopener" title="在 GitHub 打开 ${esc(refName(it.repo, it.n))}">${esc(text)}</a>`;
 const noteUrl = (id) => `https://github.com/${primary()}/blob/main/.agents/notes/${id}`;
 const kindOf = (k) => (k.startsWith('note:') ? 'note' : S.byKey.get(k)?.kind);
 const known = (k) => (k.startsWith('note:') ? S.noteById.has(k.slice(5)) : S.byKey.has(k));
@@ -638,7 +651,7 @@ function refChip(repo, n, label) {
   const it = S.byKey.get(k);
   const text = label || refName(repo, n);
   if (!it) return `<a class="ref out" href="${esc(`https://github.com/${repo}/issues/${n}`)}" target="_blank" rel="noopener" title="不在看板里，在 GitHub 打开">${esc(text)} ↗</a>`;
-  return `<a class="ref" data-open="${esc(k)}" title="${esc(it.title)}"><span class="s ${stateOf(it).cls}"></span>${esc(text)}</a>`;
+  return `<a class="ref" data-open="${esc(k)}" href="${esc(ghItemUrl(it.repo, it.n, it.kind))}" title="${esc(it.title)}（⌘ 或 Ctrl 点击在 GitHub 打开）"><span class="s ${stateOf(it).cls}"></span>${esc(text)}</a>`;
 }
 function noteChip(id, label) {
   const n = S.noteById.get(id);
@@ -694,10 +707,14 @@ function renderMarkdown(text, ctx) {
     }
     return out + v.slice(at);
   }
+  // The image loads from its own address (nothing is copied) and opens in a new tab when
+  // clicked: the file itself, or the target of a linked image. alt and url arrive escaped.
+  const image = (alt, url, href = url) => `<a class="md-img" target="_blank" rel="noopener" href="${href}" title="在新标签页打开图片"><img loading="lazy" alt="${alt}" src="${url}"><span class="img-fail">图片没有载入${alt ? `（${alt}）` : ''}，点击在新标签页打开</span></a>`;
   function inline(raw) {
     let v = esc(raw);
     v = v.replace(/`([^`\n]+)`/g, (_, c) => stash(`<code>${c}</code>`));
-    v = v.replace(/!\[([^\]]*)\]\((https:\/\/[^)\s]+)\)/g, (_, alt, url) => stash(`<img loading="lazy" alt="${alt}" src="${url}">`));
+    v = v.replace(/\[!\[([^\]]*)\]\((https:\/\/[^)\s]+)\)\]\(([^)\s]+)\)/g, (_, alt, url, href) => stash(image(alt, url, /^https?:\/\//i.test(href) ? href : url)));
+    v = v.replace(/!\[([^\]]*)\]\((https:\/\/[^)\s]+)\)/g, (_, alt, url) => stash(image(alt, url)));
     v = v.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, t, href) => stash(link(t, unesc(href))));
     v = linkRefs(v);
     v = v.replace(/https?:\/\/[^\s<\u0000]*[^\s<\u0000.,;:!?)\]）。，；：]/g, (url) => stash(`<a class="ext-link" target="_blank" rel="noopener" href="${url}">${url}</a>`));
@@ -869,7 +886,7 @@ function groupBy(items, labelOf) {
 }
 const selKey = () => S.stack.at(-1);
 const kpiHtml = (list) => list.map(([v, l, color, kpi]) => `<div class="kpi" ${kpi != null ? `data-kpi="${esc(kpi)}"` : ''}><div class="v">${v}</div><div class="l">${esc(l)}</div>${color ? `<div class="bar" style="background:${color}"></div>` : ''}</div>`).join('');
-const numCell = (it) => `<span class="num">${repoTag(it.repo)}#${it.n}</span>`;
+const numCell = (it) => `<span class="num">${repoTag(it.repo)}${ghLink(it)}</span>`;
 function titleCell(it) {
   if (it.kind === 'pr') {
     const t = prType(it.title);
@@ -1196,7 +1213,7 @@ function nodeHtml(e, curKey) {
     return `<div class="node ${cur ? 'cur' : ''}" ${attrs}><div class="nh"><span style="color:var(--amber)">◆</span>${esc(LIFE[n.lifecycle])}${rel ? ` · ${esc(rel)}` : ''}</div><div class="nt">${esc(n.title)}</div></div>`;
   }
   const it = S.byKey.get(e.key);
-  return `<div class="node ${cur ? 'cur' : ''}" ${attrs}><div class="nh"><span class="s ${stateOf(it).cls}"></span>${esc(refName(it.repo, it.n))} · ${esc(stateOf(it).label)}${rel ? ` · ${esc(rel)}` : ''}</div><div class="nt">${esc(shortTitle(it))}</div></div>`;
+  return `<div class="node ${cur ? 'cur' : ''}" ${attrs}><div class="nh"><span class="s ${stateOf(it).cls}"></span>${ghLink(it, refName(it.repo, it.n))} · ${esc(stateOf(it).label)}${rel ? ` · ${esc(rel)}` : ''}</div><div class="nt">${esc(shortTitle(it))}</div></div>`;
 }
 function lane(title, hint, entries, curKey) {
   const LIMIT = 6;
@@ -1232,7 +1249,7 @@ function traceFor(k) {
     notes = uniq([...neighbors(k, 'note'), ...prs.filter((e) => STRONG.has(e.rel)).flatMap((p) => neighbors(p.key, 'note'))]);
   }
   return `<div class="trace">
-    <div class="trace-h"><span>关联链路</span><span>点任一项在侧栏里继续看</span></div>
+    <div class="trace-h"><span>关联链路</span><span>点编号去 GitHub，点其他位置在侧栏里继续看</span></div>
     <div class="lanes">${lane('问题', 'Issue', issues, k)}${lane('交付', 'PR', prs, k)}${lane('决策', 'Note', notes, k)}</div>
   </div>`;
 }
@@ -1267,7 +1284,7 @@ function renderItemDrawer(it) {
   const itag = it.kind === 'issue' ? issueTag(it.title) : null;
   const who = `${esc(it.author)}${isExternal(it) ? '（外部贡献）' : ''}${it.bot ? '（机器人）' : ''}`;
   const when = it.merged ? `合入 ${fmtDate(it.merged)}` : it.closed ? `关闭 ${fmtDate(it.closed)}` : `更新 ${fmtDate(it.updated)}`;
-  const meta = [esc(refName(it.repo, it.n)), who, `创建 ${fmtDate(it.created)}`, when,
+  const meta = [ghLink(it, refName(it.repo, it.n)), who, `创建 ${fmtDate(it.created)}`, when,
     it.kind === 'pr' && it.head ? `${esc(it.head)} → ${esc(it.base)}` : '', `${it.comments} 条评论`];
   const sigs = it.state === 'OPEN' ? signals(it) : [];
   $('d-body').innerHTML = `
@@ -1286,7 +1303,13 @@ function renderItemDrawer(it) {
     if (selKey() !== k) return;
     $('d-content').innerHTML = it.kind === 'pr' ? renderPrBody(it, body) : renderIssueBody(it, body);
   }).catch((err) => {
-    if (selKey() === k) $('d-content').innerHTML = `<div class="loading">正文载入失败：${esc(err.message)}</div>`;
+    if (selKey() !== k) return;
+    // fetch() rejects with a TypeError only when nothing answered: in live mode the local server
+    // has usually been stopped, and the browser's own message ("Failed to fetch") says nothing.
+    const why = !(err instanceof TypeError) ? err.message
+      : MODE === 'live' ? '连不上本地服务，它可能已经停止。重新运行 serve-agent-notes-board.mjs 后刷新页面。'
+        : '网络请求没有得到响应，刷新页面再试。';
+    $('d-content').innerHTML = `<div class="loading">正文载入失败：${esc(why)}</div>`;
   });
 }
 
@@ -1380,7 +1403,7 @@ function search(q) {
   items = [...new Set([...exact, ...items])];
   const notes = num ? [] : S.idx.notes.filter((n) => `${n.title} ${n.slug} ${n.problem} ${n.decision} ${n.alternatives}`.toLowerCase().includes(lower));
   const group = (label, arr, fn) => (arr.length ? `<div class="pop-group">${label} · ${arr.length}</div>${arr.slice(0, 8).map(fn).join('')}` : '');
-  const itemRow = (it) => `<div class="pop-item" data-open="${esc(it.k)}">${stateIcon(it)}<span class="t">${esc(it.title)}</span><span class="num">${esc(refName(it.repo, it.n))}</span></div>`;
+  const itemRow = (it) => `<div class="pop-item" data-open="${esc(it.k)}">${stateIcon(it)}<span class="t">${esc(it.title)}</span><span class="num">${ghLink(it, refName(it.repo, it.n))}</span></div>`;
   pop.innerHTML = (group('PR', items.filter((i) => i.kind === 'pr'), itemRow)
     + group('Issue', items.filter((i) => i.kind === 'issue'), itemRow)
     + group('决策', notes, (n) => `<div class="pop-item" data-open="note:${esc(n.id)}"><span style="color:var(--amber)">◆</span><span class="t">${esc(n.title)}</span><span class="num">${esc(LIFE[n.lifecycle])}</span></div>`)
@@ -1422,6 +1445,10 @@ function renderStatus() {
 
 /* ---------- 事件 ---------- */
 function resetPage(scope) { if (scope in S.shown) S.shown[scope] = PAGE; }
+// An image that can't be fetched (offline, blocked, deleted) shows its link as text instead of a broken icon.
+document.addEventListener('error', (e) => {
+  if (e.target instanceof HTMLImageElement) e.target.closest('a.md-img')?.classList.add('fail');
+}, true);
 document.addEventListener('click', (e) => {
   const expand = e.target.closest('[data-expand]');
   if (expand) { expand.nextElementSibling.hidden = false; expand.remove(); return; }
@@ -1469,6 +1496,10 @@ document.addEventListener('click', (e) => {
   }
   const crumb = e.target.closest('[data-crumb]');
   if (crumb) { S.stack = S.stack.slice(0, +crumb.dataset.crumb + 1); renderDrawer(); return; }
+  // A link to GitHub navigates by itself, even inside a row or card that opens the drawer. A
+  // reference chip opens the drawer on a plain click and GitHub with ⌘, Ctrl or Shift held.
+  const link = e.target.closest('a[href]');
+  if (link && (!link.dataset.open || e.metaKey || e.ctrlKey || e.shiftKey)) { $('pop').classList.remove('open'); return; }
   const o = e.target.closest('[data-open]');
   if (o) {
     e.preventDefault();
