@@ -40,13 +40,7 @@ jobs:
 
       - name: Resolve pinned Core revision
         id: core-pin
-        run: |
-          rev="$(sed -n 's/^PINNED_CORE_REVISION="\([0-9a-f]\{40\}\)"$/\1/p' scripts/desktop/build-desktop-core.sh)"
-          if [[ -z "$rev" ]]; then
-            printf '%s\n' 'Could not read PINNED_CORE_REVISION from scripts/desktop/build-desktop-core.sh.' >&2
-            exit 1
-          fi
-          printf 'revision=%s\n' "$rev" >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/resolve-desktop-core-pin
 
       - name: Restore the core build
         uses: actions/cache@v6
