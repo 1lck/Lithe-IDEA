@@ -85,7 +85,9 @@ func TestIDEAPIEnableRequiresHelper(t *testing.T) {
 // TestIDEAPIPolledToolCall uses the stdio configuration a user copies from Settings.
 // An actual reply exercises poll ownership in the pinned Core, which discovery alone misses.
 func TestIDEAPIPolledToolCall(t *testing.T) {
-	app, p, _ := newIDEAPIApp(t)
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	p, _ := ideAPIProject(t, h)
+	app := h.app
 	helper, err := app.ideAPIHelperPath()
 	if err != nil {
 		t.Fatalf("locate the staged helper (run with desktop-go.sh): %v", err)
@@ -94,14 +96,7 @@ func TestIDEAPIPolledToolCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		app.ideAPIDisable(p)
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cancel()
-		if err := app.tasks.running.WaitContext(ctx); err != nil {
-			t.Errorf("closing IDE connection: %v", err)
-		}
-	})
+	t.Cleanup(func() { app.ideAPIDisable(p) })
 	var config struct {
 		Servers map[string]struct {
 			Command string   `json:"command"`
@@ -146,7 +141,9 @@ func TestIDEAPIPolledToolCall(t *testing.T) {
 			Result json.RawMessage
 			Error  json.RawMessage
 		}
-		if err := out.Decode(&reply); err != nil {
+		decoded := make(chan error, 1)
+		go func() { decoded <- out.Decode(&reply) }()
+		if err := awaitValueWithin(t, h, 10*time.Second, decoded, method+" reply"); err != nil {
 			t.Fatalf("%s reply: %v (session: %v)", method, err, ctx.Err())
 		}
 		if reply.ID != id || len(reply.Result) == 0 {
@@ -171,6 +168,7 @@ func TestIDEAPIPolledToolCall(t *testing.T) {
 		{"lithe_build_configure", map[string]any{"instanceID": "i", "optionID": "o", "value": nil}, "PERMISSION_DENIED"},
 		{"lithe_operation_output", map[string]any{}, "INVALID_ARGUMENTS"},
 		{"unknown", map[string]any{}, "NOT_SUPPORTED"},
+		{"lithe_operations_list", map[string]any{}, ""},
 		{"lithe_project_inspect", map[string]any{}, ""},
 	} {
 		raw := request("tools/call", map[string]any{"name": tc.tool, "arguments": tc.args})
@@ -178,6 +176,7 @@ func TestIDEAPIPolledToolCall(t *testing.T) {
 			IsError           bool
 			StructuredContent struct {
 				WorkspaceKey string
+				Operations   []json.RawMessage
 				Error        core.IDEFailure
 			}
 		}
@@ -185,7 +184,8 @@ func TestIDEAPIPolledToolCall(t *testing.T) {
 			t.Fatal(err)
 		}
 		if result.IsError != (tc.code != "") || result.StructuredContent.Error.Code != tc.code ||
-			(tc.code == "" && !winpath.Equal(result.StructuredContent.WorkspaceKey, p.root)) {
+			(tc.tool == "lithe_project_inspect" && !winpath.Equal(result.StructuredContent.WorkspaceKey, p.root)) ||
+			(tc.tool == "lithe_operations_list" && (result.StructuredContent.Operations == nil || len(result.StructuredContent.Operations) != 0)) {
 			t.Fatalf("%s returned %s", tc.tool, raw)
 		}
 	}
