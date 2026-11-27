@@ -392,7 +392,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # Lithe-core-rust main at d069224d (#210): extends workspace directory rules with built-in
 # test/generated roles, user-defined custom folder types, custom SVG icons, quick color
 # overrides, and workspace.resolveDirectoryPresentation.
-PINNED_CORE_REVISION="d069224ded5b3845798f264f55913703d7a197c2"
+PINNED_CORE_REVISION="a71f9e3b6462e50ec865c50c24063595e0faafeb"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

@@ -82,6 +82,20 @@ type StatusUpdate struct {
 	Remove                                 bool
 }
 
+// DirectoryTypesUpdate replaces or removes one plugin session's contributed directory types.
+type DirectoryTypesUpdate struct {
+	ID, PluginID string
+	Types        []core.PluginDirectoryType
+	Remove       bool
+}
+
+// DirectoryMarksUpdate replaces or removes one plugin session's dynamic directory marks.
+type DirectoryMarksUpdate struct {
+	ID, PluginID string
+	Marks        []core.PluginDirectoryMark
+	Remove       bool
+}
+
 // PluginWorkflow exposes Core projections to the native view surfaces.
 func (s *Service) PluginWorkflow(ctx context.Context, request, result any) error {
 	kernel, ok := s.kernel.(workflowKernel)
@@ -100,6 +114,8 @@ type WorkflowHost interface {
 	UpdateOutput(context.Context, string, OutputUpdate) error
 	UpdateProgress(context.Context, string, ProgressUpdate) error
 	UpdateStatus(context.Context, string, StatusUpdate) error
+	UpdateDirectoryTypes(context.Context, string, DirectoryTypesUpdate) error
+	UpdateDirectoryMarks(context.Context, string, DirectoryMarksUpdate) error
 	ReadClipboard(context.Context) (string, error)
 	WriteClipboard(context.Context, string) error
 	RevealResource(context.Context, string) error
@@ -142,7 +158,7 @@ type workflowResources struct {
 
 func (s *Service) registerWorkflows(host WorkflowHost, kernel workflowKernel) error {
 	s.workflow = &workflowResources{byID: map[string]*workflowResource{}}
-	methods := []string{"window/showQuickPick", "window/showInputBox", "preview/openMarkdown", "preview/openHTML", "editor/showDiff", "views/refresh", "output/create", "output/append", "output/clear", "output/show", "output/dispose", "progress/create", "progress/report", "progress/end", "statusBar/setItem", "statusBar/removeItem", "clipboard/readText", "clipboard/writeText", "workspace/reveal", "network/request"}
+	methods := []string{"window/showQuickPick", "window/showInputBox", "preview/openMarkdown", "preview/openHTML", "editor/showDiff", "views/refresh", "output/create", "output/append", "output/clear", "output/show", "output/dispose", "progress/create", "progress/report", "progress/end", "statusBar/setItem", "statusBar/removeItem", "clipboard/readText", "clipboard/writeText", "workspace/reveal", "workspace/setDirectoryTypes", "workspace/setDirectoryMarks", "network/request"}
 	for _, method := range methods {
 		name := method
 		handler := func(ctx context.Context, params json.RawMessage) (json.RawMessage, *pluginhost.Failure) {
@@ -160,39 +176,41 @@ func (s *Service) registerWorkflows(host WorkflowHost, kernel workflowKernel) er
 }
 
 type workflowParams struct {
-	Context              ContextRef        `json:"context"`
-	Title                string            `json:"title"`
-	Prompt               string            `json:"prompt"`
-	Placeholder          string            `json:"placeholder"`
-	Value                string            `json:"value"`
-	Password             bool              `json:"password"`
-	CanPickMany          bool              `json:"canPickMany"`
-	Items                []QuickItem       `json:"items"`
-	Resource             *Resource         `json:"resource"`
-	Text                 string            `json:"text"`
-	ID                   string            `json:"id"`
-	Presentation         string            `json:"presentation"`
-	Range                *Range            `json:"range"`
-	Original             string            `json:"original"`
-	Modified             string            `json:"modified"`
-	OriginalTitle        string            `json:"originalTitle"`
-	ModifiedTitle        string            `json:"modifiedTitle"`
-	Instance             string            `json:"instance"`
-	Name                 string            `json:"name"`
-	ChannelID            string            `json:"channelID"`
-	ProgressID           string            `json:"progressID"`
-	Cancellable          bool              `json:"cancellable"`
-	Message              *string           `json:"message"`
-	Percentage           *float64          `json:"percentage"`
-	Tooltip              string            `json:"tooltip"`
-	CommandID            string            `json:"commandID"`
-	Priority             int               `json:"priority"`
-	URL                  string            `json:"url"`
-	Method               string            `json:"method"`
-	Headers              map[string]string `json:"headers"`
-	Body                 string            `json:"body"`
-	TimeoutMilliseconds  int               `json:"timeoutMilliseconds"`
-	MaximumResponseBytes int               `json:"maximumResponseBytes"`
+	Context              ContextRef                 `json:"context"`
+	Title                string                     `json:"title"`
+	Prompt               string                     `json:"prompt"`
+	Placeholder          string                     `json:"placeholder"`
+	Value                string                     `json:"value"`
+	Password             bool                       `json:"password"`
+	CanPickMany          bool                       `json:"canPickMany"`
+	Items                []QuickItem                `json:"items"`
+	Resource             *Resource                  `json:"resource"`
+	Text                 string                     `json:"text"`
+	ID                   string                     `json:"id"`
+	Presentation         string                     `json:"presentation"`
+	Range                *Range                     `json:"range"`
+	Original             string                     `json:"original"`
+	Modified             string                     `json:"modified"`
+	OriginalTitle        string                     `json:"originalTitle"`
+	ModifiedTitle        string                     `json:"modifiedTitle"`
+	Instance             string                     `json:"instance"`
+	Name                 string                     `json:"name"`
+	ChannelID            string                     `json:"channelID"`
+	ProgressID           string                     `json:"progressID"`
+	Cancellable          bool                       `json:"cancellable"`
+	Message              *string                    `json:"message"`
+	Percentage           *float64                   `json:"percentage"`
+	Tooltip              string                     `json:"tooltip"`
+	CommandID            string                     `json:"commandID"`
+	Priority             int                        `json:"priority"`
+	URL                  string                     `json:"url"`
+	Method               string                     `json:"method"`
+	Headers              map[string]string          `json:"headers"`
+	Body                 string                     `json:"body"`
+	TimeoutMilliseconds  int                        `json:"timeoutMilliseconds"`
+	MaximumResponseBytes int                        `json:"maximumResponseBytes"`
+	Types                []core.PluginDirectoryType `json:"types"`
+	Marks                []core.PluginDirectoryMark `json:"marks"`
 }
 
 func (s *Service) handleWorkflow(ctx context.Context, host WorkflowHost, kernel workflowKernel, method string, raw json.RawMessage) (json.RawMessage, *pluginhost.Failure) {
@@ -409,17 +427,25 @@ func httpFailureReason(err error) string {
 
 func (s *Service) workflowResourceRequest(ctx context.Context, host WorkflowHost, kernel workflowKernel, caller pluginhost.Caller, workspace WorkspaceContext, p workflowParams, method string, limit int) (json.RawMessage, *pluginhost.Failure) {
 	kind, _, _ := strings.Cut(method, "/")
+	if method == "workspace/setDirectoryTypes" {
+		kind = "directoryTypes"
+	} else if method == "workspace/setDirectoryMarks" {
+		kind = "directoryMarks"
+	}
 	if kind == "statusBar" {
 		s.workflow.statusMu.Lock()
 		defer s.workflow.statusMu.Unlock()
 	}
-	creating := method == "output/create" || method == "progress/create" || method == "statusBar/setItem"
+	creating := method == "output/create" || method == "progress/create" || method == "statusBar/setItem" || method == "workspace/setDirectoryTypes" || method == "workspace/setDirectoryMarks"
 	id := p.ChannelID
 	if kind == "progress" {
 		id = p.ProgressID
 	}
 	if kind == "statusBar" {
 		id = caller.SessionID + ":" + workspace.ContextID + ":" + p.ID
+	}
+	if kind == "directoryTypes" || kind == "directoryMarks" {
+		id = caller.SessionID + ":" + workspace.ContextID + ":" + kind
 	}
 	s.workflow.mu.Lock()
 	r := s.workflow.byID[id]
@@ -438,7 +464,7 @@ func (s *Service) workflowResourceRequest(ctx context.Context, host WorkflowHost
 			s.workflow.mu.Unlock()
 			return nil, failure(CodeLimitExceeded, "Too many workflow resources.")
 		}
-		if kind != "statusBar" {
+		if kind != "statusBar" && kind != "directoryTypes" && kind != "directoryMarks" {
 			id = r.lease
 		}
 		r.id = id
@@ -551,6 +577,30 @@ func (s *Service) workflowResourceRequest(ctx context.Context, host WorkflowHost
 			r.priority = p.Priority
 			s.workflow.mu.Unlock()
 		}
+	case "workspace/setDirectoryTypes":
+		types := make([]core.PluginDirectoryType, len(p.Types))
+		for i, item := range p.Types {
+			item.PluginID = caller.PluginID
+			types[i] = item
+		}
+		err = host.UpdateDirectoryTypes(ctx, r.root, DirectoryTypesUpdate{
+			ID:       id,
+			PluginID: caller.PluginID,
+			Types:    types,
+			Remove:   len(types) == 0,
+		})
+	case "workspace/setDirectoryMarks":
+		marks := make([]core.PluginDirectoryMark, len(p.Marks))
+		for i, item := range p.Marks {
+			item.PluginID = caller.PluginID
+			marks[i] = item
+		}
+		err = host.UpdateDirectoryMarks(ctx, r.root, DirectoryMarksUpdate{
+			ID:       id,
+			PluginID: caller.PluginID,
+			Marks:    marks,
+			Remove:   len(marks) == 0,
+		})
 	case "output/dispose", "progress/end", "statusBar/removeItem":
 		err = s.removeWorkflowUI(ctx, host, r)
 		if err == nil {
@@ -575,6 +625,10 @@ func (s *Service) workflowResourceRequest(ctx context.Context, host WorkflowHost
 			return marshalResult(map[string]string{"channelID": id})
 		case "progress":
 			return marshalResult(map[string]string{"progressID": id, "subscriptionID": r.lease})
+		case "directoryTypes":
+			return marshalResult(map[string]int{"count": len(p.Types)})
+		case "directoryMarks":
+			return marshalResult(map[string]int{"count": len(p.Marks)})
 		default:
 			return marshalResult(map[string]string{"id": p.ID})
 		}
@@ -594,6 +648,10 @@ func (s *Service) removeWorkflowUI(ctx context.Context, host WorkflowHost, r *wo
 		return host.UpdateOutput(ctx, r.root, OutputUpdate{ID: r.id, Action: "dispose"})
 	case "progress":
 		return host.UpdateProgress(ctx, r.root, ProgressUpdate{ID: r.id, Remove: true})
+	case "directoryTypes":
+		return host.UpdateDirectoryTypes(ctx, r.root, DirectoryTypesUpdate{ID: r.id, Remove: true})
+	case "directoryMarks":
+		return host.UpdateDirectoryMarks(ctx, r.root, DirectoryMarksUpdate{ID: r.id, Remove: true})
 	default:
 		return host.UpdateStatus(ctx, r.root, StatusUpdate{ID: r.id, Remove: true})
 	}

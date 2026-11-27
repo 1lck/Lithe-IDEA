@@ -63,7 +63,7 @@ func TestDirectoryMetadataEndToEndWithCore(t *testing.T) {
 	}
 
 	// 3. Resolve presentation including inheritance and Git ignores.
-	res, err := client.ResolveDirectoryPresentation(ctx, rules, nil, []string{"target"}, false, []string{
+	res, err := client.ResolveDirectoryPresentation(ctx, rules, nil, nil, nil, []string{"target"}, false, []string{
 		"src/orders",
 		"src/orders/Order.java",
 		"src/test",
@@ -193,7 +193,7 @@ func TestDirectoryEffectiveIndexingPrecedenceAndGlobs(t *testing.T) {
 		t.Fatalf("upsert custom.legacy: %v", err)
 	}
 
-	policy := resolveEffectiveIndexingPolicy(ctx, client, root, local, shared, false)
+	policy := resolveEffectiveIndexingPolicy(ctx, client, root, local, shared, nil, nil, false)
 	if slices.Contains(policy.ManualExcludedDirectories, "src/api") {
 		t.Fatalf("local sources mark must override shared exclusion, got %v", policy.ManualExcludedDirectories)
 	}
@@ -358,5 +358,74 @@ func TestDirectoryRelocateRulesWithCore(t *testing.T) {
 	afterDel := core.ParseDirectoryRules(deleted)
 	if len(afterDel.Marks) != 0 || len(afterDel.Colors) != 0 {
 		t.Fatalf("expected marks and colors dropped after delete, got %+v", afterDel)
+	}
+}
+
+func TestDirectoryPluginTypesAndMarksEndToEnd(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	client := core.NewClient()
+	root := t.TempDir()
+	for _, dir := range []string{"db/migrations", "vendor/cache", "manual-override"} {
+		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(dir)), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+
+	pluginTypes := []core.PluginDirectoryType{
+		{
+			PluginID: "com.example.sql",
+			ID:       "plugin.migrations",
+			Name:     "SQL Migrations",
+			Tag:      "migrations",
+			Icon:     "database",
+			Color:    "#0d9488",
+		},
+		{
+			PluginID:        "com.example.cache",
+			ID:              "plugin.cache",
+			Name:            "Cache",
+			Tag:             "cache",
+			Icon:            "archive",
+			Color:           "#64748b",
+			ExcludeIndexing: true,
+			MatchGlob:       "vendor/**",
+		},
+	}
+	pluginMarks := []core.PluginDirectoryMark{
+		{PluginID: "com.example.sql", Path: "db/migrations", Role: "plugin.migrations"},
+		{PluginID: "com.example.cache", Path: "manual-override", Role: "excluded"},
+	}
+
+	// Local user override beats plugin exclusion.
+	rules := core.EmptyDirectoryRules()
+	var err error
+	_, rules, err = client.SetDirectoryRole(ctx, "manual-override", "sources", false, rules)
+	if err != nil {
+		t.Fatalf("SetDirectoryRole: %v", err)
+	}
+
+	res, err := client.ResolveDirectoryPresentation(ctx, rules, nil, pluginTypes, pluginMarks, nil, false, []string{
+		"db/migrations",
+		"vendor/cache",
+		"manual-override",
+	})
+	if err != nil {
+		t.Fatalf("ResolveDirectoryPresentation: %v", err)
+	}
+	if got := res.Entries["db/migrations"]; got.Role != "plugin.migrations" || got.Source != "plugin" || got.PluginID != "com.example.sql" || got.Tag != "migrations" {
+		t.Fatalf("unexpected plugin mark entry: %+v", got)
+	}
+	if got := res.Entries["manual-override"]; got.Role != "sources" || got.Source != "user" || got.Excluded {
+		t.Fatalf("user override must beat plugin exclusion: %+v", got)
+	}
+
+	policy := resolveEffectiveIndexingPolicy(ctx, client, root, rules, nil, pluginTypes, pluginMarks, false)
+	if !slices.Contains(policy.ManualExcludedDirectories, "vendor/cache") {
+		t.Fatalf("expected plugin glob exclusion vendor/cache in indexing policy, got %v", policy.ManualExcludedDirectories)
+	}
+	if slices.Contains(policy.ManualExcludedDirectories, "manual-override") {
+		t.Fatalf("expected user override to keep manual-override indexed, got %v", policy.ManualExcludedDirectories)
 	}
 }

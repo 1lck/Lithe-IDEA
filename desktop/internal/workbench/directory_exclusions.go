@@ -72,6 +72,8 @@ type projectIndexing struct {
 	status              core.IndexingStatus
 	presentation        map[string]core.ResolvedDirectoryEntry
 	customIconCache     map[string]gfx.Icon
+	pluginTypesByKey    map[string][]core.PluginDirectoryType
+	pluginMarksByKey    map[string][]core.PluginDirectoryMark
 	// generation rejects an installation a newer one replaced; presGeneration does the same for presentation.
 	generation     uint64
 	presGeneration uint64
@@ -96,7 +98,7 @@ type directoryMetaKernel interface {
 	UpsertCustomDirectoryIcon(ctx context.Context, dirIcon core.CustomDirectoryIcon, rules json.RawMessage) (bool, json.RawMessage, error)
 	DeleteCustomDirectoryIcon(ctx context.Context, id string, rules json.RawMessage) (bool, json.RawMessage, error)
 	RelocateDirectoryRules(ctx context.Context, source, destination string, caseInsensitive bool, rules json.RawMessage) (json.RawMessage, error)
-	ResolveDirectoryPresentation(ctx context.Context, rules, sharedRules json.RawMessage, gitExcluded []string, caseInsensitive bool, paths []string) (core.DirectoryPresentationResult, error)
+	ResolveDirectoryPresentation(ctx context.Context, rules, sharedRules json.RawMessage, pluginTypes []core.PluginDirectoryType, pluginMarks []core.PluginDirectoryMark, gitExcluded []string, caseInsensitive bool, paths []string) (core.DirectoryPresentationResult, error)
 }
 
 // directoryColorSwatch is one preset color offered in the quick color menu and settings.
@@ -136,6 +138,8 @@ func (a *App) installIndexing(p *project, refresh bool) {
 	loaded, rules, gitIgnore := ix.loaded, ix.rules, ix.gitIgnore
 	sharedEnabled, sharedPath, sharedRules := ix.sharedConfigEnabled, ix.sharedConfigPath, ix.sharedRules
 	hideBgTint, hideTags, seeded := ix.hideBgTint, ix.hideTags, ix.customTypesSeeded
+	pluginTypes := p.pluginDirectoryTypes()
+	pluginMarks := p.pluginDirectoryMarks()
 	lang := a.language()
 	a.background(p, kernelCallTimeout, func(ctx context.Context) func(*App) {
 		var readFailure error
@@ -186,7 +190,7 @@ func (a *App) installIndexing(p *project, refresh bool) {
 		if sharedEnabled && len(sharedRules) > 0 {
 			effectiveShared = sharedRules
 		}
-		policy := resolveEffectiveIndexingPolicy(ctx, a.kernel, root, rules, effectiveShared, gitIgnore)
+		policy := resolveEffectiveIndexingPolicy(ctx, a.kernel, root, rules, effectiveShared, pluginTypes, pluginMarks, gitIgnore)
 		status, err := kernel.ConfigureIndexing(ctx, root, owner, policy, refresh)
 		return func(a *App) {
 			if ix.generation != generation {
@@ -250,8 +254,10 @@ func (a *App) refreshDirectoryPresentation(p *project) {
 	if ix.sharedConfigEnabled {
 		shared = ix.sharedRules
 	}
+	pluginTypes := p.pluginDirectoryTypes()
+	pluginMarks := p.pluginDirectoryMarks()
 	a.background(p, kernelCallTimeout, func(ctx context.Context) func(*App) {
-		res, err := meta.ResolveDirectoryPresentation(ctx, rules, shared, gitExcluded, false, paths)
+		res, err := meta.ResolveDirectoryPresentation(ctx, rules, shared, pluginTypes, pluginMarks, gitExcluded, false, paths)
 		return func(a *App) {
 			if ix.presGeneration != gen {
 				return
@@ -321,9 +327,45 @@ func directoryRulesFingerprint(storeDir, root string) (string, error) {
 
 const maxGlobWalkDirs = 50_000
 
-// hasExcludingGlob reports whether any custom directory type in rules or sharedRules
-// combines excludeIndexing with a non-empty matchGlob pattern.
-func hasExcludingGlob(rules, sharedRules json.RawMessage) bool {
+// pluginDirectoryTypes returns all active plugin-contributed directory types for p in deterministic order.
+func (p *project) pluginDirectoryTypes() []core.PluginDirectoryType {
+	if p == nil || len(p.indexing.pluginTypesByKey) == 0 {
+		return nil
+	}
+	var out []core.PluginDirectoryType
+	for _, list := range p.indexing.pluginTypesByKey {
+		out = append(out, list...)
+	}
+	slices.SortFunc(out, func(a, b core.PluginDirectoryType) int {
+		if c := strings.Compare(a.PluginID, b.PluginID); c != 0 {
+			return c
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	return out
+}
+
+// pluginDirectoryMarks returns all active plugin-contributed directory marks for p in deterministic order.
+func (p *project) pluginDirectoryMarks() []core.PluginDirectoryMark {
+	if p == nil || len(p.indexing.pluginMarksByKey) == 0 {
+		return nil
+	}
+	var out []core.PluginDirectoryMark
+	for _, list := range p.indexing.pluginMarksByKey {
+		out = append(out, list...)
+	}
+	slices.SortFunc(out, func(a, b core.PluginDirectoryMark) int {
+		if c := strings.Compare(a.PluginID, b.PluginID); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Path, b.Path)
+	})
+	return out
+}
+
+// hasExcludingGlob reports whether any custom or plugin directory type combines
+// excludeIndexing with a non-empty matchGlob pattern.
+func hasExcludingGlob(rules, sharedRules json.RawMessage, pluginTypes []core.PluginDirectoryType) bool {
 	for _, raw := range []json.RawMessage{rules, sharedRules} {
 		if len(raw) == 0 {
 			continue
@@ -332,6 +374,11 @@ func hasExcludingGlob(rules, sharedRules json.RawMessage) bool {
 			if ct.ExcludeIndexing && strings.TrimSpace(ct.MatchGlob) != "" {
 				return true
 			}
+		}
+	}
+	for _, pt := range pluginTypes {
+		if pt.ExcludeIndexing && strings.TrimSpace(pt.MatchGlob) != "" {
+			return true
 		}
 	}
 	return false
@@ -377,19 +424,19 @@ func walkWorkspaceDirs(root string) []string {
 }
 
 // resolveEffectiveIndexingPolicy asks Core for effective manual exclusions (honoring
-// user > shared > glob precedence and includedDirectories) and falls back to IndexingPolicyOf
-// when the kernel does not implement directoryMetaKernel.
-func resolveEffectiveIndexingPolicy(ctx context.Context, k any, root string, rules, sharedRules json.RawMessage, gitIgnore bool) core.IndexingPolicy {
+// user > shared > plugin > glob precedence and includedDirectories) and falls back to
+// IndexingPolicyOf when the kernel does not implement directoryMetaKernel.
+func resolveEffectiveIndexingPolicy(ctx context.Context, k any, root string, rules, sharedRules json.RawMessage, pluginTypes []core.PluginDirectoryType, pluginMarks []core.PluginDirectoryMark, gitIgnore bool) core.IndexingPolicy {
 	policy := core.IndexingPolicyOf(rules, gitIgnore)
 	meta, ok := k.(directoryMetaKernel)
 	if !ok {
 		return policy
 	}
 	var globCandidates []string
-	if hasExcludingGlob(rules, sharedRules) {
+	if hasExcludingGlob(rules, sharedRules, pluginTypes) {
 		globCandidates = walkWorkspaceDirs(root)
 	}
-	res, err := meta.ResolveDirectoryPresentation(ctx, rules, sharedRules, nil, false, globCandidates)
+	res, err := meta.ResolveDirectoryPresentation(ctx, rules, sharedRules, pluginTypes, pluginMarks, nil, false, globCandidates)
 	if err != nil {
 		return policy
 	}
