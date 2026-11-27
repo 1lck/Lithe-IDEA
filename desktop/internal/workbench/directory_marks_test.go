@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 )
@@ -572,10 +573,8 @@ func TestFolderCreatedAfterPolicyAsksOnceForGlobExclusion(t *testing.T) {
 	if pluginErr != nil || err != nil {
 		t.Fatalf("resolveEffectiveIndexingPolicy: pluginErr=%v err=%v", pluginErr, err)
 	}
-	ix := &projectIndexing{policyExcluded: map[string]struct{}{}}
-	for _, dir := range policy.ManualExcludedDirectories {
-		ix.policyExcluded[dir] = struct{}{}
-	}
+	ix := &projectIndexing{}
+	ix.installed(policy.ManualExcludedDirectories)
 	if _, ok := ix.policyExcluded["vendor/old"]; !ok {
 		t.Fatalf("walk at install must exclude vendor/old, got %v", policy.ManualExcludedDirectories)
 	}
@@ -605,5 +604,99 @@ func TestFolderCreatedAfterPolicyAsksOnceForGlobExclusion(t *testing.T) {
 	}
 	if (&projectIndexing{}).staleGlobExclusions(res.Entries) {
 		t.Fatal("before any policy is installed nothing is stale")
+	}
+
+	// vendor/new now exists; renamed to vendor/b and back, each name must reach the policy.
+	presented := func(rows ...string) map[string]core.ResolvedDirectoryEntry {
+		t.Helper()
+		res, err := client.ResolveDirectoryPresentation(ctx, rules, nil, pluginTypes, nil, nil, false, rows)
+		if err != nil {
+			t.Fatalf("ResolveDirectoryPresentation: %v", err)
+		}
+		return res.Entries
+	}
+	install := func() {
+		t.Helper()
+		policy, pluginErr, err := resolveEffectiveIndexingPolicy(ctx, client, root, rules, nil, pluginTypes, nil, false)
+		if pluginErr != nil || err != nil {
+			t.Fatalf("resolveEffectiveIndexingPolicy: pluginErr=%v err=%v", pluginErr, err)
+		}
+		ix.installed(policy.ManualExcludedDirectories)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "vendor", "new"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	install()
+	if ix.staleGlobExclusions(presented("vendor", "vendor/old", "vendor/new")) {
+		t.Fatal("a folder the new policy covers must not ask again")
+	}
+	if err := os.Rename(filepath.Join(root, "vendor", "new"), filepath.Join(root, "vendor", "b")); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if !ix.staleGlobExclusions(presented("vendor", "vendor/old", "vendor/b")) {
+		t.Fatal("the renamed folder must ask for a new policy")
+	}
+	install()
+	if err := os.Rename(filepath.Join(root, "vendor", "b"), filepath.Join(root, "vendor", "new")); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if !ix.staleGlobExclusions(presented("vendor", "vendor/old", "vendor/new")) {
+		t.Fatal("renamed back after a policy covered it, the folder must ask again")
+	}
+	install()
+
+	// A shown folder no walk finds (gone again before the policy was installed) asks once and,
+	// still uncovered after the installation, must not keep installing policies.
+	if !ix.staleGlobExclusions(presented("vendor", "vendor/gone")) {
+		t.Fatal("a new glob-matched folder must ask for a new policy")
+	}
+	install()
+	if ix.staleGlobExclusions(presented("vendor", "vendor/gone")) {
+		t.Fatal("a folder the installed policy still does not cover must not ask again")
+	}
+}
+
+// A plugin can install a new indexing policy at any moment. The search the user typed must
+// survive it and run again under the new exclusions.
+func TestPluginExclusionRerunsTheSearchAndKeepsItsForm(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.app.searchView.delay = 0
+	root := t.TempDir()
+	for _, dir := range []string{"keep", "vendor"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, dir, "note.txt"), []byte("needle\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.open(root)
+	p := h.app.project
+	h.click(center(h.button(itemFind)))
+	h.app.searchView.query.SetText("needle")
+	h.app.searchView.mask.SetText("*.txt")
+	h.app.searchView.replace.SetText("thread")
+	h.app.searchView.replaceOpen = true
+	h.app.invalidator.Invalidate()
+	if err := h.driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	awaitDocumentState(t, h, func() bool { return !p.search.loading && len(p.search.matches) == 2 })
+
+	w := pluginWorkbench{app: h.app}
+	if err := callOnWindowErr(h, "directory marks", func(ctx context.Context) error {
+		return w.UpdateDirectoryMarks(ctx, root, pluginservice.DirectoryMarksUpdate{
+			ID: "session:context", PluginID: "dev.lithe.test.vendor",
+			Marks: []core.PluginDirectoryMark{{PluginID: "dev.lithe.test.vendor", Path: "vendor", Role: "excluded"}},
+		})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	awaitDocumentState(t, h, func() bool {
+		return !p.search.loading && len(p.search.matches) == 1 && filepath.ToSlash(p.search.matches[0].Path) == "keep/note.txt"
+	})
+	v := &h.app.searchView
+	if v.query.Text() != "needle" || v.mask.Text() != "*.txt" || v.replace.Text() != "thread" || !v.replaceOpen {
+		t.Fatalf("the new policy changed the search form: query=%q mask=%q replace=%q open=%v", v.query.Text(), v.mask.Text(), v.replace.Text(), v.replaceOpen)
 	}
 }

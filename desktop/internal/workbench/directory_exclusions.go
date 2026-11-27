@@ -76,8 +76,8 @@ type projectIndexing struct {
 	pluginTypesByKey    map[string][]core.PluginDirectoryType
 	pluginMarksByKey    map[string][]core.PluginDirectoryMark
 	// policyExcluded is the set of folders the installed indexing policy excludes; nil until a
-	// policy is installed. globRequeued holds the glob-matched folders that already asked for
-	// a new policy, so one the directory walk cannot reach asks only once.
+	// policy is installed. globRequeued holds the glob-matched folders that asked for a new
+	// policy no installation has covered yet, so one the directory walk cannot reach asks once.
 	policyExcluded map[string]struct{}
 	globRequeued   map[string]struct{}
 	// generation rejects an installation a newer one replaced; presGeneration does the same for presentation.
@@ -224,16 +224,17 @@ func (a *App) installIndexing(p *project, refresh bool) {
 				return
 			}
 			ix.status = status
-			ix.policyExcluded = make(map[string]struct{}, len(policy.ManualExcludedDirectories))
-			for _, dir := range policy.ManualExcludedDirectories {
-				ix.policyExcluded[dir] = struct{}{}
-			}
+			ix.installed(policy.ManualExcludedDirectories)
 			if status.GitIgnoreFailed && !ix.warned {
 				ix.warned = true
 				a.notifyInfo(i18n.Shared(a.language(), "indexing.gitFailed"))
 			}
-			// Search results cached under the previous policy are stale.
-			a.searchView.reset()
+			// Results found under the previous policy are stale. A plugin or a new folder can
+			// install a policy at any moment, so run the search again with what the user typed
+			// rather than clearing the Find in Files form; opening a project clears it already.
+			if strings.TrimSpace(p.search.want.text) != "" {
+				a.refreshProjectSearch(p)
+			}
 			a.refreshDirectoryPresentation(p)
 		}
 	})
@@ -296,10 +297,23 @@ func (a *App) refreshDirectoryPresentation(p *project) {
 	})
 }
 
+// installed records the folders an indexing policy just installed excludes. A folder the
+// policy now covers may ask again later, after it is renamed away and back; one it still does
+// not cover, such as a folder past the directory walk's limit, keeps its single request so it
+// cannot install the policy over and over.
+func (ix *projectIndexing) installed(excluded []string) {
+	ix.policyExcluded = make(map[string]struct{}, len(excluded))
+	for _, dir := range excluded {
+		ix.policyExcluded[dir] = struct{}{}
+		delete(ix.globRequeued, dir)
+	}
+}
+
 // staleGlobExclusions reports whether Core matches a shown folder to an excluding glob that
 // the installed indexing policy does not exclude yet. Globs reach the policy through a walk
 // of the folders present when it was installed, so a folder created or renamed since then
-// would otherwise stay searchable until the project reopens. Each folder asks once.
+// would otherwise stay searchable until the project reopens. Each folder asks once until a
+// policy covers it.
 func (ix *projectIndexing) staleGlobExclusions(entries map[string]core.ResolvedDirectoryEntry) bool {
 	if ix.policyExcluded == nil {
 		return false
