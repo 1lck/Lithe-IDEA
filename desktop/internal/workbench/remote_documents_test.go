@@ -35,6 +35,10 @@ func (k *remoteHostKernel) RemoteStat(_ context.Context, session, path string) (
 	if kind, ok := k.kinds[path]; ok {
 		return core.RemoteFileMetadata{Kind: kind}, nil
 	}
+	_, knownFolder := remoteTestFolders[path]
+	if (knownFolder || slices.Contains(k.git.worktrees, path)) && !(path == remoteTestFolder && k.missing) {
+		return core.RemoteFileMetadata{Kind: core.RemoteFileKindDirectory}, nil
+	}
 	data, ok := k.files[path]
 	if !ok {
 		return core.RemoteFileMetadata{}, &core.Error{Command: "remote.stat", Code: core.CodeWorkspaceNotFound, Message: "no such file: " + path}

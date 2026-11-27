@@ -42,7 +42,7 @@ func TestWelcomeTitleAndVersionMatchWindowChrome(t *testing.T) {
 
 func TestWelcomeSearchAndSettingsRemainReachableAtWindowSizes(t *testing.T) {
 	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
-	h.app.recent = []core.RecentProject{{Path: "/projects/alpha"}, {Path: "/projects/beta"}}
+	h.seedRecent([]core.RecentProject{{Path: "/projects/alpha"}, {Path: "/projects/beta"}})
 	if !h.shows("Welcome to Lithe") {
 		t.Fatal("the localized welcome window title is not shown")
 	}
@@ -155,7 +155,7 @@ func TestWelcomeRevealFailureIsReportedAndLoggedWithoutThePath(t *testing.T) {
 	if err := os.Mkdir(path, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	h.app.recent = []core.RecentProject{{Path: path}}
+	h.seedRecent([]core.RecentProject{{Path: path}})
 	if err := h.driver.Resize(900, 600); err != nil {
 		t.Fatal(err)
 	}

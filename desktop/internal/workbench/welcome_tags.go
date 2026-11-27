@@ -2,7 +2,6 @@ package workbench
 
 import (
 	"context"
-	"slices"
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -29,9 +28,11 @@ func (a *App) welcomeProjection() core.RecentProjectsResult {
 		return a.kernel.ReduceRecentProjects(ctx, a.recent, core.FilterRecent(query, tag), 0)
 	}
 	result, err := project(w.tag)
-	if err == nil && w.tag != "" && !slices.Contains(result.Tags, w.tag) {
-		w.tag, w.projectedTag = "", ""
-		result, err = project("")
+	if err == nil && w.tag != "" {
+		w.tag, w.projectedTag = result.SelectedTag, result.SelectedTag
+		if w.tag == "" {
+			result, err = project("")
+		}
 	}
 	if err != nil {
 		a.operationFailed("workspace_recent_reduce", documentLogError(err))

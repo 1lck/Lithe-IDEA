@@ -204,9 +204,10 @@ type RecentProjectsResult struct {
 	// Removed lists the paths that were in the input but are no longer in Entries, whether the
 	// action removed them or the capacity dropped them. The host discards its per-project
 	// metadata for them.
-	Removed []string `json:"removed"`
-	Visible []int    `json:"visible,omitempty"`
-	Tags    []string `json:"tags,omitempty"`
+	Removed     []string `json:"removed"`
+	Visible     []int    `json:"visible,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+	SelectedTag string   `json:"selectedTag,omitempty"`
 }
 
 // recentProjectsRequest is the payload of workspace.recentProjects.reduce. The kernel rejects

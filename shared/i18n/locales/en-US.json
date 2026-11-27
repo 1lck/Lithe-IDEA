@@ -1714,6 +1714,7 @@
     "desktop.welcome.allTags": "All tags",
     "desktop.welcome.editTags": "Edit project tags…",
     "desktop.welcome.filterTags": "Filter by project tag",
+    "desktop.welcome.recoveredRecentHistory": "Started a new recent project list. The earlier list could not be read and its file was kept.",
     "desktop.welcome.tagsInput": "Tags, separated by commas",
     "desktop.welcome.menuPin": "Pin to Top",
     "desktop.welcome.menuReveal": "Show in Finder",

@@ -1714,6 +1714,7 @@
     "desktop.welcome.allTags": "所有标签",
     "desktop.welcome.editTags": "编辑项目标签…",
     "desktop.welcome.filterTags": "按项目标签筛选",
+    "desktop.welcome.recoveredRecentHistory": "已开始新的最近项目列表。旧列表无法读取，原文件已保留。",
     "desktop.welcome.tagsInput": "标签（用逗号分隔）",
     "desktop.welcome.menuPin": "固定到顶部",
     "desktop.welcome.menuReveal": "在访达中显示",

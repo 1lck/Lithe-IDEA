@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/filelock"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/installedpackagetest"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
@@ -16,6 +18,8 @@ import (
 
 func (h *harness) seedRecent(entries []core.RecentProject) {
 	h.t.Helper()
+	h.settle()
+	h.await("prior recent refresh", func() bool { return !h.app.recentWrites.refreshing })
 	if err := h.store.Save(recentFile, entries); err != nil {
 		h.t.Fatal(err)
 	}
@@ -93,8 +97,11 @@ func TestWelcomePinFromAnOlderWindowDoesNotReverseThePin(t *testing.T) {
 		Kernel: &testKernel{Client: core.NewClient()}, Store: store.At(first.store.Dir()), Languages: []string{"zh-Hans"},
 	})
 	second.resizeWelcome()
+	intent := core.SetPinnedRecent(project, !second.app.recent[0].Pinned)
 	first.pinWelcomeProject(project)
-	second.pinWelcomeProject(project)
+	// Model an intent collected before the other window published its pin.
+	second.app.changeRecent(intent, nil)
+	second.settle()
 	if len(second.app.recent) != 1 || !second.app.recent[0].Pinned {
 		t.Fatal("clicking Pin in an older window reversed an existing pin")
 	}
@@ -217,5 +224,153 @@ func TestRecentProjectsLeaveInstalledPackageUnchanged(t *testing.T) {
 	}
 	if _, err := os.Stat(prefs.Path(recentLockFile)); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestWelcomeActivatingBeforePinCommitStillReceivesThePin(t *testing.T) {
+	first := newHarness(t, &testKernel{Client: core.NewClient()})
+	project := t.TempDir()
+	first.seedRecent([]core.RecentProject{{Path: project}})
+	second := newHarnessWithOptions(t, Options{
+		Kernel: &testKernel{Client: core.NewClient()}, Store: store.At(first.store.Dir()),
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	release, err := filelock.Acquire(ctx, first.store.Path(recentLockFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if release != nil {
+			if err := release(); err != nil {
+				t.Error(err)
+			}
+		}
+	}()
+	first.app.changeRecent(core.SetPinnedRecent(project, true), nil)
+	second.config.OnActivate()
+	second.settle()
+	err = release()
+	release = nil
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.settle()
+	if !first.app.recent[0].Pinned {
+		t.Fatal("pin did not commit")
+	}
+	second.await("the committed pin in the already active window", func() bool {
+		return len(second.app.recent) == 1 && second.app.recent[0].Pinned
+	})
+}
+
+func TestWelcomeDoesNotOpenMissingRemoteRecent(t *testing.T) {
+	h, k, _, logger := remoteWorkspaceHarness(t)
+	h.openRemoteTestProject(t)
+	h.app.closeProject()
+	h.await("welcome screen", func() bool { return h.app.project == nil })
+	h.settle()
+	before := h.app.recent[0]
+	k.set(func(k *remoteHostKernel) {
+		k.git.trustErr = &core.Error{Code: core.CodeWorkspaceNotFound, Message: remoteTestFolder}
+		k.missing = true
+	})
+	h.app.openRecent(before.Path)
+	h.await("reopen result", func() bool {
+		b := h.app.remote.browser
+		return h.app.project != nil || (b != nil && b.err != "")
+	})
+	if h.app.project != nil {
+		t.Fatal("missing remote folder opened as a project")
+	}
+	if got := h.app.recent[0]; got.LastOpenedAt != before.LastOpenedAt {
+		t.Fatal("missing remote folder was recorded as opened")
+	}
+	if event := loggedAny(t, logger, remoteTestFolder); event != "" {
+		t.Fatalf("remote folder leaked in %s", event)
+	}
+}
+
+func TestWelcomeReceivesRecentFileReplacementWithoutActivation(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	project := t.TempDir()
+	h.seedRecent([]core.RecentProject{{Path: project}})
+	state := h.app.settingsSubscription.editorPreferences
+	h.await("native preference watcher registration", func() bool {
+		state.Lock()
+		defer state.Unlock()
+		return state.watchReady
+	})
+	// A separate store writes without the in-process publication.
+	if err := store.At(h.store.Dir()).Save(recentFile, []core.RecentProject{{Path: project, Pinned: true}}); err != nil {
+		t.Fatal(err)
+	}
+	h.await("the observed replacement", func() bool {
+		return len(h.app.recent) == 1 && h.app.recent[0].Pinned
+	})
+}
+
+func TestWelcomeRetriesRecentLocalContainerWithTheSameTarget(t *testing.T) {
+	h, k, _, _ := remoteWorkspaceHarness(t)
+	h.app.closeRemote()
+	container := &core.ContainerConnection{Engine: core.ContainerEngineDocker, Container: remoteTestContainer, User: "app"}
+	remote := &core.RecentRemoteProject{
+		ConnectionID: container.Identity(), Name: remoteTestContainer, Folder: remoteTestFolder, Container: container,
+	}
+	k.set(func(k *remoteHostKernel) { k.containers.refuse = errors.New("container is stopped") })
+	h.app.openRecentRemote(remote)
+	h.await("connection failure", func() bool { return h.app.remote.steps != nil && h.app.remote.steps.failed })
+	before := k.count(func(k *remoteHostKernel) int { return k.connects })
+	k.set(func(k *remoteHostKernel) { k.containers.refuse = nil })
+	h.clickFront(i18n.Shared(h.app.language(), "desktop.remote.steps.retry"))
+	h.settle()
+	if after := k.count(func(k *remoteHostKernel) int { return k.connects }); after != before+1 {
+		t.Fatalf("retry made %d connection attempts, expected one", after-before)
+	}
+	h.await("the original container directory", func() bool {
+		p := h.app.project
+		return p != nil && p.remote != nil && p.remote.binding.RemoteRoot() == remote.Folder
+	})
+	if got := h.app.project.remote.host.container; got == nil || *got != *container {
+		t.Fatalf("retried container = %+v, want %+v", got, container)
+	}
+}
+
+func TestWelcomeTagFilterSurvivesCaseVariantReordering(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	base := t.TempDir()
+	alpha := welcomeRecentDir(t, base, "alpha")
+	beta := welcomeRecentDir(t, base, "beta")
+	other := welcomeRecentDir(t, base, "other")
+	h.seedRecent([]core.RecentProject{
+		{Path: alpha, LastOpenedAt: 3, Tags: []string{"Work"}},
+		{Path: beta, LastOpenedAt: 2, Tags: []string{"work"}},
+		{Path: other, LastOpenedAt: 1},
+	})
+	h.resizeWelcome()
+	h.clickNamed(h.shared("desktop.welcome.filterTags"))
+	h.clickNamed("Work")
+	h.pinWelcomeProject(beta)
+	h.await("the newly pinned project", func() bool { return h.app.recent[0].Pinned })
+	if !h.shows("alpha") || !h.shows("beta") || h.shows("other") {
+		t.Fatal("pinning a case variant cleared the selected filter")
+	}
+}
+
+func TestRecentProjectsCanStartNewHistoryAfterDamagedLegacyJSON(t *testing.T) {
+	prefs := store.At(t.TempDir())
+	old := []byte(`[{"path":`)
+	if err := os.WriteFile(prefs.Path(legacyRecentFile), old, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	result, _, err := reduceStoredRecent(ctx, prefs, core.NewClient(), core.RecordRecent(project, time.Unix(1, 0)), true)
+	if err != nil || len(result.Entries) != 1 || result.Entries[0].Path != project {
+		t.Fatalf("save new recent history: %+v, %v", result.Entries, err)
+	}
+	if data, err := os.ReadFile(prefs.Path(legacyRecentFile)); err != nil || string(data) != string(old) {
+		t.Fatalf("legacy history changed: %q, %v", data, err)
 	}
 }

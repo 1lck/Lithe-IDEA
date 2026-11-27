@@ -362,7 +362,7 @@ func (a *App) remoteStepsFooter(c ui.C, language i18n.Language, s *remoteSteps) 
 			folder := s.folder
 			c.After(func() {
 				r.steps = nil
-				if s.host.hosted() {
+				if s.host.container != nil {
 					a.connectRemoteTo(s.entry, s.host, folder)
 					return
 				}

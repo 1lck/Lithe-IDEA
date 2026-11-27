@@ -192,7 +192,10 @@ func TestRemoteWorktreePreservesContainerHops(t *testing.T) {
 			h, k, _, _ := remoteWorkspaceHarness(t)
 			t.Cleanup(h.disposeTabs)
 			p := h.openRemoteTestProject(t)
-			k.set(func(k *remoteHostKernel) { k.git.trust[remoteTestFeature] = core.WorkspaceDistrusted })
+			k.set(func(k *remoteHostKernel) {
+				k.git.trust[remoteTestFeature] = core.WorkspaceDistrusted
+				k.kinds = map[string]core.RemoteFileKind{remoteTestFeature: core.RemoteFileKindDirectory}
+			})
 			container := &core.ContainerConnection{Engine: core.ContainerEngineDocker, Container: remoteTestContainer, User: "app"}
 			host := remoteHost{container: container}
 			switch via {

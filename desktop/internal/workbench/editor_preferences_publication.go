@@ -27,6 +27,8 @@ type editorPreferencesPublication struct {
 	saveSerial, savedSerial uint64
 	watch                   *documentWatch
 	watchDirty              atomic.Bool
+	watchReady              bool
+	recentRevision          atomic.Uint64
 	reading                 bool
 }
 

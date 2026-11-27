@@ -2,12 +2,14 @@ package workbench
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/filelock"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 )
 
@@ -23,6 +25,8 @@ const (
 type recentWrites struct {
 	tail          <-chan struct{}
 	next, applied uint64
+	refreshing    bool
+	refreshAgain  bool
 }
 
 type recentSnapshot struct {
@@ -33,7 +37,11 @@ type recentSnapshot struct {
 func (a *App) loadRecent() {
 	ctx, cancel := context.WithTimeout(context.Background(), kernelCallTimeout)
 	defer cancel()
-	view, stage, err := readRecent(ctx, a.store, a.kernel, core.NormalizeRecent(), false)
+	result, stage, err := reduceStoredRecent(ctx, a.store, a.kernel, core.NormalizeRecent(), false)
+	var view recentSnapshot
+	if err == nil {
+		view = checkRecentDirectories(result)
+	}
 	a.finishRecent(view, stage, err)
 }
 
@@ -42,8 +50,37 @@ func (a *App) changeRecent(action core.RecentAction, done func(core.RecentProjec
 }
 
 func (a *App) refreshRecent() {
-	if a.store != nil && !a.documentOnly {
-		a.queueRecent(core.NormalizeRecent(), false, nil)
+	if a.store == nil || a.documentOnly {
+		return
+	}
+	writes := &a.recentWrites
+	if writes.refreshing {
+		writes.refreshAgain = true
+		return
+	}
+	writes.refreshing = true
+	a.queueRecent(core.NormalizeRecent(), false, func(_ core.RecentProjectsResult, _ error) {
+		writes.refreshing = false
+		if writes.refreshAgain {
+			writes.refreshAgain = false
+			a.refreshRecent()
+		}
+	})
+}
+
+// The preference directory already has one native registration per process.
+// Also wake subscribers immediately after a local commit, including those
+// whose activation read finished before that commit reached disk.
+func (state *editorPreferencesPublication) publishRecentChange() {
+	state.recentRevision.Add(1)
+	state.invalidate()
+}
+
+func (a *App) drainRecentChange(sub *settingsSubscription) {
+	revision := sub.editorPreferences.recentRevision.Load()
+	if sub.recentRevision != revision {
+		sub.recentRevision = revision
+		a.refreshRecent()
 	}
 }
 
@@ -54,6 +91,10 @@ func (a *App) queueRecent(action core.RecentAction, save bool, done func(core.Re
 	writes.next++
 	sequence := writes.next
 	prefs, kernel := a.store, a.kernel
+	var publication *editorPreferencesPublication
+	if sub := a.settingsSubscription; sub != nil {
+		publication = sub.editorPreferences
+	}
 	a.background(nil, recentUpdateTimeout, func(ctx context.Context) func(*App) {
 		defer close(finished)
 		if previous != nil {
@@ -61,14 +102,25 @@ func (a *App) queueRecent(action core.RecentAction, save bool, done func(core.Re
 			case <-previous:
 			case <-ctx.Done():
 				return func(a *App) {
-					a.finishRecent(recentSnapshot{}, "workspace_recent_save", ctx.Err())
+					stage := "recent_projects"
+					if save {
+						stage = "workspace_recent_save"
+					}
+					a.finishRecent(recentSnapshot{}, stage, ctx.Err())
 					if done != nil {
 						done(core.RecentProjectsResult{}, ctx.Err())
 					}
 				}
 			}
 		}
-		view, stage, err := readRecent(ctx, prefs, kernel, action, save)
+		result, stage, err := reduceStoredRecent(ctx, prefs, kernel, action, save)
+		var view recentSnapshot
+		if err == nil {
+			if save && publication != nil {
+				publication.publishRecentChange()
+			}
+			view = checkRecentDirectories(result)
+		}
 		return func(a *App) {
 			if err != nil || sequence > a.recentWrites.applied {
 				if err == nil {
@@ -83,11 +135,7 @@ func (a *App) queueRecent(action core.RecentAction, save bool, done func(core.Re
 	})
 }
 
-func readRecent(ctx context.Context, prefs *store.Store, kernel Kernel, action core.RecentAction, save bool) (recentSnapshot, string, error) {
-	result, stage, err := reduceStoredRecent(ctx, prefs, kernel, action, save)
-	if err != nil {
-		return recentSnapshot{}, stage, err
-	}
+func checkRecentDirectories(result core.RecentProjectsResult) recentSnapshot {
 	view := recentSnapshot{result: result, missing: make(map[string]bool)}
 	for _, entry := range result.Entries {
 		if entry.Remote == nil {
@@ -96,7 +144,7 @@ func readRecent(ctx context.Context, prefs *store.Store, kernel Kernel, action c
 			}
 		}
 	}
-	return view, "", nil
+	return view
 }
 
 func reduceStoredRecent(ctx context.Context, prefs *store.Store, kernel Kernel, action core.RecentAction, save bool) (result core.RecentProjectsResult, stage string, err error) {
@@ -104,14 +152,14 @@ func reduceStoredRecent(ctx context.Context, prefs *store.Store, kernel Kernel, 
 		if err := os.MkdirAll(prefs.Dir(), 0o700); err != nil {
 			return result, "workspace_recent_save", err
 		}
-		release, err := filelock.Acquire(ctx, prefs.Path(recentLockFile))
-		if err != nil {
-			return result, "workspace_recent_save", err
+		release, lockErr := filelock.Acquire(ctx, prefs.Path(recentLockFile))
+		if lockErr != nil {
+			return result, "workspace_recent_save", lockErr
 		}
 		defer func() {
 			if releaseErr := release(); releaseErr != nil {
 				err = errors.Join(err, releaseErr)
-				if stage == "" {
+				if stage == "" || stage == "recent_legacy_recovered" {
 					stage = "workspace_recent_save"
 				}
 			}
@@ -123,6 +171,13 @@ func reduceStoredRecent(ctx context.Context, prefs *store.Store, kernel Kernel, 
 		// Old clients can keep writing their own file during a downgrade. Import
 		// it until the first v2 mutation succeeds; an empty v2 list is authoritative.
 		_, err = prefs.Load(legacyRecentFile, &entries)
+		var syntax *json.SyntaxError
+		var valueType *json.UnmarshalTypeError
+		if save && (errors.As(err, &syntax) || errors.As(err, &valueType)) {
+			// v1 still belongs to older clients. Leave the original bytes where
+			// they are and begin the independent v2 history with this action.
+			stage, entries, err = "recent_legacy_recovered", nil, nil
+		}
 	}
 	if err != nil {
 		if save {
@@ -142,7 +197,7 @@ func reduceStoredRecent(ctx context.Context, prefs *store.Store, kernel Kernel, 
 			return result, "workspace_recent_save", err
 		}
 	}
-	return result, "", nil
+	return result, stage, nil
 }
 
 func (a *App) finishRecent(view recentSnapshot, stage string, err error) {
@@ -159,6 +214,10 @@ func (a *App) finishRecent(view recentSnapshot, stage string, err error) {
 			a.notifyError(a.text.Errors.Core(err.Error()))
 		}
 		return
+	}
+	if stage == "recent_legacy_recovered" {
+		a.storedStateFailed("recent_projects_legacy", errors.New("invalid legacy recent projects JSON"))
+		a.notifyInfo(i18n.Shared(a.language(), "desktop.welcome.recoveredRecentHistory"))
 	}
 	a.recent, a.missing = view.result.Entries, view.missing
 	a.welcome.projectionValid = false

@@ -20902,6 +20902,13 @@
       ]
     },
     {
+      "id": "desktop.welcome.recoveredRecentHistory",
+      "description": "Desktop welcome: report that a fresh recent project list was started and the original history file was kept",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.welcome.tagsInput",
       "description": "Desktop welcome: tagsInput",
       "platforms": [

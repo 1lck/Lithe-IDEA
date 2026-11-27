@@ -170,7 +170,7 @@ func (a *App) connectRemoteTo(entry core.SavedRemoteConnection, host remoteHost,
 				r.steps = nil
 				a.browseRemote(entry, host, *result.Session)
 				if folder != "" {
-					a.openRemoteFolderAt(folder)
+					a.openRemoteFolderAt(folder, true)
 				}
 				return
 			}
@@ -460,7 +460,7 @@ func (a *App) openRemoteFolder() {
 		return
 	}
 	a.performed("remote.workspace.open", surfaceButton)
-	a.openRemoteFolderAt(b.target())
+	a.openRemoteFolderAt(b.target(), false)
 }
 
 // openRemoteFolderNow opens dir once its trust is decided (remote_trust.go), trusted when trusted
