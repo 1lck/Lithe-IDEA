@@ -3,10 +3,12 @@ package workbench
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"io"
 	"net"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -52,6 +54,47 @@ func waitFor[T any](t *testing.T, channel <-chan T, what string) T {
 		t.Fatalf("timed out waiting for %s", what)
 		panic("unreachable")
 	}
+}
+
+func TestDebugCancelledSessionWriteLeavesHostedStreamForDisconnect(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		host, adapter := net.Pipe()
+		defer adapter.Close()
+		defer host.Close()
+		transport := newDebugTransport(core.NewClient(), "test-cancelled-writer", debugTransportHooks{
+			Discover: func(context.Context) (string, int, error) { return "127.0.0.1", 4711, nil },
+			Dial:     func(context.Context, string, int) (net.Conn, error) { return host, nil },
+		})
+		defer transport.Release()
+		if err := transport.Start(nil); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+
+		// Stop cancels the session while an inspection is returning from Core.
+		// Its late write must leave the ready stream open for the owner's drain.
+		ctx, cancel := context.WithCancel(t.Context())
+		session := &debugSession{ctx: ctx, transport: transport, hosted: transport}
+		cancel()
+		frame := base64.StdEncoding.EncodeToString([]byte("late"))
+		if err := session.writeFrames([]string{frame}); !errors.Is(err, context.Canceled) {
+			t.Fatalf("late write returned %v, want cancellation", err)
+		}
+		synctest.Wait()
+
+		if _, err := transport.Write([]byte("disconnect")); err != nil {
+			t.Fatalf("queuing disconnect after cancellation: %v", err)
+		}
+		if err := transport.FinishSendingAndStop(); err != nil {
+			t.Fatal(err)
+		}
+		if err := adapter.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := io.ReadAll(adapter); err != nil || string(got) != "disconnect" {
+			t.Fatalf("adapter received %q, %v, want only disconnect", got, err)
+		}
+	})
 }
 
 // TestDebugTransportQueuesFramesBeforeReadyAndKeepsOrder drives the stream by
