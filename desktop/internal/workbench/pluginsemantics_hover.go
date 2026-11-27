@@ -139,7 +139,10 @@ func (a *App) newHoverPage(contents string, isMarkdown bool, language string) *h
 	} else if ir.FallbackToSource {
 		page.doc.Parse(page.source)
 	} else {
-		populateMarkdownFromDocIR(&page.doc, ir, nil)
+		lang := a.language()
+		populateMarkdownFromDocIR(&page.doc, ir, func(tagKind string) string {
+			return localizeDocTag(lang, tagKind)
+		})
 	}
 	page.style.Highlight = func(info, line string, dst []components.MarkdownCodeRun) []components.MarkdownCodeRun {
 		return a.hoverCodeRuns(page, info, line, dst)

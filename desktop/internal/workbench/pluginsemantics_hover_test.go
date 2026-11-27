@@ -536,4 +536,15 @@ func TestPopulateMarkdownFromDocIRMapsAllBlocksAndLinksDeterministically(t *test
 	if labels := doc.LabelSpans(&doc.Blocks[7]); len(labels) != 1 || labels[0].Text != "Term" || labels[0].Style&markdown.Bold == 0 {
 		t.Fatalf("rich LabelSpans = %+v", labels)
 	}
+
+	// Verify no hardcoded English fallback label is injected when no localizer or explicit label is supplied.
+	var unlocalized markdown.Document
+	populateMarkdownFromDocIR(&unlocalized, core.DocRenderResponse{
+		Blocks: []core.DocBlock{
+			{Kind: core.DocBlockLabeled, TagKind: "param", Spans: []core.DocSpan{{Text: "x"}}},
+		},
+	}, nil)
+	if labels := unlocalized.LabelSpans(&unlocalized.Blocks[0]); len(labels) != 0 {
+		t.Fatalf("expected no hardcoded fallback label with nil localizer, got %+v", labels)
+	}
 }

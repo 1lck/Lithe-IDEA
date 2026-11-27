@@ -86,9 +86,6 @@ func docIRLabelSpans(block *core.DocBlock, localizeTag func(string) string) []ma
 		if label == "" {
 			label = block.LabelText
 		}
-		if label == "" {
-			label = defaultDocTagLabel(block.TagKind)
-		}
 	} else {
 		label = block.LabelText
 	}
@@ -96,34 +93,6 @@ func docIRLabelSpans(block *core.DocBlock, localizeTag func(string) string) []ma
 		return nil
 	}
 	return []markdown.Span{{Text: label}}
-}
-
-func defaultDocTagLabel(tagKind string) string {
-	switch tagKind {
-	case "param":
-		return "Params:"
-	case "typeParam":
-		return "Type parameters:"
-	case "returns":
-		return "Returns:"
-	case "throws":
-		return "Throws:"
-	case "since":
-		return "Since:"
-	case "see":
-		return "See also:"
-	case "author":
-		return "Author:"
-	case "deprecated":
-		return "Deprecated:"
-	case "version":
-		return "Version:"
-	default:
-		if tagKind == "" {
-			return ""
-		}
-		return tagKind + ":"
-	}
 }
 
 func docIRAlign(align string) markdown.Align {

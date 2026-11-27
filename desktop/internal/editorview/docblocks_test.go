@@ -1002,6 +1002,50 @@ func TestDocBlockTallBlockExceedingViewportPaintedOnce(t *testing.T) {
 	}
 }
 
+func TestDocBlockLinkCleanupAndUnmatchedAnchor(t *testing.T) {
+	var doc markdown.Document
+	doc.Reset()
+	doc.AppendParagraph(0, 0, []markdown.Span{
+		{Text: "Missing anchor", Link: "anchor:does-not-exist"},
+	})
+
+	var clicked []string
+	v, canvas := setupSimpleDocView(t, "// link doc\nfunc end() {}", []DocBlockCandidate{
+		{StartLine: 0, EndLine: 0, ContentHash: 99, ShellKind: "line", Dialect: "godoc"},
+	}, map[uint64]markdown.Document{99: doc}, nil)
+	var tree gfx.Tree
+	scope := tree.Feature("editor-link-cleanup")
+	v.Bind(tree.ID(scope, "hit"), scope)
+	v.docs.cb.OnLinkClick = func(dest string, _ uint64) { clicked = append(clicked, dest) }
+
+	area := gfx.Rect{Width: 600, Height: 240}
+	canvas.Reset()
+	v.Paint(canvas, area, Look{Dark: true, Foreground: gfx.RGB24(0xBCBEC4), Subtle: gfx.RGB24(0x6F737A)})
+	if len(v.docs.paintedLinks) == 0 {
+		t.Fatal("expected paintedLinks to record the rendered anchor link")
+	}
+
+	// Clicking an unmatched anchor: link must be swallowed without invoking OnLinkClick.
+	linkHit := scope.At(v.docs.paintedLinks[0].base)
+	res, ok := v.Pointer(gfx.PointerEvent{Target: linkHit, Kind: gfx.PointerDown, Button: gfx.PointerButtonPrimary})
+	if !ok || !res.Handled {
+		t.Fatalf("expected unmatched anchor press to be handled, got ok=%v res=%+v", ok, res)
+	}
+	if len(clicked) != 0 {
+		t.Fatalf("unmatched anchor: link leaked to OnLinkClick: %v", clicked)
+	}
+
+	// Toggling the last rendered doc block back to source must clear paintedLinks on the next paint.
+	if !v.ToggleDocBlock(0) {
+		t.Fatal("expected ToggleDocBlock(0) to toggle back to source")
+	}
+	canvas.Reset()
+	v.Paint(canvas, area, Look{Dark: true, Foreground: gfx.RGB24(0xBCBEC4), Subtle: gfx.RGB24(0x6F737A)})
+	if len(v.docs.paintedLinks) != 0 {
+		t.Fatalf("paintedLinks = %d after toggling off last doc block, want 0", len(v.docs.paintedLinks))
+	}
+}
+
 func absInt(x int) int {
 	if x < 0 {
 		return -x

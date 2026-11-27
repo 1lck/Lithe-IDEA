@@ -1986,7 +1986,8 @@ func (v *View) docLinkPointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
 				if entry.blockID == span.blockID && entry.view != nil {
 					dest := entry.view.Link(idx - span.base)
 					if dest != "" {
-						if anchorID, ok := strings.CutPrefix(dest, "anchor:"); ok && v.JumpToDocAnchor(anchorID) {
+						if anchorID, ok := strings.CutPrefix(dest, "anchor:"); ok {
+							v.JumpToDocAnchor(anchorID)
 							return gfx.EventResult{Handled: true, Repaint: true, Focus: v.cfg.HitID}, true
 						}
 						if v.docs.cb.OnLinkClick != nil {

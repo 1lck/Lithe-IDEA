@@ -135,8 +135,10 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	annotation := 0
 	top := area.Y + float32(firstRow-firstSub)*v.lineH - v.scroll
 	activeIdx := len(v.docs.active)
-	if len(v.docs.active) > 0 {
+	if len(v.docs.paintedLinks) > 0 {
 		v.docs.paintedLinks = v.docs.paintedLinks[:0]
+	}
+	if len(v.docs.active) > 0 {
 		if firstDR.kind == displayDocBlock {
 			activeIdx = firstDR.block
 			top = area.Y + float32(v.docs.active[activeIdx].displayStartRow)*v.lineH - v.scroll
