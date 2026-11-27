@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 )
 
@@ -124,6 +125,35 @@ func TestSettingsSaveReportsFailureAndAllowsLaterSave(t *testing.T) {
 	var saved settings
 	if _, err := h.store.Load(settingsFile, &saved); err != nil || saved.TerminalScrollback != 4000 {
 		t.Fatalf("later save = %d, error = %v; want 4000", saved.TerminalScrollback, err)
+	}
+}
+
+func TestNewProjectWindowReadsTheSavedOpenDestination(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.settle()
+	started, release := make(chan struct{}), make(chan struct{})
+	releaseWrite := sync.OnceFunc(func() { close(release) })
+	defer releaseWrite()
+	h.app.settingsDiskWriter = func(disk *store.Store, next settings) (string, error) {
+		close(started)
+		<-release
+		return disk.SaveWithBackup(settingsFile, next)
+	}
+	h.app.settings.ProjectOpenDestination = settingswindow.ProjectOpenNewWindow
+	h.app.saveSettings()
+	awaitSettingsSave(t, started, "remembered destination reached the writer")
+
+	var found bool
+	var err error
+	var saved settings
+	h.app.launchProjectWindow("project", func(string) error {
+		found, err = store.At(h.store.Dir()).Load(settingsFile, &saved)
+		return nil
+	})
+	releaseWrite()
+	h.settle()
+	if err != nil || !found || saved.ProjectOpenDestination != settingswindow.ProjectOpenNewWindow {
+		t.Fatalf("new window read destination %q, found = %v, error = %v", saved.ProjectOpenDestination, found, err)
 	}
 }
 

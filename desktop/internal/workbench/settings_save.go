@@ -188,17 +188,19 @@ func (r settingsSaveRequest) write(dir string, editor core.EditorStoredPreferenc
 	return disk.SaveWithBackup(settingsFile, next)
 }
 
+func (state *editorPreferencesPublication) settingsSaveIdle() <-chan struct{} {
+	if state == nil {
+		return nil
+	}
+	state.Lock()
+	defer state.Unlock()
+	return state.saveIdle
+}
+
 // flushSettings delays closing the window while the writer drains. The window
 // continues dispatching events, including save results, until it can close.
 func (a *App) flushSettings(timeout time.Duration, allow func()) {
-	state := a.settingsPublication
-	if state == nil {
-		allow()
-		return
-	}
-	state.Lock()
-	idle := state.saveIdle
-	state.Unlock()
+	idle := a.settingsPublication.settingsSaveIdle()
 	if idle == nil {
 		allow()
 		return
