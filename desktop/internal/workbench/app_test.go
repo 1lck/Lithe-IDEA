@@ -164,6 +164,15 @@ func newHarnessWithDriver(t testing.TB, options Options, open func(app.Config) (
 			t.Errorf("cleanup: %v (%s)", err, h.taskState())
 		}
 		closeDriver()
+		// The headless driver closes directly. OnClosed can enqueue a final
+		// geometry save, which production waits for after its window loop.
+		if idle := h.app.settingsPublication.settingsSaveIdle(); idle != nil {
+			select {
+			case <-idle:
+			case <-ctx.Done():
+				t.Errorf("waiting for settings after driver close: %v", ctx.Err())
+			}
+		}
 	})
 	return h
 }
