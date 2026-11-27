@@ -221,12 +221,17 @@ func TestSafeModeRunsNoGitUntilTrusted(t *testing.T) {
 
 	// Withdrawing the trust stops Git again: the status and the watch of the metadata.
 	h.app.applyProjectTrust(p, false)
+	// The test changes trust directly rather than through the window's button; invalidate the
+	// frame explicitly so the assertion cannot read the last trusted paint.
+	h.app.invalidator.Invalidate()
 	h.settle()
 	if !p.git.safeMode || p.observe.metadata != nil || p.observe.watches != nil {
 		t.Fatalf("withdrawn trust kept Git running: git %+v, watching %v", p.git, p.observe.watches)
 	}
-	if !h.showsWrapped(i18n.Shared(language, "desktop.trust.gitSafeMode")) || h.shows("changed.txt") {
-		t.Fatal("the Commit window still lists the changes of an untrusted project")
+	safeModeShown := h.showsWrapped(i18n.Shared(language, "desktop.trust.gitSafeMode"))
+	changeShown := h.shows("changed.txt")
+	if !safeModeShown || changeShown {
+		t.Fatalf("after withdrawn trust safe mode shown %v, change shown %v", safeModeShown, changeShown)
 	}
 }
 

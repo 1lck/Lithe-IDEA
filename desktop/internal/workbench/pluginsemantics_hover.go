@@ -387,7 +387,7 @@ func (a *App) layoutHover(canvas *gfx.Canvas, page *hoverPage, maxWidth float32)
 	}
 	page.height = layout(width)
 	page.width = width
-	page.label = page.view.SelectedText(components.MarkdownSelection{Focus: page.view.TextLen()})
+	page.label = page.view.SelectedText(ui.TextRange{Focus: page.view.TextLen()})
 }
 
 // clamp keeps a scroll of the page inside it.

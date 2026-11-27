@@ -64,20 +64,88 @@ jobs:
         id: time
         run: printf 'timestamp=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
 
-  # A release runs in three stages. First the remote workspace server is built once for linux
-  # amd64 and arm64 and tested on a runner of each architecture.
+  # A release runs in three stages. First the remote workspace server (linux amd64/arm64) and the
+  # Windows GNU release Core are prepared in parallel on Linux runners (no Windows runner queue).
   remote-server:
     name: Remote server
     if: ${{ !inputs.feed_only }}
     needs: prepare
     uses: ./.github/workflows/desktop-remote-server.yml
 
-  # Then every platform builds the app with those server bytes embedded and packages it: the
-  # server is compiled into the app, so these cannot start before the first stage ends.
+  windows-core:
+    name: Cross-build Windows Core on Linux
+    if: ${{ !inputs.feed_only }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Rust
+        id: rust
+        uses: dtolnay/rust-toolchain@1.100.0
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Resolve pinned Core revision
+        id: core-pin
+        run: |
+          rev="$(sed -n 's/^PINNED_CORE_REVISION="\([0-9a-f]\{40\}\)"$/\1/p' scripts/desktop/build-desktop-core.sh)"
+          if [[ -z "$rev" ]]; then
+            printf '%s\n' 'Could not read PINNED_CORE_REVISION from scripts/desktop/build-desktop-core.sh.' >&2
+            exit 1
+          fi
+          printf 'revision=%s\n' "$rev" >> "$GITHUB_OUTPUT"
+
+      - name: Restore staged Windows release Core
+        id: core-stage
+        uses: actions/cache@v6
+        with:
+          path: .artifacts/desktop/lithe-core/x86_64-pc-windows-gnu/release
+          key: desktop-core-staged-x86_64-pc-windows-gnu-${{ steps.rust.outputs.cachekey }}-release-${{ steps.core-pin.outputs.revision }}
+
+      - name: Install MinGW-w64 cross toolchain
+        if: steps.core-stage.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
+
+      - name: Restore the core build
+        if: steps.core-stage.outputs.cache-hit != 'true'
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            .artifacts/desktop/lithe-core-rust
+          key: desktop-core-cross-Linux-x86_64-pc-windows-gnu-${{ steps.rust.outputs.cachekey }}-release-${{ steps.core-pin.outputs.revision }}
+          restore-keys: |
+            desktop-core-cross-Linux-x86_64-pc-windows-gnu-${{ steps.rust.outputs.cachekey }}-release-
+
+      - name: Cross-build Windows release Core
+        env:
+          LITHE_CORE_TARGET: x86_64-pc-windows-gnu
+        run: ./scripts/desktop/build-desktop-core.sh --release > /dev/null
+
+      - name: Upload staged Windows release Core
+        uses: actions/upload-artifact@v7
+        with:
+          name: core-windows-amd64-release
+          path: .artifacts/desktop/lithe-core/x86_64-pc-windows-gnu/release
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+  # Then every platform builds the app with those server bytes embedded and packages it: macOS
+  # arm64 and amd64 share one macOS runner to avoid queueing for a second macOS VM, and Windows
+  # links the staged Core cross-compiled on Linux above.
   build:
     name: Package ${{ matrix.os }} ${{ matrix.arch }}
     if: ${{ !inputs.feed_only }}
-    needs: [prepare, remote-server]
+    needs: [prepare, remote-server, windows-core]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     defaults:
@@ -111,6 +179,17 @@ jobs:
           chmod 0755 .artifacts/desktop/remote-server/*/lithe-remote-server
           printf 'LITHE_REMOTE_SERVER_STAGE=%s\n' "$PWD/.artifacts/desktop/remote-server" >> "$GITHUB_ENV"
 
+      - name: Download cross-built Windows release Core
+        if: matrix.os == 'windows'
+        uses: actions/download-artifact@v8
+        with:
+          name: core-windows-amd64-release
+          path: .artifacts/desktop/lithe-core/x86_64-pc-windows-gnu/release
+
+      - name: Restore Windows helper executable mode
+        if: matrix.os == 'windows'
+        run: chmod 0755 .artifacts/desktop/lithe-core/x86_64-pc-windows-gnu/release/bin/lithe-mcp.exe
+
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
@@ -133,7 +212,47 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y rpm
 
+      - name: Resolve pinned Core revision
+        id: core-pin
+        if: matrix.os != 'windows'
+        run: |
+          rev="$(sed -n 's/^PINNED_CORE_REVISION="\([0-9a-f]\{40\}\)"$/\1/p' scripts/desktop/build-desktop-core.sh)"
+          if [[ -z "$rev" ]]; then
+            printf '%s\n' 'Could not read PINNED_CORE_REVISION from scripts/desktop/build-desktop-core.sh.' >&2
+            exit 1
+          fi
+          printf 'revision=%s\n' "$rev" >> "$GITHUB_OUTPUT"
+
+      # Cache each target's compact staged release Core (~36 MiB) separately so Desktop CI,
+      # AutoBuild and Desktop Release share them and build-desktop-core.sh takes its fast-path.
+      - name: Restore staged release Core (macOS arm64)
+        id: core-stage-darwin-arm64
+        if: matrix.os == 'darwin'
+        uses: actions/cache@v6
+        with:
+          path: .artifacts/desktop/lithe-core/aarch64-apple-darwin/release
+          key: desktop-core-staged-aarch64-apple-darwin-${{ steps.rust.outputs.cachekey }}-release-${{ steps.core-pin.outputs.revision }}
+
+      - name: Restore staged release Core (macOS amd64)
+        id: core-stage-darwin-amd64
+        if: matrix.os == 'darwin'
+        uses: actions/cache@v6
+        with:
+          path: .artifacts/desktop/lithe-core/x86_64-apple-darwin/release
+          key: desktop-core-staged-x86_64-apple-darwin-${{ steps.rust.outputs.cachekey }}-release-${{ steps.core-pin.outputs.revision }}
+
+      - name: Restore staged release Core (Linux)
+        id: core-stage-linux
+        if: matrix.os == 'linux'
+        uses: actions/cache@v6
+        with:
+          path: .artifacts/desktop/lithe-core/${{ matrix.rust-target }}/release
+          key: desktop-core-staged-${{ matrix.rust-target }}-${{ steps.rust.outputs.cachekey }}-release-${{ steps.core-pin.outputs.revision }}
+
       - name: Restore the core build
+        if: >-
+          (matrix.os == 'darwin' && (steps.core-stage-darwin-arm64.outputs.cache-hit != 'true' || steps.core-stage-darwin-amd64.outputs.cache-hit != 'true')) ||
+          (matrix.os == 'linux' && steps.core-stage-linux.outputs.cache-hit != 'true')
         uses: actions/cache@v6
         with:
           path: |
@@ -141,9 +260,9 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             .artifacts/desktop/lithe-core-rust
-          key: desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-release-${{ matrix.rust-target }}-${{ hashFiles('scripts/desktop/build-desktop-core.sh') }}
+          key: desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-release-${{ matrix.os }}-${{ matrix.arch }}-${{ steps.core-pin.outputs.revision }}
           restore-keys: |
-            desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-release-${{ matrix.rust-target }}-
+            desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-release-${{ matrix.os }}-${{ matrix.arch }}-
 
       - name: Package and verify on macOS
         if: matrix.os == 'darwin'
@@ -153,9 +272,17 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.MACOS_SIGNING_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_SIGNING_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
-          DESKTOP_ARCH: ${{ matrix.arch }}
+          DESKTOP_ARCHES: ${{ matrix.arches }}
           DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
-        run: bash scripts/ci/desktop-release/package-release.sh "$DESKTOP_ARCH" "$DESKTOP_VERSION"
+        run: |
+          for arch in $DESKTOP_ARCHES; do
+            skip_check=0
+            if [[ "$arch" != "arm64" ]]; then
+              skip_check=1
+            fi
+            LITHE_SKIP_FILE_ASSOCIATIONS_CHECK="$skip_check" \
+              bash scripts/ci/desktop-release/package-release.sh "$arch" "$DESKTOP_VERSION"
+          done
 
       - name: Package and verify on Windows
         if: matrix.os == 'windows'
@@ -164,7 +291,7 @@ jobs:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
           WINDOWS_TIMESTAMP_URL: ${{ secrets.WINDOWS_TIMESTAMP_SERVER }}
-          DESKTOP_ARCH: ${{ matrix.arch }}
+          DESKTOP_ARCH: ${{ matrix.arches }}
           DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
         run: bash scripts/ci/desktop-release/package-release.sh "$DESKTOP_ARCH" "$DESKTOP_VERSION"
 
@@ -172,21 +299,34 @@ jobs:
         if: matrix.os == 'linux'
         shell: bash
         env:
-          DESKTOP_ARCH: ${{ matrix.arch }}
+          DESKTOP_ARCH: ${{ matrix.arches }}
           DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
         run: bash scripts/ci/desktop-release/package-release.sh "$DESKTOP_ARCH" "$DESKTOP_VERSION"
 
-      - name: Upload macOS packages
+      - name: Upload macOS arm64 packages
         if: matrix.os == 'darwin'
         uses: actions/upload-artifact@v7
         with:
-          name: desktop-${{ matrix.os }}-${{ matrix.arch }}
+          name: desktop-darwin-arm64
           path: |
-            dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/lithe-${{ needs.prepare.outputs.version }}-darwin-${{ matrix.arch }}.zip
-            dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/lithe-${{ needs.prepare.outputs.version }}-darwin-${{ matrix.arch }}.zip.sha256
-            dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/lithe-${{ needs.prepare.outputs.version }}-darwin-${{ matrix.arch }}.dmg
-            dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/lithe-${{ needs.prepare.outputs.version }}-darwin-${{ matrix.arch }}.dmg.sha256
+            dist/desktop/darwin-arm64/lithe-${{ needs.prepare.outputs.version }}-darwin-arm64.zip
+            dist/desktop/darwin-arm64/lithe-${{ needs.prepare.outputs.version }}-darwin-arm64.zip.sha256
+            dist/desktop/darwin-arm64/lithe-${{ needs.prepare.outputs.version }}-darwin-arm64.dmg
+            dist/desktop/darwin-arm64/lithe-${{ needs.prepare.outputs.version }}-darwin-arm64.dmg.sha256
+          compression-level: 0
+          if-no-files-found: error
 
+      - name: Upload macOS amd64 packages
+        if: matrix.os == 'darwin'
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-darwin-amd64
+          path: |
+            dist/desktop/darwin-amd64/lithe-${{ needs.prepare.outputs.version }}-darwin-amd64.zip
+            dist/desktop/darwin-amd64/lithe-${{ needs.prepare.outputs.version }}-darwin-amd64.zip.sha256
+            dist/desktop/darwin-amd64/lithe-${{ needs.prepare.outputs.version }}-darwin-amd64.dmg
+            dist/desktop/darwin-amd64/lithe-${{ needs.prepare.outputs.version }}-darwin-amd64.dmg.sha256
+          compression-level: 0
           if-no-files-found: error
 
       - name: Upload Windows packages
@@ -199,7 +339,7 @@ jobs:
             dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/lithe-${{ needs.prepare.outputs.version }}-windows-${{ matrix.arch }}-setup.exe.sha256
             dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/lithe-${{ needs.prepare.outputs.version }}-windows-${{ matrix.arch }}.zip
             dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/lithe-${{ needs.prepare.outputs.version }}-windows-${{ matrix.arch }}.zip.sha256
-
+          compression-level: 0
           if-no-files-found: error
 
       - name: Upload Linux packages
@@ -214,7 +354,7 @@ jobs:
             dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/lithe_${{ needs.prepare.outputs.version }}_${{ matrix.arch }}.deb.sha256
             dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/*.rpm
             dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/*.rpm.sha256
-
+          compression-level: 0
           if-no-files-found: error
 
   # Last, the packages of every platform are checked together and published as one release.

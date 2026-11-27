@@ -88,9 +88,8 @@ jobs:
             printf 'skip=%s\n' "$skip"
           } >> "$GITHUB_OUTPUT"
 
-  # The remote workspace server of the pinned source is built once for linux amd64 and arm64 and
-  # tested on a runner of each architecture before any app is built; every package of this
-  # AutoBuild embeds those bytes.
+  # The remote workspace server and Windows GNU release Core are prepared in parallel on Linux
+  # runners before the platform packaging jobs start.
   remote-server:
     name: Remote server
     needs: prepare
@@ -99,9 +98,78 @@ jobs:
     with:
       ref: ${{ needs.prepare.outputs.sha }}
 
+  windows-core:
+    name: Cross-build Windows Core on Linux
+    needs: prepare
+    if: needs.prepare.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out the pinned source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - name: Set up Rust
+        id: rust
+        uses: dtolnay/rust-toolchain@1.100.0
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Resolve pinned Core revision
+        id: core-pin
+        run: |
+          rev="$(sed -n 's/^PINNED_CORE_REVISION="\([0-9a-f]\{40\}\)"$/\1/p' scripts/desktop/build-desktop-core.sh)"
+          if [[ -z "$rev" ]]; then
+            printf '%s\n' 'Could not read PINNED_CORE_REVISION from scripts/desktop/build-desktop-core.sh.' >&2
+            exit 1
+          fi
+          printf 'revision=%s\n' "$rev" >> "$GITHUB_OUTPUT"
+
+      - name: Restore staged Windows release Core
+        id: core-stage
+        uses: actions/cache@v6
+        with:
+          path: .artifacts/desktop/lithe-core/x86_64-pc-windows-gnu/release
+          key: desktop-core-staged-x86_64-pc-windows-gnu-${{ steps.rust.outputs.cachekey }}-release-${{ steps.core-pin.outputs.revision }}
+
+      - name: Install MinGW-w64 cross toolchain
+        if: steps.core-stage.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
+
+      - name: Restore the core build
+        if: steps.core-stage.outputs.cache-hit != 'true'
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            .artifacts/desktop/lithe-core-rust
+          key: desktop-core-cross-Linux-x86_64-pc-windows-gnu-${{ steps.rust.outputs.cachekey }}-release-${{ steps.core-pin.outputs.revision }}
+          restore-keys: |
+            desktop-core-cross-Linux-x86_64-pc-windows-gnu-${{ steps.rust.outputs.cachekey }}-release-
+
+      - name: Cross-build Windows release Core
+        env:
+          LITHE_CORE_TARGET: x86_64-pc-windows-gnu
+        run: ./scripts/desktop/build-desktop-core.sh --release > /dev/null
+
+      - name: Upload staged Windows release Core
+        uses: actions/upload-artifact@v7
+        with:
+          name: core-windows-amd64-release
+          path: .artifacts/desktop/lithe-core/x86_64-pc-windows-gnu/release
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
   build:
     name: Package ${{ matrix.os }} ${{ matrix.arch }}
-    needs: [prepare, remote-server]
+    needs: [prepare, remote-server, windows-core]
     if: needs.prepare.outputs.skip != 'true'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
@@ -132,6 +200,17 @@ jobs:
           chmod 0755 .artifacts/desktop/remote-server/*/lithe-remote-server
           printf 'LITHE_REMOTE_SERVER_STAGE=%s\n' "$PWD/.artifacts/desktop/remote-server" >> "$GITHUB_ENV"
 
+      - name: Download cross-built Windows release Core
+        if: matrix.os == 'windows'
+        uses: actions/download-artifact@v8
+        with:
+          name: core-windows-amd64-release
+          path: .artifacts/desktop/lithe-core/x86_64-pc-windows-gnu/release
+
+      - name: Restore Windows helper executable mode
+        if: matrix.os == 'windows'
+        run: chmod 0755 .artifacts/desktop/lithe-core/x86_64-pc-windows-gnu/release/bin/lithe-mcp.exe
+
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
@@ -148,8 +227,46 @@ jobs:
         if: matrix.os == 'windows'
         uses: ./.github/actions/setup-desktop-windows-build-tools
 
-      # The same key as Desktop Release, so the two workflows share one release build of the core.
+      - name: Resolve pinned Core revision
+        id: core-pin
+        if: matrix.os != 'windows'
+        run: |
+          rev="$(sed -n 's/^PINNED_CORE_REVISION="\([0-9a-f]\{40\}\)"$/\1/p' scripts/desktop/build-desktop-core.sh)"
+          if [[ -z "$rev" ]]; then
+            printf '%s\n' 'Could not read PINNED_CORE_REVISION from scripts/desktop/build-desktop-core.sh.' >&2
+            exit 1
+          fi
+          printf 'revision=%s\n' "$rev" >> "$GITHUB_OUTPUT"
+
+      # The same keys as Desktop Release and Desktop CI, so all workflows share one staged release Core.
+      - name: Restore staged release Core (macOS arm64)
+        id: core-stage-darwin-arm64
+        if: matrix.os == 'darwin'
+        uses: actions/cache@v6
+        with:
+          path: .artifacts/desktop/lithe-core/aarch64-apple-darwin/release
+          key: desktop-core-staged-aarch64-apple-darwin-${{ steps.rust.outputs.cachekey }}-release-${{ steps.core-pin.outputs.revision }}
+
+      - name: Restore staged release Core (macOS amd64)
+        id: core-stage-darwin-amd64
+        if: matrix.os == 'darwin'
+        uses: actions/cache@v6
+        with:
+          path: .artifacts/desktop/lithe-core/x86_64-apple-darwin/release
+          key: desktop-core-staged-x86_64-apple-darwin-${{ steps.rust.outputs.cachekey }}-release-${{ steps.core-pin.outputs.revision }}
+
+      - name: Restore staged release Core (Linux)
+        id: core-stage-linux
+        if: matrix.os == 'linux'
+        uses: actions/cache@v6
+        with:
+          path: .artifacts/desktop/lithe-core/${{ matrix.rust-target }}/release
+          key: desktop-core-staged-${{ matrix.rust-target }}-${{ steps.rust.outputs.cachekey }}-release-${{ steps.core-pin.outputs.revision }}
+
       - name: Restore the core build
+        if: >-
+          (matrix.os == 'darwin' && (steps.core-stage-darwin-arm64.outputs.cache-hit != 'true' || steps.core-stage-darwin-amd64.outputs.cache-hit != 'true')) ||
+          (matrix.os == 'linux' && steps.core-stage-linux.outputs.cache-hit != 'true')
         uses: actions/cache@v6
         with:
           path: |
@@ -157,9 +274,9 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             .artifacts/desktop/lithe-core-rust
-          key: desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-release-${{ matrix.rust-target }}-${{ hashFiles('scripts/desktop/build-desktop-core.sh') }}
+          key: desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-release-${{ matrix.os }}-${{ matrix.arch }}-${{ steps.core-pin.outputs.revision }}
           restore-keys: |
-            desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-release-${{ matrix.rust-target }}-
+            desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-release-${{ matrix.os }}-${{ matrix.arch }}-
 
       # Each platform receives only its own signing secrets.
       - name: Package
@@ -170,13 +287,21 @@ jobs:
           WINDOWS_CERTIFICATE: ${{ matrix.os == 'windows' && secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 || '' }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ matrix.os == 'windows' && secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD || '' }}
           WINDOWS_TIMESTAMP_URL: ${{ matrix.os == 'windows' && secrets.WINDOWS_TIMESTAMP_SERVER || '' }}
-          DESKTOP_ARCH: ${{ matrix.arch }}
+          DESKTOP_ARCHES: ${{ matrix.arches }}
           # Every platform records the same build time and commit. The feed keys are public; the
           # private signing key never reaches a packaging runner.
           LITHE_BUILD_TIME: ${{ needs.prepare.outputs.timestamp }}
           LITHE_BUILD_COMMIT: ${{ needs.prepare.outputs.sha }}
           LITHE_UPDATE_PUBLIC_KEYS: ${{ vars.LITHE_UPDATE_PUBLIC_KEYS }}
-        run: bash scripts/ci/desktop-autobuild/package-autobuild.sh "$DESKTOP_ARCH"
+        run: |
+          for arch in $DESKTOP_ARCHES; do
+            skip_check=0
+            if [[ "${{ matrix.os }}" == "darwin" && "$arch" != "arm64" ]]; then
+              skip_check=1
+            fi
+            LITHE_SKIP_FILE_ASSOCIATIONS_CHECK="$skip_check" \
+              bash scripts/ci/desktop-autobuild/package-autobuild.sh "$arch"
+          done
 
       - name: Upload the packages
         uses: actions/upload-artifact@v7

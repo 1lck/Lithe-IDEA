@@ -18,6 +18,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+env:
+  # Use the release Core in CI too: Lithe-IDEA tests Go code against a pinned Core revision,
+  # so sharing the ~36 MiB staged release Core across CI, AutoBuild and Release eliminates the
+  # 700+ MiB debug staticlib, speeds up cgo linking, and pre-warms release caches for free.
+  LITHE_DESKTOP_CORE_PROFILE: release
+  CARGO_INCREMENTAL: 0
+
 jobs:
   pins:
     name: Verify pins
@@ -155,7 +162,25 @@ jobs:
         id: rust
         uses: dtolnay/rust-toolchain@1.100.0
 
+      - name: Resolve pinned Core revision
+        id: core-pin
+        run: |
+          rev="$(sed -n 's/^PINNED_CORE_REVISION="\([0-9a-f]\{40\}\)"$/\1/p' scripts/desktop/build-desktop-core.sh)"
+          if [[ -z "$rev" ]]; then
+            printf '%s\n' 'Could not read PINNED_CORE_REVISION from scripts/desktop/build-desktop-core.sh.' >&2
+            exit 1
+          fi
+          printf 'revision=%s\n' "$rev" >> "$GITHUB_OUTPUT"
+
+      - name: Restore staged release Core
+        id: core-stage
+        uses: actions/cache@v6
+        with:
+          path: .artifacts/desktop/lithe-core/x86_64-unknown-linux-gnu/release
+          key: desktop-core-staged-x86_64-unknown-linux-gnu-${{ steps.rust.outputs.cachekey }}-release-${{ steps.core-pin.outputs.revision }}
+
       - name: Restore the core build
+        if: steps.core-stage.outputs.cache-hit != 'true'
         uses: actions/cache@v6
         with:
           path: |
@@ -163,9 +188,15 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             .artifacts/desktop/lithe-core-rust
-          key: desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-x86_64-unknown-linux-gnu-debug-${{ hashFiles('scripts/desktop/build-desktop-core.sh') }}
+          key: desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-release-x86_64-unknown-linux-gnu-${{ steps.core-pin.outputs.revision }}
           restore-keys: |
-            desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-x86_64-unknown-linux-gnu-debug-
+            desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-release-x86_64-unknown-linux-gnu-
+
+      - name: Ensure Core fixtures checkout
+        run: ./scripts/desktop/build-desktop-core.sh --checkout-only > /dev/null
+
+      - name: Stage release Core
+        run: ./scripts/desktop/desktop-go.sh --print-core-stage > /dev/null
 
       - name: Verify Core cgo cache invalidation
         run: |
@@ -375,19 +406,41 @@ jobs:
         id: rust
         uses: dtolnay/rust-toolchain@1.100.0
 
-      - name: Restore the core build
+      - name: Resolve pinned Core revision
+        id: core-pin
+        run: |
+          rev="$(sed -n 's/^PINNED_CORE_REVISION="\([0-9a-f]\{40\}\)"$/\1/p' scripts/desktop/build-desktop-core.sh)"
+          if [[ -z "$rev" ]]; then
+            printf '%s\n' 'Could not read PINNED_CORE_REVISION from scripts/desktop/build-desktop-core.sh.' >&2
+            exit 1
+          fi
+          printf 'revision=%s\n' "$rev" >> "$GITHUB_OUTPUT"
+
+      - name: Restore staged release Core
+        id: core-stage
         uses: actions/cache@v6
         with:
-          # The pinned revision lives in build-desktop-core.sh, so its hash keys the checkout and
-          # target directory; cargo rebuilds whatever a different toolchain invalidates.
+          path: .artifacts/desktop/lithe-core/aarch64-apple-darwin/release
+          key: desktop-core-staged-aarch64-apple-darwin-${{ steps.rust.outputs.cachekey }}-release-${{ steps.core-pin.outputs.revision }}
+
+      - name: Restore the core build
+        if: steps.core-stage.outputs.cache-hit != 'true'
+        uses: actions/cache@v6
+        with:
           path: |
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             .artifacts/desktop/lithe-core-rust
-          key: desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-debug-${{ hashFiles('scripts/desktop/build-desktop-core.sh') }}
+          key: desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-release-aarch64-apple-darwin-${{ steps.core-pin.outputs.revision }}
           restore-keys: |
-            desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-debug-
+            desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-release-aarch64-apple-darwin-
+
+      - name: Ensure Core fixtures checkout
+        run: ./scripts/desktop/build-desktop-core.sh --checkout-only > /dev/null
+
+      - name: Stage release Core
+        run: ./scripts/desktop/desktop-go.sh --print-core-stage > /dev/null
 
       - name: Verify Core cgo cache invalidation
         run: |
@@ -467,7 +520,25 @@ jobs:
         with:
           nsis: 'false'
 
+      - name: Resolve pinned Core revision
+        id: core-pin
+        run: |
+          rev="$(sed -n 's/^PINNED_CORE_REVISION="\([0-9a-f]\{40\}\)"$/\1/p' scripts/desktop/build-desktop-core.sh)"
+          if [[ -z "$rev" ]]; then
+            printf '%s\n' 'Could not read PINNED_CORE_REVISION from scripts/desktop/build-desktop-core.sh.' >&2
+            exit 1
+          fi
+          printf 'revision=%s\n' "$rev" >> "$GITHUB_OUTPUT"
+
+      - name: Restore staged release Core
+        id: core-stage
+        uses: actions/cache@v6
+        with:
+          path: .artifacts/desktop/lithe-core/x86_64-pc-windows-gnu/release
+          key: desktop-core-staged-x86_64-pc-windows-gnu-${{ steps.rust.outputs.cachekey }}-release-${{ steps.core-pin.outputs.revision }}
+
       - name: Restore the core build
+        if: steps.core-stage.outputs.cache-hit != 'true'
         uses: actions/cache@v6
         with:
           path: |
@@ -475,9 +546,15 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             .artifacts/desktop/lithe-core-rust
-          key: desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-x86_64-pc-windows-gnu-debug-${{ hashFiles('scripts/desktop/build-desktop-core.sh') }}
+          key: desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-release-x86_64-pc-windows-gnu-${{ steps.core-pin.outputs.revision }}
           restore-keys: |
-            desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-x86_64-pc-windows-gnu-debug-
+            desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-release-x86_64-pc-windows-gnu-
+
+      - name: Ensure Core fixtures checkout
+        run: ./scripts/desktop/build-desktop-core.sh --checkout-only > /dev/null
+
+      - name: Stage release Core
+        run: ./scripts/desktop/desktop-go.sh --print-core-stage > /dev/null
 
       - name: Verify Core cgo cache invalidation
         run: |

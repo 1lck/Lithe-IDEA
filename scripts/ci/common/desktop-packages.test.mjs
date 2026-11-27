@@ -4,12 +4,14 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { packageNames, packageTargets, verifyPackages } from './desktop-packages.mjs';
+import { packageMatrix, packageNames, packageTargets, verifyPackages } from './desktop-packages.mjs';
 
 const version = '0.7.0';
 test('both channels cover all five targets and twelve downloadable packages', () => {
   assert.deepEqual(packageTargets.map(({ os, arch }) => `${os}/${arch}`),
     ['darwin/arm64', 'darwin/amd64', 'windows/amd64', 'linux/amd64', 'linux/arm64']);
+  assert.deepEqual(packageMatrix().map(({ os, arches, runner }) => `${os}:${arches}@${runner}`),
+    ['darwin:arm64 amd64@macos-26', 'windows:amd64@windows-2022', 'linux:amd64@ubuntu-22.04', 'linux:arm64@ubuntu-22.04-arm']);
   const names = packageNames(version);
   assert.equal(names.length, 12);
   for (const arch of ['arm64', 'amd64']) {
