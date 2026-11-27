@@ -120,7 +120,7 @@ func TestDebugAnnouncedAdapterRunner(t *testing.T) {
 		os.Exit(2)
 	}
 	var requests bytes.Buffer
-	code := serveFixtureAdapter(io.TeeReader(conn, &requests), conn, workspace)
+	code := serveFixtureAdapter(io.TeeReader(conn, &requests), conn, workspace, nil)
 	if bytes.Contains(requests.Bytes(), []byte(`"disconnect"`)) {
 		fmt.Fprintln(watch, "disconnected")
 		// Finish the successful report before exiting. An abrupt Windows

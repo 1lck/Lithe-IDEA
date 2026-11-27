@@ -585,9 +585,6 @@ func (a *App) beginDebug(p *project, start debugStart) {
 			// which Core's default discovery limit bounds.
 			window += time.Duration(policy.Limits.DiscoveryMilliseconds) * time.Millisecond
 		}
-		if override := a.debugInitializeWindow; override > 0 {
-			window = override
-		}
 		a.watchDebugInitialize(p, session, window)
 		if err := session.writeFrames(update.OutboundFrames); err != nil {
 			return a.debugWriteFailed(p, session, err)
