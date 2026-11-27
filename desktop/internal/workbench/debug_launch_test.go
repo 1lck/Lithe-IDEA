@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -23,6 +22,52 @@ import (
 type countedDebugCreate struct {
 	Kernel
 	creates atomic.Int32
+}
+
+func TestDebugAdapterExecutableOverride(t *testing.T) {
+	directory := t.TempDir()
+	command := "example-dap"
+	suffix := ""
+	if buildPlatform() == "windows" {
+		suffix = ".exe"
+	}
+	onPath := filepath.Join(directory, command+suffix)
+	configured := filepath.Join(t.TempDir(), "custom adapter"+suffix)
+	missing := filepath.Join(t.TempDir(), "missing adapter"+suffix)
+	for _, path := range []string{onPath, configured} {
+		if err := os.WriteFile(path, nil, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", directory)
+	a := &App{}
+	for _, tc := range []struct {
+		name, path, want string
+	}{
+		{"default", "", onPath},
+		{"override", configured, configured},
+		{"missing", missing, ""},
+		{"relative", command, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := json.Marshal(map[string]any{
+				"launch": map[string]any{
+					"kind": "systemCommand", "commands": []string{command}, "configuredExecutable": tc.path,
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var plan core.PluginBackendPlan
+			if err := json.Unmarshal(data, &plan); err != nil {
+				t.Fatal(err)
+			}
+			got, _, _, err := a.resolveAdapterProcess(context.Background(), debugAdapter{Directory: directory}, plan, directory, directory)
+			if got != tc.want || (err != nil) != (tc.want == "") {
+				t.Fatalf("adapter lookup = %q, %v; want %q", got, err, tc.want)
+			}
+		})
+	}
 }
 
 func (k *countedDebugCreate) CreateDebugSession(ctx context.Context, request core.DebugCreateSessionRequest) (core.DebugUpdate, error) {

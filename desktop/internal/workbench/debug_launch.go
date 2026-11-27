@@ -118,8 +118,15 @@ func (a *App) resolveAdapterProcess(ctx context.Context, adapter debugAdapter, p
 		}
 		executable = resolved.Executable
 		if plan.Launch.Kind == pluginhost.LaunchSystemCommand {
-			lookup := a.installedCommands().Lookup(adapter.PluginID, func(name string) (string, error) { return debugLookupCommand(ctx, name) })
-			executable, err = pluginhost.ResolveCommand(plan.Launch.Commands, lookup)
+			if path := plan.Launch.ConfiguredExecutable; path != "" {
+				if !filepath.IsAbs(path) {
+					return "", nil, nil, &exec.Error{Name: path, Err: exec.ErrNotFound}
+				}
+				executable, err = exec.LookPath(path)
+			} else {
+				lookup := a.installedCommands().Lookup(adapter.PluginID, func(name string) (string, error) { return debugLookupCommand(ctx, name) })
+				executable, err = pluginhost.ResolveCommand(plan.Launch.Commands, lookup)
+			}
 			if err != nil {
 				return "", nil, nil, err
 			}

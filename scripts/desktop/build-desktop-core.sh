@@ -385,7 +385,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # and preserves the selected context and distribution through build, connection and trust.
 # Lithe-core-rust main at c269c411 (#201): built-in rainbow bracket/variable colors,
 # indent guide preferences, and Unicode whole-identifier document highlights.
-PINNED_CORE_REVISION="c269c41153c8da2f2e8d064c68550a8f23260e2c"
+PINNED_CORE_REVISION="ac835072a1a45f85056e09e61a51dbb3f2bebf0b"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do
