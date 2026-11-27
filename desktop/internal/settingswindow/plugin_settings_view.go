@@ -8,6 +8,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/uistyle"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
@@ -214,13 +215,13 @@ func (w *window) pluginSettingRow(c ui.C, index int, hasSource bool) {
 	control := &p.controls[p.scope][index]
 	disabled := p.running || !p.loaded || !editor.Editable || !hasSource
 	text := declaration.Kind != "boolean" && declaration.Kind != "enum" && declaration.Kind != "multiSelect"
-	ui.Column(c).FillWidth().Shrink(0).Gap(4).PadY(6).Children(func() {
+	uistyle.SettingsRow(c).Children(func() {
 		// The title starts the line, and the value with its buttons ends it. A value typed in
 		// or chosen from a list shares the line with the title two to three, and moves under
 		// it, buttons and all, when the pane has no room for both at their minimum widths; a
 		// switch leaves the title the rest of the line.
-		ui.Flow(c).FillWidth().MinHeight(30).Items(ui.Center).Gap(8).LineGap(6).Children(func() {
-			ui.Row(c.Part("title")).Basis(0).Grow(2).Shrink(1).MinWidth(120).Items(ui.Center).Gap(8).Children(func() {
+		uistyle.SettingsLine(c).Children(func() {
+			uistyle.SettingsTitle(c).Children(func() {
 				ui.Text(c, declaration.Title).FontSize(12).Weight(gfx.WeightSemibold).Color(w.pal.text).Shrink(1).MinWidth(0).Ellipsis()
 				if declaration.Description != "" {
 					w.infoButton(c, declaration.Description)
