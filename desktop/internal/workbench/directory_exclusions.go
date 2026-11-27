@@ -5,52 +5,108 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
 	"sync/atomic"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/atomicfile"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/vivaui/viva/gfx"
 )
 
-// This file keeps folders of the project out of search (matrix id workspace-indexing-exclusions).
-// A folder's rule goes through Core's workspace.reduceDirectoryAction, and the rule state of the
-// project is stored in the client's store, one file per project folder, verbatim as Core returned
-// it, with whether folders Git ignores are left out too. As the project opens, and whenever its
-// rules change, the policy they make is installed in Core (workspace.configureIndexing) under
-// this window's lease, which every search, index and language-server sync of the root obeys;
-// closing the project releases the lease. The tree keeps showing excluded folders.
+// This file manages workspace directory roles, custom folder types, color overrides and
+// indexing exclusions (matrix id workspace-indexing-exclusions). Every rule transition goes
+// through Core's workspace.reduceDirectoryAction, presentation merging goes through
+// workspace.resolveDirectoryPresentation, and indexing obeys workspace.configureIndexing.
 
-// directoryRulesFile is the stored rules of one project folder.
+const defaultSharedDirectoryRulesPath = ".lithe/directories.json"
+
+// directoryRulesFile is the stored local rules and preferences of one project folder.
 type directoryRulesFile struct {
 	Root  string          `json:"root"`
 	Rules json.RawMessage `json:"rules"`
 	// GitIgnoreDisabled keeps the folders Git ignores in the indexes; by default they are left out.
 	GitIgnoreDisabled bool `json:"gitIgnoreDisabled,omitempty"`
+	// SharedConfigEnabled loads optional team-shared directory rules from SharedConfigPath.
+	SharedConfigEnabled bool   `json:"sharedConfigEnabled,omitempty"`
+	SharedConfigPath    string `json:"sharedConfigPath,omitempty"`
+	// HideBgTint and HideTags default to false so background tinting and tags show out of the box.
+	HideBgTint bool `json:"hideBgTint,omitempty"`
+	HideTags   bool `json:"hideTags,omitempty"`
 }
 
-// projectIndexing is the policy a project installed in Core: its rules as stored, the lease the
-// window holds and what Core answered.
+// sharedDirectoryRulesFile is the optional workspace-relative team-shared file (.lithe/directories.json).
+type sharedDirectoryRulesFile struct {
+	SchemaVersion int             `json:"schemaVersion"`
+	Rules         json.RawMessage `json:"rules"`
+}
+
+// projectIndexing is the directory metadata and indexing policy a project installed in Core.
 type projectIndexing struct {
-	owner      string
-	rules      json.RawMessage
-	gitIgnore  bool
-	loaded     bool
-	unreadable bool // saved rules could not be decoded; do not replace their file
-	status     core.IndexingStatus
-	// generation rejects an installation a newer one replaced; warned keeps the Git warning to once.
-	generation uint64
-	warned     bool
+	owner               string
+	rules               json.RawMessage
+	sharedRules         json.RawMessage
+	sharedConfigEnabled bool
+	sharedConfigPath    string
+	hideBgTint          bool
+	hideTags            bool
+	gitIgnore           bool
+	loaded              bool
+	unreadable          bool // saved rules could not be decoded; do not replace their file
+	status              core.IndexingStatus
+	presentation        map[string]core.ResolvedDirectoryEntry
+	customIconCache     map[string]gfx.Icon
+	// generation rejects an installation a newer one replaced; presGeneration does the same for presentation.
+	generation     uint64
+	presGeneration uint64
+	warned         bool
 }
 
-// indexingKernel is the part of Core the exclusions use.
+// indexingKernel is the part of Core directory metadata and exclusions use.
 type indexingKernel interface {
 	ExcludeDirectory(ctx context.Context, path string, caseInsensitive bool, rules json.RawMessage) (bool, json.RawMessage, error)
 	CancelDirectoryExclusion(ctx context.Context, path string, caseInsensitive bool, rules json.RawMessage) (bool, json.RawMessage, error)
 	ConfigureIndexing(ctx context.Context, root, owner string, policy core.IndexingPolicy, refresh bool) (core.IndexingStatus, error)
 	ReleaseIndexing(ctx context.Context, root, owner string, revision uint64) (bool, error)
+}
+
+// directoryMetaKernel is the extended directory metadata surface of Core.
+type directoryMetaKernel interface {
+	SetDirectoryRole(ctx context.Context, path, role string, caseInsensitive bool, rules json.RawMessage) (bool, json.RawMessage, error)
+	ClearDirectoryMark(ctx context.Context, path string, caseInsensitive bool, rules json.RawMessage) (bool, json.RawMessage, error)
+	SetDirectoryColor(ctx context.Context, path, color string, caseInsensitive bool, rules json.RawMessage) (bool, json.RawMessage, error)
+	UpsertCustomDirectoryType(ctx context.Context, dirType core.CustomDirectoryType, rules json.RawMessage) (bool, json.RawMessage, error)
+	DeleteCustomDirectoryType(ctx context.Context, id string, rules json.RawMessage) (bool, json.RawMessage, error)
+	UpsertCustomDirectoryIcon(ctx context.Context, dirIcon core.CustomDirectoryIcon, rules json.RawMessage) (bool, json.RawMessage, error)
+	DeleteCustomDirectoryIcon(ctx context.Context, id string, rules json.RawMessage) (bool, json.RawMessage, error)
+	ResolveDirectoryPresentation(ctx context.Context, rules, sharedRules json.RawMessage, gitExcluded []string, caseInsensitive bool, paths []string) (core.DirectoryPresentationResult, error)
+}
+
+// directoryColorSwatch is one preset color offered in the quick color menu and settings.
+type directoryColorSwatch struct {
+	label string
+	hex   string
+}
+
+func directoryColorSwatchesFor(language i18n.Language) []directoryColorSwatch {
+	return []directoryColorSwatch{
+		{label: i18n.Shared(language, "desktop.directoryMarks.color.blue"), hex: "#4e8df5"},
+		{label: i18n.Shared(language, "desktop.directoryMarks.color.green"), hex: "#57ab5a"},
+		{label: i18n.Shared(language, "desktop.directoryMarks.color.amber"), hex: "#e09b3d"},
+		{label: i18n.Shared(language, "desktop.directoryMarks.color.purple"), hex: "#9f7aea"},
+		{label: i18n.Shared(language, "desktop.directoryMarks.color.teal"), hex: "#38b2ac"},
+		{label: i18n.Shared(language, "desktop.directoryMarks.color.rose"), hex: "#e56b6f"},
+		{label: i18n.Shared(language, "desktop.directoryMarks.color.slate"), hex: "#8b949e"},
+	}
 }
 
 // indexingOwners numbers the leases of this process.
@@ -70,6 +126,8 @@ func (a *App) installIndexing(p *project, refresh bool) {
 	ix.generation++
 	generation, root, owner, s := ix.generation, p.root, ix.owner, a.store
 	loaded, rules, gitIgnore := ix.loaded, ix.rules, ix.gitIgnore
+	sharedEnabled, sharedPath, sharedRules := ix.sharedConfigEnabled, ix.sharedConfigPath, ix.sharedRules
+	hideBgTint, hideTags := ix.hideBgTint, ix.hideTags
 	a.background(p, kernelCallTimeout, func(ctx context.Context) func(*App) {
 		var readFailure error
 		if !loaded {
@@ -83,18 +141,41 @@ func (a *App) installIndexing(p *project, refresh bool) {
 			}
 			if err == nil && found {
 				rules, gitIgnore = stored.Rules, !stored.GitIgnoreDisabled
+				sharedEnabled = stored.SharedConfigEnabled
+				sharedPath = stored.SharedConfigPath
+				hideBgTint = stored.HideBgTint
+				hideTags = stored.HideTags
 			} else {
 				rules, gitIgnore = nil, true
 				readFailure = err
 			}
+			if sharedPath == "" {
+				sharedPath = defaultSharedDirectoryRulesPath
+			}
+			if sharedEnabled {
+				if raw, _, serr := readSharedDirectoryRules(root, sharedPath); serr == nil {
+					sharedRules = raw
+				}
+			}
 		}
-		status, err := kernel.ConfigureIndexing(ctx, root, owner, core.IndexingPolicyOf(rules, gitIgnore), refresh)
+		policy := core.IndexingPolicyOf(rules, gitIgnore)
+		if sharedEnabled && len(sharedRules) > 0 {
+			sharedPolicy := core.IndexingPolicyOf(sharedRules, false)
+			for _, dir := range sharedPolicy.ManualExcludedDirectories {
+				if !slices.Contains(policy.ManualExcludedDirectories, dir) && !slices.Contains(policy.IncludedDirectories, dir) {
+					policy.ManualExcludedDirectories = append(policy.ManualExcludedDirectories, dir)
+				}
+			}
+		}
+		status, err := kernel.ConfigureIndexing(ctx, root, owner, policy, refresh)
 		return func(a *App) {
 			if ix.generation != generation {
 				return
 			}
 			if !loaded && !ix.loaded {
 				ix.rules, ix.gitIgnore, ix.loaded = rules, gitIgnore, true
+				ix.sharedConfigEnabled, ix.sharedConfigPath, ix.sharedRules = sharedEnabled, sharedPath, sharedRules
+				ix.hideBgTint, ix.hideTags = hideBgTint, hideTags
 				ix.unreadable = readFailure != nil
 				if readFailure != nil {
 					a.storedStateFailed("directory_rules", readFailure)
@@ -112,6 +193,56 @@ func (a *App) installIndexing(p *project, refresh bool) {
 			}
 			// Search results cached under the previous policy are stale.
 			a.searchView.reset()
+			a.refreshDirectoryPresentation(p)
+		}
+	})
+}
+
+// refreshDirectoryPresentation asks Core for the flat presentation map of all currently loaded
+// tree nodes so drawTreeContent can style each row in O(1) without per-frame work.
+func (a *App) refreshDirectoryPresentation(p *project) {
+	if p == nil || p.remote != nil {
+		return
+	}
+	meta, ok := a.kernel.(directoryMetaKernel)
+	if !ok {
+		return
+	}
+	ix := &p.indexing
+	paths := make([]string, 0, len(p.tree.rows))
+	for _, n := range p.tree.rows {
+		if n != nil && n.path != "" {
+			paths = append(paths, n.path)
+		}
+	}
+	if len(paths) == 0 {
+		return
+	}
+	gitExcluded := make([]string, 0, len(ix.status.ExcludedDirectories))
+	for dir := range ix.status.ExcludedDirectories {
+		gitExcluded = append(gitExcluded, dir)
+	}
+	ix.presGeneration++
+	gen := ix.presGeneration
+	rules := ix.rules
+	var shared json.RawMessage
+	if ix.sharedConfigEnabled {
+		shared = ix.sharedRules
+	}
+	a.background(p, kernelCallTimeout, func(ctx context.Context) func(*App) {
+		res, err := meta.ResolveDirectoryPresentation(ctx, rules, shared, gitExcluded, false, paths)
+		return func(a *App) {
+			if ix.presGeneration != gen {
+				return
+			}
+			if err != nil {
+				a.operationFailed("workspace_directory_presentation", err)
+				return
+			}
+			ix.presentation = res.Entries
+			if p.tree.wake != nil {
+				p.tree.wake()
+			}
 		}
 	})
 }
@@ -138,14 +269,74 @@ func (a *App) releaseIndexing(p *project) {
 // directoryExcluded reports whether the folder at rel is known to be left out of search, and
 // whether by hand.
 func (p *project) directoryExcluded(rel string) bool {
-	_, ok := p.indexing.status.ExcludedDirectories[path.Clean(rel)]
-	return ok || slices.Contains(core.IndexingPolicyOf(p.indexing.rules, false).ManualExcludedDirectories, path.Clean(rel))
+	cleaned := path.Clean(rel)
+	if entry, ok := p.indexing.presentation[cleaned]; ok && entry.Excluded {
+		return true
+	}
+	_, ok := p.indexing.status.ExcludedDirectories[cleaned]
+	return ok || slices.Contains(core.IndexingPolicyOf(p.indexing.rules, false).ManualExcludedDirectories, cleaned)
 }
 
 // directoryRulesName is the store name of the rules of the project folder root.
 func directoryRulesName(root string) string {
 	sum := sha256.Sum256([]byte(root))
 	return "workspace-directory-rules-" + hex.EncodeToString(sum[:8]) + ".json"
+}
+
+// readSharedDirectoryRules reads an optional workspace-relative shared directory rules file.
+func readSharedDirectoryRules(root, relPath string) (json.RawMessage, bool, error) {
+	full, err := resolveWorkspaceFilePath(root, relPath)
+	if err != nil {
+		return nil, false, err
+	}
+	data, err := os.ReadFile(full)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	var file sharedDirectoryRulesFile
+	if err := json.Unmarshal(data, &file); err != nil {
+		return nil, true, err
+	}
+	if len(file.Rules) == 0 {
+		return core.EmptyDirectoryRules(), true, nil
+	}
+	return file.Rules, true, nil
+}
+
+// writeSharedDirectoryRules atomically writes the workspace-relative shared rules file.
+func writeSharedDirectoryRules(root, relPath string, rules json.RawMessage) error {
+	full, err := resolveWorkspaceFilePath(root, relPath)
+	if err != nil {
+		return err
+	}
+	if len(rules) == 0 {
+		rules = core.EmptyDirectoryRules()
+	}
+	data, err := json.MarshalIndent(sharedDirectoryRulesFile{SchemaVersion: 1, Rules: rules}, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return atomicfile.Write(full, data, 0o644)
+}
+
+func resolveWorkspaceFilePath(root, relPath string) (string, error) {
+	cleaned := strings.TrimSpace(relPath)
+	if cleaned == "" {
+		cleaned = defaultSharedDirectoryRulesPath
+	}
+	if filepath.IsAbs(cleaned) {
+		return "", errors.New("shared config path must be workspace-relative")
+	}
+	joined := filepath.Clean(filepath.Join(root, filepath.FromSlash(cleaned)))
+	rel, err := filepath.Rel(root, joined)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", errors.New("shared config path escapes workspace root")
+	}
+	return joined, nil
 }
 
 // excludeFromSearch leaves the folder at rel (project-relative, "/" separators) out of search;
@@ -166,6 +357,42 @@ func (a *App) excludeFromSearch(p *project, rel string, cancel bool) {
 			return kernel.CancelDirectoryExclusion(ctx, path.Clean(rel), false, rules)
 		}
 		return kernel.ExcludeDirectory(ctx, path.Clean(rel), false, rules)
+	}, p.indexing.gitIgnore)
+}
+
+// setDirectoryRole assigns a built-in role or custom type ID to rel via Core.
+func (a *App) setDirectoryRole(p *project, rel, role string) {
+	meta, ok := a.kernel.(directoryMetaKernel)
+	if !ok || a.store == nil || !p.indexing.loaded {
+		return
+	}
+	a.performed("workspace.tree.setDirectoryRole", surfaceContextMenu)
+	a.changeIndexingRules(p, func(ctx context.Context, rules json.RawMessage) (bool, json.RawMessage, error) {
+		return meta.SetDirectoryRole(ctx, path.Clean(rel), role, false, rules)
+	}, p.indexing.gitIgnore)
+}
+
+// clearDirectoryMark clears a directory's manual role and color override via Core.
+func (a *App) clearDirectoryMark(p *project, rel string) {
+	meta, ok := a.kernel.(directoryMetaKernel)
+	if !ok || a.store == nil || !p.indexing.loaded {
+		return
+	}
+	a.performed("workspace.tree.clearDirectoryMark", surfaceContextMenu)
+	a.changeIndexingRules(p, func(ctx context.Context, rules json.RawMessage) (bool, json.RawMessage, error) {
+		return meta.ClearDirectoryMark(ctx, path.Clean(rel), false, rules)
+	}, p.indexing.gitIgnore)
+}
+
+// setDirectoryColor sets or clears (when hex == "") a quick color override on rel via Core.
+func (a *App) setDirectoryColor(p *project, rel, hexColor string) {
+	meta, ok := a.kernel.(directoryMetaKernel)
+	if !ok || a.store == nil || !p.indexing.loaded {
+		return
+	}
+	a.performed("workspace.tree.setDirectoryColor", surfaceContextMenu)
+	a.changeIndexingRules(p, func(ctx context.Context, rules json.RawMessage) (bool, json.RawMessage, error) {
+		return meta.SetDirectoryColor(ctx, path.Clean(rel), hexColor, false, rules)
 	}, p.indexing.gitIgnore)
 }
 
@@ -195,10 +422,22 @@ func (a *App) changeIndexingRules(p *project, reduce func(context.Context, json.
 	if len(rules) == 0 {
 		rules = core.EmptyDirectoryRules()
 	}
+	sharedEnabled := p.indexing.sharedConfigEnabled
+	sharedPath := p.indexing.sharedConfigPath
+	hideBgTint := p.indexing.hideBgTint
+	hideTags := p.indexing.hideTags
 	a.background(p, kernelCallTimeout, func(ctx context.Context) func(*App) {
 		changed, next, err := reduce(ctx, rules)
 		if err == nil && changed {
-			err = s.Save(directoryRulesName(root), directoryRulesFile{Root: root, Rules: next, GitIgnoreDisabled: !gitIgnore})
+			err = s.Save(directoryRulesName(root), directoryRulesFile{
+				Root:                root,
+				Rules:               next,
+				GitIgnoreDisabled:   !gitIgnore,
+				SharedConfigEnabled: sharedEnabled,
+				SharedConfigPath:    sharedPath,
+				HideBgTint:          hideBgTint,
+				HideTags:            hideTags,
+			})
 		}
 		return func(a *App) {
 			if err != nil {
@@ -215,4 +454,63 @@ func (a *App) changeIndexingRules(p *project, reduce func(context.Context, json.
 			}
 		}
 	})
+}
+
+// directoryIcon maps a Core-resolved icon identifier to a vector icon.
+func directoryIcon(name string, dark bool) gfx.Icon {
+	switch name {
+	case "sources", "resources", "excluded", "module", "package":
+		return fileicons.ForDirectoryIconName(name, dark)
+	case "tests":
+		return icons.Bug
+	case "generated", "gear":
+		return icons.Settings
+	case "star":
+		return icons.Sparkles
+	case "book":
+		return icons.FileText
+	case "archive":
+		return icons.Archive
+	case "database":
+		return icons.Server
+	default:
+		return fileicons.ForDirectoryIconName("folder", dark)
+	}
+}
+
+// parseHexColor parses a #rrggbb string into a gfx.Color with the given alpha (0..255).
+func parseHexColor(hexStr string, alpha uint8) (gfx.Color, bool) {
+	if len(hexStr) != 7 || hexStr[0] != '#' {
+		return gfx.Color{}, false
+	}
+	v, err := strconv.ParseUint(hexStr[1:], 16, 32)
+	if err != nil {
+		return gfx.Color{}, false
+	}
+	return gfx.RGBA(uint8(v>>16), uint8((v>>8)&0xff), uint8(v&0xff), float32(alpha)/255.0), true
+}
+
+// directoryRoleDisplayName returns the localized label of a built-in role or custom type ID.
+func directoryRoleDisplayName(language i18n.Language, role string, customTypes []core.CustomDirectoryType) string {
+	for _, ct := range customTypes {
+		if ct.ID == role {
+			return ct.Name
+		}
+	}
+	switch role {
+	case "sources":
+		return i18n.Shared(language, "desktop.directoryMarks.role.sources")
+	case "tests":
+		return i18n.Shared(language, "desktop.directoryMarks.role.tests")
+	case "resources":
+		return i18n.Shared(language, "desktop.directoryMarks.role.resources")
+	case "testResources":
+		return i18n.Shared(language, "desktop.directoryMarks.role.testResources")
+	case "generated":
+		return i18n.Shared(language, "desktop.directoryMarks.role.generated")
+	case "excluded":
+		return i18n.Shared(language, "desktop.directoryMarks.role.excluded")
+	default:
+		return role
+	}
 }

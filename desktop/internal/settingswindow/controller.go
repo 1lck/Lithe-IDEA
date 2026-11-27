@@ -398,6 +398,8 @@ type Options struct {
 	AssociationAction func(context.Context, string) context.Context
 	AssociationError  func(context.Context, error)
 	SearchPreferences SearchPreferencesSource
+	// DirectoryMarks loads and saves workspace directory marks, custom types and config file paths.
+	DirectoryMarks DirectoryMarksSource
 	// PluginInstallsClosed releases downloads retained by the settings session.
 	PluginInstallsClosed func()
 	// GitHub is the account the Git settings page shows and drives; nil hides the card.
@@ -747,6 +749,11 @@ func (c *Controller) OpenToolchains(application *app.Application, current Values
 // OpenAI shows the window on the Generation page, where the commit area's settings button leads.
 func (c *Controller) OpenAI(application *app.Application, current Values) error {
 	return c.open(application, current, pageAIGeneration)
+}
+
+// OpenDirectoryMarks shows the window on the Directory Marks & Colors page under Appearance & Behavior.
+func (c *Controller) OpenDirectoryMarks(application *app.Application, current Values) error {
+	return c.open(application, current, pageDirectoryMarks)
 }
 
 // open shows the window on page, or, with noPage, on the page it already has or starts on.

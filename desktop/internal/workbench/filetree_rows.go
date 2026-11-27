@@ -53,6 +53,7 @@ func (a *App) refreshTreeRows(p *project, top *string) bool {
 		t.view.ScrollTo(*result.TopRow, ui.ListStart)
 	}
 	t.measureDirty = true
+	a.refreshDirectoryPresentation(p)
 	return result.SelectionMoved
 }
 

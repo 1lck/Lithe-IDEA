@@ -10,8 +10,15 @@
     "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/core/workspace.go",
+      "desktop/internal/core/workspace_directories.go",
+      "desktop/internal/core/workspace_indexing.go",
       "desktop/internal/workbench/filetree_watch.go",
       "desktop/internal/workbench/directory_exclusions.go",
+      "desktop/internal/workbench/directory_settings.go",
+      "desktop/internal/workbench/directory_marks_test.go",
+      "desktop/internal/workbench/filetree_menu.go",
+      "desktop/internal/workbench/filetree_view.go",
+      "desktop/internal/settingswindow/directory_marks_view.go",
       "desktop/internal/workbench/stored_state_failures_test.go"
     ]
   },
@@ -20,12 +27,19 @@
     "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/core/workspace.go",
+      "desktop/internal/core/workspace_directories.go",
+      "desktop/internal/core/workspace_indexing.go",
       "desktop/internal/workbench/filetree_watch.go",
       "desktop/internal/workbench/directory_exclusions.go",
+      "desktop/internal/workbench/directory_settings.go",
+      "desktop/internal/workbench/directory_marks_test.go",
+      "desktop/internal/workbench/filetree_menu.go",
+      "desktop/internal/workbench/filetree_view.go",
+      "desktop/internal/settingswindow/directory_marks_view.go",
       "desktop/internal/workbench/stored_state_failures_test.go"
     ]
   },
-  "notes": "Viva：Core 维护工作区搜索索引（core/workspace.go 的 workspace.searchIndex.invalidate/update），文件树有目录监听（filetree_watch.go）；未找到目录索引排除设置或 Git 自动排除（info/exclude）的实现。 #1990：Viva 首次加载失败后保留可用的默认索引策略，但将本项目本次会话标记为 unreadable；此时禁止将空规则写回，避免覆盖旧配置。Store.Unread 返回的版本兼容形状冲突与完整 JSON 解析错误均记录一次目录告警。",
+  "notes": "Viva：Core 维护工作区搜索索引（core/workspace.go 的 workspace.searchIndex.invalidate/update）与目录元数据/自定义文件夹类型/配色解析（workspace.reduceDirectoryAction、workspace.resolveDirectoryPresentation）；文件树通过右键「将目录标记为 ▸」二级菜单管理内置角色、自定义模式、快速上色与取消/恢复自动标记，统一在「外观与行为 › 目录标记与配色」设置页配置本地/共享文件地址、自定义类型与可搜索 SVG 图标库。 #1990：Viva 首次加载失败后保留可用的默认索引策略，但将本项目本次会话标记为 unreadable；此时禁止将空规则写回，避免覆盖旧配置。Store.Unread 返回的版本兼容形状冲突与完整 JSON 解析错误均记录一次目录告警。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

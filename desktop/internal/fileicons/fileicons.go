@@ -251,6 +251,25 @@ func ForDirectoryMark(mark DirectoryMark, dark bool) gfx.Icon {
 	return iconForKind(iconKind, dark)
 }
 
+// ForDirectoryIconName returns the vector icon for a Core-resolved directory icon name,
+// falling back to the ordinary folder icon when unknown.
+func ForDirectoryIconName(name string, dark bool) gfx.Icon {
+	switch name {
+	case "sources":
+		return ForDirectoryMark(MarkSources, dark)
+	case "resources":
+		return ForDirectoryMark(MarkResources, dark)
+	case "excluded":
+		return ForDirectoryMark(MarkExcluded, dark)
+	case "module":
+		return ForDirectoryMark(MarkModule, dark)
+	case "package":
+		return ForDirectoryMark(MarkPackage, dark)
+	default:
+		return iconForKind(kindFolder, dark)
+	}
+}
+
 // ForSourceDirectory returns a package icon for a valid segment inside a known source root,
 // unless the directory name identifies an excluded directory.
 func ForSourceDirectory(name string, dark bool) gfx.Icon {

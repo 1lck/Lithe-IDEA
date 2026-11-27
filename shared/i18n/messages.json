@@ -12789,7 +12789,9 @@
     {
       "id": "desktop.logs.partialResults",
       "description": "Log window status when a query returned only part of the matching logs",
-      "platforms": ["desktop"]
+      "platforms": [
+        "desktop"
+      ]
     },
     {
       "id": "desktop.logs.dropped",
@@ -110308,6 +110310,457 @@
     {
       "id": "desktop.pluginHost.output",
       "description": "Native plugin workflow output",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.menuTitle",
+      "description": "Directory context menu submenu title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.pageTitle",
+      "description": "Settings page title for directory marks and colors",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.role.sources",
+      "description": "Built-in directory role sources",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.role.tests",
+      "description": "Built-in directory role tests",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.role.resources",
+      "description": "Built-in directory role resources",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.role.testResources",
+      "description": "Built-in directory role test resources",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.role.generated",
+      "description": "Built-in directory role generated",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.role.excluded",
+      "description": "Built-in directory role excluded",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.quickColor",
+      "description": "Submenu for quick folder coloring",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.clearColor",
+      "description": "Clear custom folder color",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.color.blue",
+      "description": "Preset color blue",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.color.green",
+      "description": "Preset color green",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.color.amber",
+      "description": "Preset color amber",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.color.purple",
+      "description": "Preset color purple",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.color.teal",
+      "description": "Preset color teal",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.color.rose",
+      "description": "Preset color rose",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.color.slate",
+      "description": "Preset color slate",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.clearMark",
+      "description": "Remove explicit directory mark",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.restoreAuto",
+      "description": "Restore automatic directory mark showing effective fallback value",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "value": "string"
+      }
+    },
+    {
+      "id": "desktop.directoryMarks.openSettings",
+      "description": "Open directory marks and colors settings page",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.sourcesTitle",
+      "description": "Settings section title for config file addresses and behavior",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.sourcesHelp",
+      "description": "Help tooltip for config file sources",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.localPath",
+      "description": "Label for local private config path",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.localPathHelp",
+      "description": "Help tooltip for local private config path",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.sharedPath",
+      "description": "Label for project shared config path",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.sharedPathHelp",
+      "description": "Help tooltip for project shared config path",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.enableShared",
+      "description": "Checkbox to enable project shared config",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.openFile",
+      "description": "Button to open config file in editor",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.displayBehavior",
+      "description": "Label for display and indexing behavior",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.displayBehaviorHelp",
+      "description": "Help tooltip for display and indexing toggles",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.showBgTint",
+      "description": "Toggle row background tinting in project tree",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.showTags",
+      "description": "Toggle role tags beside folder names",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.gitIgnore",
+      "description": "Toggle automatic exclusion of gitignored directories",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.typesTitle",
+      "description": "Settings section title for custom folder types",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.typesHelp",
+      "description": "Help tooltip for custom folder types",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.newType",
+      "description": "Button to create a custom folder type",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.deleteType",
+      "description": "Button to delete selected custom folder type",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.emptyTypes",
+      "description": "Empty state when no custom folder types exist",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.typeName",
+      "description": "Label for custom type name",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.typeTag",
+      "description": "Label for custom type badge tag",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.typeIcon",
+      "description": "Label for custom type icon",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.typeColor",
+      "description": "Label for custom type hex color",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.typeGlob",
+      "description": "Label for custom type auto-match glob",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.typeGlobHelp",
+      "description": "Help tooltip for custom type auto-match glob",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.tintBg",
+      "description": "Checkbox for tinting row background",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.tintText",
+      "description": "Checkbox for tinting folder name text",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.inheritBg",
+      "description": "Checkbox for inheriting background tint",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.excludeIndexing",
+      "description": "Checkbox for excluding custom type from indexing",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.readOnlyHint",
+      "description": "Checkbox for marking custom type as generated/read-only",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.noWorkspace",
+      "description": "Empty state when no local project is open",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.failed",
+      "description": "Error when loading or saving directory marks config fails",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.unsavedDraft",
+      "description": "Status text when settings page has unsaved draft changes",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.discard",
+      "description": "Button to discard unsaved draft changes",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.chooseIcon",
+      "description": "Toggle searchable icon picker",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.closeIconPicker",
+      "description": "Close searchable icon picker",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.searchIcons",
+      "description": "Search placeholder for icon picker",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.iconFilterAll",
+      "description": "Filter all icons",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.iconFilterBuiltin",
+      "description": "Filter built-in icons",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.iconFilterCustom",
+      "description": "Filter custom icons",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.importIcon",
+      "description": "Add custom SVG icon button",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.importIconPath",
+      "description": "Placeholder for SVG file path to import",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.importIconHelp",
+      "description": "Help tooltip for custom SVG icons",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.deleteIcon",
+      "description": "Delete selected custom icon button",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.noMatchingIcons",
+      "description": "Empty state when icon search has no matches",
       "platforms": [
         "desktop"
       ]

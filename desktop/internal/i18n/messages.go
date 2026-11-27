@@ -574,6 +574,7 @@ type SettingsMessages struct {
 	Editor             string
 	Fonts              string
 	Keymap             string
+	DirectoryMarks     string
 	ProcessTermination string
 	Plugins            string
 	VersionControl     string

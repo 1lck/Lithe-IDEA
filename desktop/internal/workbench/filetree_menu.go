@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/wslpath"
 	"github.com/vivaui/viva/app"
@@ -147,13 +148,7 @@ func (a *App) projectTreeMenu(c ui.C, p *project, row gfx.ID, n *treeNode, targe
 			})
 		}
 		if p.remote == nil && n.dir && !root {
-			if p.directoryExcluded(n.path) {
-				if menu.Item(i18n.Shared(language, "indexing.cancelExclusion")).Clicked() {
-					c.After(func() { a.excludeFromSearch(p, n.path, true) })
-				}
-			} else if menu.Item(i18n.Shared(language, "desktop.files.excludeFromSearch")).Clicked() {
-				c.After(func() { a.excludeFromSearch(p, n.path, false) })
-			}
+			a.directoryMarkMenu(c, p, n, menu, language)
 		}
 		if root && p.indexing.loaded {
 			if on := p.indexing.gitIgnore; menu.Item(i18n.Shared(language, "indexing.autoGit")).Checked(on).Clicked() {
@@ -534,4 +529,87 @@ func treeErrorReason(err error) string {
 		return linkErr.Err.Error()
 	}
 	return err.Error()
+}
+
+// directoryMarkMenu declares the "Mark Directory as ▸" submenu on a project folder,
+// grouping built-in roles, custom folder modes, quick colors, clear/restore automatic and
+// the settings link under one clean second-level menu.
+func (a *App) directoryMarkMenu(c ui.C, p *project, n *treeNode, menu *ui.MenuItems, language i18n.Language) {
+	entry, hasMeta := p.indexing.presentation[n.path]
+	rulesState := core.ParseDirectoryRules(p.indexing.rules)
+	excluded := p.directoryExcluded(n.path)
+
+	menu.Sub(i18n.Shared(language, "desktop.directoryMarks.menuTitle"), func(sub *ui.MenuItems) {
+		builtinRoles := []struct {
+			role  string
+			label string
+		}{
+			{"sources", i18n.Shared(language, "desktop.directoryMarks.role.sources")},
+			{"tests", i18n.Shared(language, "desktop.directoryMarks.role.tests")},
+			{"resources", i18n.Shared(language, "desktop.directoryMarks.role.resources")},
+			{"testResources", i18n.Shared(language, "desktop.directoryMarks.role.testResources")},
+			{"generated", i18n.Shared(language, "desktop.directoryMarks.role.generated")},
+		}
+		for _, item := range builtinRoles {
+			role := item.role
+			checked := hasMeta && entry.Role == role
+			if sub.Item(item.label).Checked(checked).Clicked() {
+				c.After(func() { a.setDirectoryRole(p, n.path, role) })
+			}
+		}
+		if excluded {
+			if sub.Item(i18n.Shared(language, "indexing.cancelExclusion")).Checked(true).Clicked() {
+				c.After(func() { a.excludeFromSearch(p, n.path, true) })
+			}
+		} else {
+			if sub.Item(i18n.Shared(language, "desktop.directoryMarks.role.excluded")).Clicked() {
+				c.After(func() { a.excludeFromSearch(p, n.path, false) })
+			}
+		}
+
+		if len(rulesState.CustomTypes) > 0 {
+			sub.Separator()
+			for _, ct := range rulesState.CustomTypes {
+				customID := ct.ID
+				checked := hasMeta && entry.Role == customID
+				if sub.Item(ct.Name).Checked(checked).Clicked() {
+					c.After(func() { a.setDirectoryRole(p, n.path, customID) })
+				}
+			}
+		}
+
+		sub.Separator()
+		sub.Sub(i18n.Shared(language, "desktop.directoryMarks.quickColor"), func(colors *ui.MenuItems) {
+			for _, sw := range directoryColorSwatchesFor(language) {
+				hex := sw.hex
+				checked := hasMeta && entry.Color == hex
+				if colors.Item(sw.label).Checked(checked).Clicked() {
+					c.After(func() { a.setDirectoryColor(p, n.path, hex) })
+				}
+			}
+			if _, hasOverride := rulesState.Colors[n.path]; hasOverride {
+				colors.Separator()
+				if colors.Item(i18n.Shared(language, "desktop.directoryMarks.clearColor")).Clicked() {
+					c.After(func() { a.setDirectoryColor(p, n.path, "") })
+				}
+			}
+		})
+
+		sub.Separator()
+		if hasMeta && entry.Source == "user" {
+			if entry.AutoFallbackRole != "" {
+				fallbackLabel := directoryRoleDisplayName(language, entry.AutoFallbackRole, rulesState.CustomTypes)
+				if sub.Item(i18n.SharedFormat(language, "desktop.directoryMarks.restoreAuto", map[string]string{"value": fallbackLabel})).Clicked() {
+					c.After(func() { a.clearDirectoryMark(p, n.path) })
+				}
+			} else {
+				if sub.Item(i18n.Shared(language, "desktop.directoryMarks.clearMark")).Clicked() {
+					c.After(func() { a.clearDirectoryMark(p, n.path) })
+				}
+			}
+		}
+		if sub.Item(i18n.Shared(language, "desktop.directoryMarks.openSettings")).Clicked() {
+			c.After(func() { a.openDirectoryMarksSettings() })
+		}
+	})
 }

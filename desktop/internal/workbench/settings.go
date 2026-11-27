@@ -44,6 +44,7 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 			a.operationFailedIn(ctx, "file_associations", err)
 		},
 		SearchPreferences: appSearchPreferences{app: a},
+		DirectoryMarks:    appDirectoryMarks{app: a},
 		PluginInstallsClosed: func() {
 			a.post(func(a *App) { a.closePluginDownloads() })
 		},
@@ -461,6 +462,8 @@ const (
 	// settingsToolchainsPage is the Toolchains page, where a build's options dialog leads to the
 	// runtime its builds and launches use.
 	settingsToolchainsPage
+	// settingsDirectoryMarks is the Directory Marks & Colors page under Appearance & Behavior.
+	settingsDirectoryMarks
 )
 
 func (a *App) openSettingsPage(surface actionSurface, page settingsPage) {
@@ -572,6 +575,8 @@ func (a *App) openSettingsPageWith(surface actionSurface, page settingsPage, que
 			err = a.settingsWindow.OpenGit(a.application, current)
 		case settingsToolchainsPage:
 			err = a.settingsWindow.OpenToolchains(a.application, current)
+		case settingsDirectoryMarks:
+			err = a.settingsWindow.OpenDirectoryMarks(a.application, current)
 		default:
 			err = a.settingsWindow.Open(a.application, current)
 		}
