@@ -1019,6 +1019,14 @@ func permissionDescription(language i18n.Language, permission string) string {
 		return i18n.Shared(language, "desktop.marketplace.permissionRuntimesInstall")
 	case "toolchains.provide":
 		return i18n.Shared(language, "desktop.marketplace.permissionToolchainsProvide")
+	case "agents.run":
+		return i18n.Shared(language, "desktop.agents.grant.run")
+	case "agents.native":
+		return i18n.Shared(language, "desktop.agents.grant.native")
+	case "agents.sessions.read":
+		return i18n.Shared(language, "desktop.agents.grant.sessionsRead")
+	case "agents.usage.read":
+		return i18n.Shared(language, "desktop.agents.grant.usageRead")
 	case "ui.contribute":
 		return i18n.Shared(language, "native.addToolWindowsAndCommandsToTheWorkbench")
 	case "ui.web":

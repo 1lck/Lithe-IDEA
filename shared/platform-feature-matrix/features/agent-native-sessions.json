@@ -1,0 +1,51 @@
+{
+  "id": "agent-native-sessions",
+  "area": "AI",
+  "group": "Agent",
+  "capability": "插件声明的 Agent CLI 原生会话、本机会话记录与会话授权（API-45）",
+  "macos": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/agents/client.go",
+      "desktop/internal/agents/transcript.go",
+      "desktop/internal/agents/grants.go",
+      "desktop/internal/agents/environment.go",
+      "desktop/internal/agents/agents_test.go",
+      "desktop/internal/pluginservice/agents.go",
+      "desktop/internal/pluginservice/hostmethods.go",
+      "desktop/internal/workbench/agents.go",
+      "desktop/internal/workbench/agents_view.go",
+      "desktop/internal/workbench/agents_test.go",
+      "desktop/internal/workbench/agents_visual_test.go",
+      "desktop/internal/workbench/settings_agents.go",
+      "desktop/internal/settingswindow/agents_model.go",
+      "desktop/internal/settingswindow/agents_view.go",
+      "shared/i18n/features/agents.json"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/agents/client.go",
+      "desktop/internal/agents/transcript.go",
+      "desktop/internal/agents/grants.go",
+      "desktop/internal/agents/environment.go",
+      "desktop/internal/agents/agents_test.go",
+      "desktop/internal/pluginservice/agents.go",
+      "desktop/internal/pluginservice/hostmethods.go",
+      "desktop/internal/workbench/agents.go",
+      "desktop/internal/workbench/agents_view.go",
+      "desktop/internal/workbench/agents_test.go",
+      "desktop/internal/workbench/agents_visual_test.go",
+      "desktop/internal/workbench/settings_agents.go",
+      "desktop/internal/settingswindow/agents_model.go",
+      "desktop/internal/settingswindow/agents_view.go",
+      "shared/i18n/features/agents.json"
+    ]
+  },
+  "owner": "AI / 插件平台",
+  "verification": "用合成 Agent 插件（dev.lithe.test.*）在可信的本地工作区验证：Agent 工具窗口列出插件声明的 Agent，新建会话后发送提示、流式显示回复/思考/工具调用/计划，权限请求按插件给出的选项回答，停止当前轮次，关闭会话与关闭项目都结束 CLI 进程；远程工作区不显示 Agent 按钮，安全模式先请求信任。历史页：未授权时只提示去设置，授权后同步、搜索、跨项目切换和恢复会话；设置 › AI › Agent 撤销授权后再次配置会丢弃已缓存的记录。界面与日志不得出现提示、回复、工具参数或输出、账号与凭据。两端原生整机验收仍为 pending。",
+  "notes": "2026-11-28：桌面端接入 Core API-45（agents 能力 v0）。Core 运行插件声明的 Agent CLI 并保存会话记录；桌面端 desktop/internal/agents 封装 agents.* 与 agentSessions.* 命令并把事件合并成对话记录，workbench 增加右侧 Agent 工具窗口（标题栏为对话与历史两个页签；“+”新建对话，装了多个 Agent 时先选 Agent；“更多操作”菜单按 Agent 列出在终端打开与 CLI 更新确认），设置 › AI › Agent 管理每个插件读取本机会话记录的授权。宿主不认识任何具体 Agent，名称、工具、形式和会话目录都来自插件清单。未做：对话文字选择复制（Viva ui 门面暂无可选择文本）、MCP 工具开关；插件没有原生对话或未获准运行程序时，对话页说明原因，仍可从“更多操作”菜单在终端打开。"
+}

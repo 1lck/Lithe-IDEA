@@ -25,6 +25,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/agents"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/ai"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildinfo"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -351,6 +352,10 @@ type Options struct {
 	// the pull request description, with the providers of the user's Codex and Claude
 	// configuration. nil leaves AI generation unavailable instead of refusing to start.
 	AIKernel ai.Kernel
+	// AgentKernel runs the agents of agent plugins (API-45, the agents package): the Agent tool
+	// window's sessions, the local session records and their usage. nil leaves the Agent tool
+	// window empty instead of refusing to start.
+	AgentKernel *agents.Client
 	// PluginInitializeTimeout bounds every plugin backend's startup handshake.
 	// Zero keeps Core's default. Host tests whose fixture is a copy of the large
 	// instrumented test binary raise it so scheduler load cannot masquerade as
@@ -529,6 +534,9 @@ type settings struct {
 	// UnknownSettingsNoticed names the set of settings this version could not read that the
 	// first window last told about, so the same set is told once (settings_kept.go).
 	UnknownSettingsNoticed string `json:"unknownSettingsNoticed,omitempty"`
+	// AgentSessionConsent names, by plugin ID, the agent plugins whose local session files the
+	// user lets Lithe read (agents.go). Absent is no: installing a plugin never grants it.
+	AgentSessionConsent map[string]bool `json:"agentSessionConsent,omitempty"`
 }
 
 const (
@@ -807,6 +815,19 @@ type App struct {
 	pluginServerMu sync.Mutex
 	// aiKernel runs AI generation (ai_generation.go), nil when the window was built without one.
 	aiKernel ai.Kernel
+	// agentKernel runs agent sessions and records (agents.go), nil when the window was built
+	// without one; agentsView is the Agent tool window's state.
+	agentKernel *agents.Client
+	agentsView  agentsState
+	// agentSettingsState is what the Agents settings page reads from its own thread
+	// (settings_agents.go).
+	agentSettingsState agentSettingsBridge
+	// agentConfigureIssued numbers the agent configurations the window thread starts;
+	// agentConfigureDone, guarded by agentConfigureMu, is the newest one handed to Core, so a
+	// configuration started earlier never replaces a later one's catalog and consent.
+	agentConfigureIssued uint64
+	agentConfigureMu     sync.Mutex
+	agentConfigureDone   uint64
 	// inline is the editor's AI inline edit dialog (inlineedit.go).
 	inline inlineEditState
 	// ideAPIBridgeState lets the IDE Connection settings page reach the open project (settings_ide_api.go).
@@ -987,10 +1008,12 @@ func New(options Options) *App {
 		commitView:           newCommitView(),
 		delays:               defaultLogDelays,
 		aiKernel:             options.AIKernel,
+		agentKernel:          options.AgentKernel,
 		listShells:           localshell.InstalledShells,
 	}
 	if a.documentOnly {
 		a.aiKernel = nil
+		a.agentKernel = nil
 		policy, err := a.kernel.CLIOpenTarget(context.Background(), "file")
 		a.documentCommands = make(map[string]bool, len(policy.Commands))
 		for _, id := range policy.Commands {
@@ -1845,6 +1868,7 @@ func (a *App) disposeProject(p *project) {
 	}
 	a.cancelPrompts()
 	a.ideAPIDisable(p)
+	a.closeAgentSessions(p)
 	a.closeRemoteWorkspace(p)
 	p.cancel()
 	a.closePluginPages()

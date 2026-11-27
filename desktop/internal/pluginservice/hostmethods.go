@@ -79,7 +79,7 @@ func (s *Service) registerHostServices() error {
 	if err := s.HostServices.Register(methodDebugStart, s.Runs.handleDebugStart); err != nil {
 		return err
 	}
-	for _, grant := range []string{grantWorkspace, grantFunctions} {
+	for _, grant := range append([]string{grantWorkspace, grantFunctions}, agentHostMethods...) {
 		if err := s.HostServices.GrantService(grant); err != nil {
 			return err
 		}

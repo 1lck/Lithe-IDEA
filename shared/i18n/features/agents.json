@@ -1,0 +1,871 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.agents.title",
+      "description": "Tool window title for native agent conversations",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.chat",
+      "description": "Tab of the Agent tool window that shows live conversations",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history",
+      "description": "Tab of the Agent tool window that lists recorded sessions",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.new",
+      "description": "Tooltip of the Agent tool window button that opens the menu of agents a new conversation can start with",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.more",
+      "description": "Tooltip of the Agent tool window button that opens the menu to run an agent's CLI in a terminal or update it",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.newSession",
+      "description": "Button that starts a new conversation with an agent",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "agent": "string"
+      }
+    },
+    {
+      "id": "desktop.agents.openTerminal",
+      "description": "Button that opens the agent's CLI in a terminal",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "agent": "string"
+      }
+    },
+    {
+      "id": "desktop.agents.updateCli",
+      "description": "Button that updates the agent's CLI",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "agent": "string"
+      }
+    },
+    {
+      "id": "desktop.agents.closeSession",
+      "description": "Button that closes the shown conversation",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.conversation",
+      "description": "Name of a conversation tab: agent and position",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "agent": "string",
+        "number": "string"
+      }
+    },
+    {
+      "id": "desktop.agents.conversationEnded",
+      "description": "Name of a conversation whose agent process ended",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "conversation": "string"
+      }
+    },
+    {
+      "id": "desktop.agents.noProject",
+      "description": "Agent tool window message when no project is open",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.unavailable",
+      "description": "Agent tool window message when this window runs no agent service",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.loading",
+      "description": "Agent tool window message while installed plugins are read",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.empty",
+      "description": "Agent tool window message when no installed plugin declares an agent",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.openMarketplace",
+      "description": "Button that opens the plugin marketplace",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.noConversation",
+      "description": "Chat tab message when no conversation is open",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.starting",
+      "description": "Chat tab message while an agent process starts",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.noNativeMode",
+      "description": "Chat tab note when the agent's plugin cannot hold a conversation in this window",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.transcript",
+      "description": "Accessible label of a conversation's message list",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.missed",
+      "description": "Transcript row when some agent events were lost",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.dropped",
+      "description": "Transcript row counting output lines the agent backend dropped",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.agents.grant.run",
+      "description": "Plugin permission: run the CLI of each agent it declares",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.grant.native",
+      "description": "Plugin permission: relay its agents' conversations to Lithe",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.grant.sessionsRead",
+      "description": "Plugin permission: read its agents' session files after consent",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.grant.usageRead",
+      "description": "Plugin permission: read usage totals of the agents",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.you",
+      "description": "Author label of the user's own prompt in the transcript",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.thinking",
+      "description": "Label of the agent's reasoning text in the transcript",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.toolStatus.pending",
+      "description": "State of a tool call that has not started",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.toolStatus.inProgress",
+      "description": "State of a running tool call",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.toolStatus.completed",
+      "description": "State of a finished tool call",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.toolStatus.failed",
+      "description": "State of a failed tool call",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.turnEnded.cancelled",
+      "description": "Notice when the user stopped the agent's turn",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.turnEnded.maxTokens",
+      "description": "Notice when the agent's turn reached its output limit",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.turnEnded.maxTurns",
+      "description": "Notice when the agent's turn reached its step limit",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.turnEnded.refused",
+      "description": "Notice when the agent declined to answer",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.turnEnded.failed",
+      "description": "Notice when the agent's turn failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.permission",
+      "description": "Question shown with a permission request from the agent",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "title": "string"
+      }
+    },
+    {
+      "id": "desktop.agents.ended",
+      "description": "Status line word for a conversation whose agent ended",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.working",
+      "description": "Status line word while the agent works on a turn",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.ready",
+      "description": "Status line word while the agent waits for a prompt",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.context",
+      "description": "Status line part: context tokens used of the window",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "used": "string",
+        "window": "string"
+      }
+    },
+    {
+      "id": "desktop.agents.tokens",
+      "description": "Status line part: tokens used by the conversation",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.agents.cost",
+      "description": "Status line part: API-price equivalent cost in US dollars",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "cost": "string"
+      }
+    },
+    {
+      "id": "desktop.agents.promptLabel",
+      "description": "Accessible label of the prompt field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.promptPlaceholder",
+      "description": "Placeholder of the prompt field",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "agent": "string"
+      }
+    },
+    {
+      "id": "desktop.agents.sendHint",
+      "description": "Hint under the prompt field about the send shortcut",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.send",
+      "description": "Button that sends the prompt",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.stop",
+      "description": "Button that stops the agent's current turn",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.pluginRejected",
+      "description": "Notification when Core refused a plugin's agent declaration",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "plugin": "string",
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.agents.startFailed",
+      "description": "Notification when an agent conversation could not start",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "agent": "string",
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.agents.promptTooLong",
+      "description": "Notification when the prompt is larger than the limit",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.promptFailed",
+      "description": "Notification when the prompt could not be sent",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.agents.permissionFailed",
+      "description": "Notification when the answer to a permission request failed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.agents.requestFailed",
+      "description": "Notification when stopping or closing a conversation failed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.agents.toolFailed",
+      "description": "Notification when the agent's CLI could not run in a terminal",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "agent": "string",
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.agents.updateTitle",
+      "description": "Title of the confirmation before updating an agent's CLI",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "agent": "string"
+      }
+    },
+    {
+      "id": "desktop.agents.updateDetail",
+      "description": "Detail of the confirmation before updating an agent's CLI",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.updateConfirm",
+      "description": "Button that confirms updating an agent's CLI",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.updateCancel",
+      "description": "Button that cancels updating an agent's CLI",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.reason.remoteWorkspace",
+      "description": "Reason: agents run only in local workspaces",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.reason.untrustedWorkspace",
+      "description": "Reason: the workspace is not trusted",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.reason.runNotGranted",
+      "description": "Reason: the plugin may not run programs",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.reason.tooManySessions",
+      "description": "Reason: the agent has too many open conversations",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.reason.toolNotFound",
+      "description": "Reason: the agent's CLI was not found",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.reason.backendUnavailable",
+      "description": "Reason: the plugin's backend could not start or answer",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.reason.backendStopped",
+      "description": "Reason: the plugin's backend is not running",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.reason.turnInProgress",
+      "description": "Reason: the agent is still working on a turn",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.reason.sessionEnded",
+      "description": "Reason: the conversation already ended",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.reason.invalidResume",
+      "description": "Reason: the recorded session cannot be resumed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.search",
+      "description": "Accessible label of the History tab search field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.searchPlaceholder",
+      "description": "Placeholder of the History tab search field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.allProjects",
+      "description": "Switch that lists sessions of every directory, not only this project",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.sync",
+      "description": "Button that reads the agents' session files again",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.loading",
+      "description": "Message while recorded sessions are read",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.none",
+      "description": "Message when no recorded session matches",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.failed",
+      "description": "Message when recorded sessions could not be read",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.agents.history.resume",
+      "description": "Button that resumes a recorded session in a new conversation",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.noConsent",
+      "description": "History tab message when reading session files is not allowed yet",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.openSettings",
+      "description": "Button that opens the Agents settings page",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.unsupported",
+      "description": "History tab message when no agent records sessions",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.settings.title",
+      "description": "Settings page title for agent session reading",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.settings.intro",
+      "description": "Introduction of the Agents settings page",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.settings.readSessions",
+      "description": "Card title for the switches that allow reading session files",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.settings.readSessionsHelp",
+      "description": "Information about the effect of turning a switch on or off",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.settings.noPlugins",
+      "description": "Message when no installed plugin asks to read session files",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.settings.roots",
+      "description": "Information listing the directories a plugin reads",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "roots": "string"
+      }
+    },
+    {
+      "id": "desktop.agents.settings.failed",
+      "description": "Message when applying the choice failed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.agents.title": "Agents",
+      "desktop.agents.chat": "Chat",
+      "desktop.agents.history": "History",
+      "desktop.agents.new": "New Conversation",
+      "desktop.agents.more": "More Actions",
+      "desktop.agents.newSession": "New {agent} conversation",
+      "desktop.agents.openTerminal": "Open {agent} in Terminal",
+      "desktop.agents.updateCli": "Update {agent}",
+      "desktop.agents.closeSession": "Close Conversation",
+      "desktop.agents.conversation": "{agent} {number}",
+      "desktop.agents.conversationEnded": "{conversation} (ended)",
+      "desktop.agents.noProject": "Open a project to talk to an agent.",
+      "desktop.agents.unavailable": "Agents are not available in this window.",
+      "desktop.agents.loading": "Reading the agents of installed plugins…",
+      "desktop.agents.empty": "No installed plugin provides an agent. Install an agent plugin, such as one for Claude Code or Codex, from the marketplace.",
+      "desktop.agents.openMarketplace": "Open Marketplace",
+      "desktop.agents.noConversation": "No conversation yet.",
+      "desktop.agents.starting": "Starting the agent…",
+      "desktop.agents.noNativeMode": "This agent cannot hold a conversation here: its plugin offers no native conversation, or it is not allowed to run programs.",
+      "desktop.agents.transcript": "Conversation",
+      "desktop.agents.missed": "Some updates of this conversation were lost; the transcript may be incomplete.",
+      "desktop.agents.dropped": "Output lines dropped: {count}",
+      "desktop.agents.grant.run": "Run the command-line tool of each agent it declares, after you start a conversation or confirm an update",
+      "desktop.agents.grant.native": "Relay the conversations of its own agents to Lithe",
+      "desktop.agents.grant.sessionsRead": "Read the session files its agents' tools write, after you allow it in Settings",
+      "desktop.agents.grant.usageRead": "Read token and cost totals of your agents, without conversation text, titles or directories",
+      "desktop.agents.you": "You",
+      "desktop.agents.thinking": "Thinking",
+      "desktop.agents.toolStatus.pending": "Pending",
+      "desktop.agents.toolStatus.inProgress": "Running",
+      "desktop.agents.toolStatus.completed": "Done",
+      "desktop.agents.toolStatus.failed": "Failed",
+      "desktop.agents.turnEnded.cancelled": "Stopped.",
+      "desktop.agents.turnEnded.maxTokens": "The answer reached the agent's output limit.",
+      "desktop.agents.turnEnded.maxTurns": "The agent reached its step limit.",
+      "desktop.agents.turnEnded.refused": "The agent declined to answer.",
+      "desktop.agents.turnEnded.failed": "The turn failed.",
+      "desktop.agents.permission": "The agent asks: {title}",
+      "desktop.agents.ended": "Ended",
+      "desktop.agents.working": "Working",
+      "desktop.agents.ready": "Ready",
+      "desktop.agents.context": "Context {used}/{window}",
+      "desktop.agents.tokens": "Tokens: {count}",
+      "desktop.agents.cost": "${cost}",
+      "desktop.agents.promptLabel": "Prompt",
+      "desktop.agents.promptPlaceholder": "Ask {agent}…",
+      "desktop.agents.sendHint": "⌘↩ to send",
+      "desktop.agents.send": "Send",
+      "desktop.agents.stop": "Stop",
+      "desktop.agents.pluginRejected": "The agents of {plugin} were not loaded: {reason}",
+      "desktop.agents.startFailed": "Could not start {agent}: {reason}",
+      "desktop.agents.promptTooLong": "The prompt is too long to send.",
+      "desktop.agents.promptFailed": "Could not send the prompt: {reason}",
+      "desktop.agents.permissionFailed": "Could not answer the request: {reason}",
+      "desktop.agents.requestFailed": "The agent did not respond: {reason}",
+      "desktop.agents.toolFailed": "Could not run {agent}: {reason}",
+      "desktop.agents.updateTitle": "Update {agent}?",
+      "desktop.agents.updateDetail": "The update runs the CLI's own update command in a terminal.",
+      "desktop.agents.updateConfirm": "Update",
+      "desktop.agents.updateCancel": "Cancel",
+      "desktop.agents.reason.remoteWorkspace": "agents run only in local workspaces",
+      "desktop.agents.reason.untrustedWorkspace": "the workspace is not trusted",
+      "desktop.agents.reason.runNotGranted": "the plugin is not allowed to run programs",
+      "desktop.agents.reason.tooManySessions": "too many conversations are open; close one first",
+      "desktop.agents.reason.toolNotFound": "its CLI was not found; install it or set its path in Settings",
+      "desktop.agents.reason.backendUnavailable": "its plugin's backend did not start",
+      "desktop.agents.reason.backendStopped": "its plugin's backend is not running",
+      "desktop.agents.reason.turnInProgress": "the agent is still working",
+      "desktop.agents.reason.sessionEnded": "the conversation has ended",
+      "desktop.agents.reason.invalidResume": "this session cannot be resumed",
+      "desktop.agents.history.search": "Search sessions",
+      "desktop.agents.history.searchPlaceholder": "Search recorded sessions (↩)",
+      "desktop.agents.history.allProjects": "All projects",
+      "desktop.agents.history.sync": "Read Sessions Again",
+      "desktop.agents.history.loading": "Reading sessions…",
+      "desktop.agents.history.none": "No sessions.",
+      "desktop.agents.history.failed": "Could not read the sessions: {reason}",
+      "desktop.agents.history.resume": "Resume",
+      "desktop.agents.history.noConsent": "Lithe reads the session files of an agent's CLI only after you allow it in Settings.",
+      "desktop.agents.history.openSettings": "Open Settings",
+      "desktop.agents.history.unsupported": "No installed agent records its sessions.",
+      "desktop.agents.settings.title": "Agents",
+      "desktop.agents.settings.intro": "Agent plugins can let Lithe read the session files their CLIs write, to list, search and resume past conversations. Lithe keeps what it reads in its cache and sends none of it anywhere.",
+      "desktop.agents.settings.readSessions": "Read session files",
+      "desktop.agents.settings.readSessionsHelp": "Turning a switch on lets Lithe read the files in the directories the plugin names. Turning it off stops reading them and drops what Lithe cached from them.",
+      "desktop.agents.settings.noPlugins": "No installed plugin asks to read session files.",
+      "desktop.agents.settings.roots": "Reads:\n{roots}",
+      "desktop.agents.settings.failed": "The change could not be applied: {reason}"
+    },
+    "zh-CN": {
+      "desktop.agents.title": "Agent",
+      "desktop.agents.chat": "对话",
+      "desktop.agents.history": "历史",
+      "desktop.agents.new": "新建对话",
+      "desktop.agents.more": "更多操作",
+      "desktop.agents.newSession": "新建 {agent} 对话",
+      "desktop.agents.openTerminal": "在终端中打开 {agent}",
+      "desktop.agents.updateCli": "更新 {agent}",
+      "desktop.agents.closeSession": "关闭对话",
+      "desktop.agents.conversation": "{agent} {number}",
+      "desktop.agents.conversationEnded": "{conversation}（已结束）",
+      "desktop.agents.noProject": "打开项目后才能与 Agent 对话。",
+      "desktop.agents.unavailable": "此窗口不能使用 Agent。",
+      "desktop.agents.loading": "正在读取已安装插件的 Agent…",
+      "desktop.agents.empty": "没有已安装的插件提供 Agent。请从插件市场安装 Agent 插件，例如 Claude Code 或 Codex 插件。",
+      "desktop.agents.openMarketplace": "打开插件市场",
+      "desktop.agents.noConversation": "还没有对话。",
+      "desktop.agents.starting": "正在启动 Agent…",
+      "desktop.agents.noNativeMode": "此 Agent 无法在这里对话：插件没有提供原生对话，或者未获准运行程序。",
+      "desktop.agents.transcript": "对话内容",
+      "desktop.agents.missed": "这段对话丢失了部分更新，内容可能不完整。",
+      "desktop.agents.dropped": "已丢弃的输出行：{count}",
+      "desktop.agents.grant.run": "在你开始对话或确认更新后，运行它声明的每个 Agent 的命令行工具",
+      "desktop.agents.grant.native": "把它自己的 Agent 对话转发给 Lithe",
+      "desktop.agents.grant.sessionsRead": "在你于设置中允许后，读取其 Agent 工具写下的会话文件",
+      "desktop.agents.grant.usageRead": "读取 Agent 的令牌和费用总数，不含对话内容、标题或目录",
+      "desktop.agents.you": "你",
+      "desktop.agents.thinking": "思考",
+      "desktop.agents.toolStatus.pending": "等待中",
+      "desktop.agents.toolStatus.inProgress": "运行中",
+      "desktop.agents.toolStatus.completed": "完成",
+      "desktop.agents.toolStatus.failed": "失败",
+      "desktop.agents.turnEnded.cancelled": "已停止。",
+      "desktop.agents.turnEnded.maxTokens": "回答达到 Agent 的输出上限。",
+      "desktop.agents.turnEnded.maxTurns": "Agent 达到步数上限。",
+      "desktop.agents.turnEnded.refused": "Agent 拒绝回答。",
+      "desktop.agents.turnEnded.failed": "本轮失败。",
+      "desktop.agents.permission": "Agent 请求：{title}",
+      "desktop.agents.ended": "已结束",
+      "desktop.agents.working": "处理中",
+      "desktop.agents.ready": "就绪",
+      "desktop.agents.context": "上下文 {used}/{window}",
+      "desktop.agents.tokens": "令牌：{count}",
+      "desktop.agents.cost": "${cost}",
+      "desktop.agents.promptLabel": "提示",
+      "desktop.agents.promptPlaceholder": "向 {agent} 提问…",
+      "desktop.agents.sendHint": "⌘↩ 发送",
+      "desktop.agents.send": "发送",
+      "desktop.agents.stop": "停止",
+      "desktop.agents.pluginRejected": "未加载 {plugin} 的 Agent：{reason}",
+      "desktop.agents.startFailed": "无法启动 {agent}：{reason}",
+      "desktop.agents.promptTooLong": "提示太长，无法发送。",
+      "desktop.agents.promptFailed": "无法发送提示：{reason}",
+      "desktop.agents.permissionFailed": "无法回复请求：{reason}",
+      "desktop.agents.requestFailed": "Agent 没有响应：{reason}",
+      "desktop.agents.toolFailed": "无法运行 {agent}：{reason}",
+      "desktop.agents.updateTitle": "更新 {agent}？",
+      "desktop.agents.updateDetail": "更新会在终端中运行该 CLI 自己的更新命令。",
+      "desktop.agents.updateConfirm": "更新",
+      "desktop.agents.updateCancel": "取消",
+      "desktop.agents.reason.remoteWorkspace": "Agent 只能在本地工作区运行",
+      "desktop.agents.reason.untrustedWorkspace": "工作区未受信任",
+      "desktop.agents.reason.runNotGranted": "插件未获准运行程序",
+      "desktop.agents.reason.tooManySessions": "打开的对话太多，请先关闭一个",
+      "desktop.agents.reason.toolNotFound": "找不到它的 CLI；请先安装，或在设置中指定路径",
+      "desktop.agents.reason.backendUnavailable": "插件后端未能启动",
+      "desktop.agents.reason.backendStopped": "插件后端未运行",
+      "desktop.agents.reason.turnInProgress": "Agent 仍在处理",
+      "desktop.agents.reason.sessionEnded": "对话已结束",
+      "desktop.agents.reason.invalidResume": "无法恢复这个会话",
+      "desktop.agents.history.search": "搜索会话",
+      "desktop.agents.history.searchPlaceholder": "搜索已记录的会话（↩）",
+      "desktop.agents.history.allProjects": "所有项目",
+      "desktop.agents.history.sync": "重新读取会话",
+      "desktop.agents.history.loading": "正在读取会话…",
+      "desktop.agents.history.none": "没有会话。",
+      "desktop.agents.history.failed": "无法读取会话：{reason}",
+      "desktop.agents.history.resume": "继续",
+      "desktop.agents.history.noConsent": "只有在设置中允许后，Lithe 才会读取 Agent CLI 的会话文件。",
+      "desktop.agents.history.openSettings": "打开设置",
+      "desktop.agents.history.unsupported": "已安装的 Agent 都不记录会话。",
+      "desktop.agents.settings.title": "Agent",
+      "desktop.agents.settings.intro": "Agent 插件可以让 Lithe 读取其 CLI 写下的会话文件，用来列出、搜索和继续以前的对话。Lithe 只把读到的内容保存在本机缓存中，不会发送到任何地方。",
+      "desktop.agents.settings.readSessions": "读取会话文件",
+      "desktop.agents.settings.readSessionsHelp": "打开开关后，Lithe 会读取插件指定目录中的文件。关闭开关后，Lithe 停止读取，并删除从这些文件缓存的内容。",
+      "desktop.agents.settings.noPlugins": "没有已安装的插件请求读取会话文件。",
+      "desktop.agents.settings.roots": "读取：\n{roots}",
+      "desktop.agents.settings.failed": "无法应用更改：{reason}"
+    }
+  }
+}

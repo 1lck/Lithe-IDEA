@@ -214,12 +214,23 @@ Core 定义一套与具体 Agent 无关的会话事件，两种模式都翻译�
 
 **桌面端：** Agent 工具窗口（对话、会话列表与搜索）、设置页（逐个 Agent 同意读取会话、MCP 会话搜索开关、CLI 安装与更新）、终端形态入口。桌面端只调用第 9 节的命令，不解析任何 Agent 的协议或文件。
 
+| 位置 | 内容 |
+| --- | --- |
+| `desktop/internal/agents/` | `agents.*`、`agentSessions.*` 命令的客户端；把会话事件合并成有上限的对话记录；按清单和用户同意算出授予的权限；会话目录用到的环境变量 |
+| `desktop/internal/pluginservice/agents.go`、`hostmethods.go` | 从已安装插件读出 `agents[]` 和权限；按需启动 Agent 的插件后端；把 `agents/*` 宿主方法交给 Core |
+| `desktop/internal/workbench/agents.go`、`agents_view.go` | 右侧 Agent 工具窗口：对话与历史两个页签、多会话、权限请求、计划、用量状态行、终端打开、CLI 更新确认；远程工作区不显示，安全模式先请求信任 |
+| `desktop/internal/workbench/settings_agents.go`、`desktop/internal/settingswindow/agents_*.go` | 设置 › AI › Agent：逐个插件同意读取本机会话记录；撤销同意时清掉已缓存的记录 |
+
+配置有先后：插件重新加载和设置里改同意都会重新配置 Core。每次配置在窗口线程领一个序号，后台执行时如果更新的配置已经送到 Core，旧的就不再发送，避免旧授权盖住新授权。
+
 ### 8. 分期
 
 1. **Core 会话记录**：SQLite 缓存、增量读取、统计、搜索、MCP 工具和日志。用合成测试插件 `dev.lithe.test.agent-sessions` 提供解析函数。
 2. **API-45 契约**：`agents[]` 清单、原生模式的启动与转发、ACP 客户端、四种 SDK。
 3. **桌面端界面**。
 4. **插件**：通用管理插件 `lithe-plugin-agent-hub`、Claude Code `lithe-plugin-claude-code`（原生 `-p` 加终端形态）、Codex `lithe-plugin-codex`（`app-server`）。反重力（原生或 ACP，不开放）以后再做。
+
+进度（2026-11-28）：第 1 期已合入 Core；第 2 期在 Core Draft PR Lithe-IDEA/Lithe-core-rust#216；第 3 期在桌面端 Draft PR，固定 #216 的 Core 提交。桌面端还没做的：对话文字的选择与复制（Viva 的 `ui` 门面没有可选择文本）、MCP 会话搜索开关、CLI 安装入口（现在只有更新）。
 
 ### 9. 契约细节（v0）
 

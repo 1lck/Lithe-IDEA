@@ -417,6 +417,8 @@ func (w *window) content(c ui.C) {
 			w.processTerminationPage(c)
 		case w.sess.page == pageIDEAPI && w.ctrl.opts.IDEAPI != nil:
 			w.ideAPIPage(c)
+		case w.sess.page == pageAgents && w.ctrl.opts.Agents != nil:
+			w.agentsPage(c)
 		case w.sess.page == pageAbout:
 			w.aboutPage(c)
 		default:

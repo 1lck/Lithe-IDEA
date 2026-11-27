@@ -53,10 +53,11 @@ const (
 	pageConsole
 	pageTrustedLocations
 	pageRemoteWorkspace
-	// pageAI is the group "AI"; the two pages after it belong to it.
+	// pageAI is the group "AI"; the three pages after it belong to it.
 	pageAI
 	pageAIGeneration
 	pageIDEAPI
+	pageAgents
 	// pageAbout is the last entry of the top level: the application itself, its version,
 	// its updates and where its community is, rather than a setting of a tool.
 	pageAbout
@@ -93,6 +94,7 @@ var parents = [pageCount]pageID{
 	pageAI:                 noPage,
 	pageAIGeneration:       pageAI,
 	pageIDEAPI:             pageAI,
+	pageAgents:             pageAI,
 	pageAbout:              noPage,
 }
 
@@ -177,6 +179,8 @@ func titleOf(messages *i18n.SettingsMessages, id pageID) string {
 		return messages.AIGeneration
 	case pageIDEAPI:
 		return messages.IDEAPI
+	case pageAgents:
+		return messages.Agents
 	case pageAbout:
 		return messages.About
 	}

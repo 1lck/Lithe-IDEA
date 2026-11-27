@@ -48,7 +48,7 @@ func TestToolStripeButtonsHaveTheToolWindowBarSizes(t *testing.T) {
 		ids  []string
 	}{
 		{name: "left", side: stripeLeft, ids: []string{itemProject, itemCommit, itemStructure, itemFind}},
-		{name: "right", side: stripeRight, ids: []string{itemBuild, itemNotifications}},
+		{name: "right", side: stripeRight, ids: []string{itemBuild, itemAgents, itemNotifications}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			stripe := stripes[tc.side]

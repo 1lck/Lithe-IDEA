@@ -351,7 +351,7 @@ func TestTheEllipsisButtonMenuMovesItButCannotHideIt(t *testing.T) {
 	h.clickNamed(h.shared("desktop.tools.moveTo"))
 	h.clickNamed(stripeZoneMoveText(h.app.language(), zoneRightTop))
 	h.settleChain()
-	if got := h.zoneItems(zoneRightTop); !slices.Equal(got, []string{itemBuild, itemNotifications, itemToolWindows}) {
+	if got := h.zoneItems(zoneRightTop); !slices.Equal(got, []string{itemBuild, itemAgents, itemNotifications, itemToolWindows}) {
 		t.Fatalf("after Move To the top right zone holds %v, want the hidden tool windows button last", got)
 	}
 	h.app.post(func(a *App) { a.hideEntry(catalogIndex[itemToolWindows]) })

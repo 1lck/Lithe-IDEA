@@ -361,6 +361,7 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		},
 		AIProviders: a.aiProviderStatuses,
 		IDEAPI:      a.ideAPISettingsLoader(),
+		Agents:      a.agentSessionsLoader(),
 	})
 }
 
@@ -462,6 +463,9 @@ const (
 	settingsToolchainsPage
 	// settingsDirectoryMarks is the Directory Marks & Colors page under Appearance & Behavior.
 	settingsDirectoryMarks
+	// settingsAgents is the Agents page under AI, where the user lets Lithe read the sessions
+	// of a plugin's agents; the Agent tool window's History tab leads there.
+	settingsAgents
 )
 
 func (a *App) openSettingsPage(surface actionSurface, page settingsPage) {
@@ -575,6 +579,8 @@ func (a *App) openSettingsPageWith(surface actionSurface, page settingsPage, que
 			err = a.settingsWindow.OpenToolchains(a.application, current)
 		case settingsDirectoryMarks:
 			err = a.settingsWindow.OpenDirectoryMarks(a.application, current)
+		case settingsAgents:
+			err = a.settingsWindow.OpenAgents(a.application, current)
 		default:
 			err = a.settingsWindow.Open(a.application, current)
 		}

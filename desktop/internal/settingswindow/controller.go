@@ -638,7 +638,9 @@ type Options struct {
 	// thread; nil leaves the source lines out.
 	AIProviders func(context.Context) []AIProviderStatus
 	// IDEAPI is the IDE Connection page's loader. Nil leaves the page unavailable.
-	IDEAPI        IDEAPILoader
+	IDEAPI IDEAPILoader
+	// Agents is the Agents page's loader. Nil leaves the page unavailable.
+	Agents        AgentSessionsLoader
 	PluginRuntime func(string) PluginRuntimeState
 	RestartPlugin func(id, version, scope, workspace string)
 }
@@ -749,6 +751,12 @@ func (c *Controller) OpenToolchains(application *app.Application, current Values
 // OpenAI shows the window on the Generation page, where the commit area's settings button leads.
 func (c *Controller) OpenAI(application *app.Application, current Values) error {
 	return c.open(application, current, pageAIGeneration)
+}
+
+// OpenAgents shows the window on the Agents page under AI, where the Agent tool window's
+// History tab leads when no plugin may read its sessions.
+func (c *Controller) OpenAgents(application *app.Application, current Values) error {
+	return c.open(application, current, pageAgents)
 }
 
 // OpenDirectoryMarks shows the window on the Directory Marks & Colors page under Appearance & Behavior.
