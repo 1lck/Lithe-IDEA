@@ -213,6 +213,11 @@ func (c *Client) ResolveDirectoryPresentation(ctx context.Context, rules, shared
 	if len(rules) == 0 {
 		rules = emptyDirectoryRules
 	}
+	// Core rejects a null paths; with no rows or glob candidates to ask about, explicit
+	// exclusions still come back in manualExcludedDirectories.
+	if paths == nil {
+		paths = []string{}
+	}
 	payload := struct {
 		Rules           json.RawMessage       `json:"rules"`
 		SharedRules     json.RawMessage       `json:"sharedRules,omitempty"`
