@@ -2,9 +2,7 @@ package logstore
 
 import (
 	"context"
-	"errors"
 	"io"
-	"io/fs"
 	"maps"
 	"math"
 	"os"
@@ -45,6 +43,8 @@ type Batch struct {
 // Collection is the answer to QueryWindow: the kernel's result plus the writer's state.
 type Collection struct {
 	Result core.LogQueryResult
+	// InventoryIncomplete marks a filesystem failure in the selected sessions.
+	InventoryIncomplete bool
 	// Directory is the log directory that was read.
 	Directory string
 	// CurrentSessionPath is this process's session directory relative to Directory.
@@ -81,10 +81,10 @@ type subscriber struct {
 // sees a consistent directory; the query itself runs on the caller's goroutine.
 func (s *Store) QueryWindow(ctx context.Context, q Query) (Collection, error) {
 	var (
-		sources             []core.LogSource
-		directory           string
-		session             string
-		incompleteInventory bool
+		sources                          []core.LogSource
+		directory                        string
+		session                          string
+		incompleteInventory, limitedRead bool
 	)
 	err := s.do(ctx, func(job context.Context) error {
 		if err := s.drain(job); err != nil {
@@ -118,8 +118,9 @@ func (s *Store) QueryWindow(ctx context.Context, q Query) (Collection, error) {
 		if err != nil {
 			return err
 		}
-		incompleteInventory = plan.Truncated || scan.missingEvidence(q.Session, sessionName(session), 0, plan.Sessions)
-		sources, err = s.readSources(job, directory, known, plan.Reads)
+		incompleteInventory = scan.missingEvidence(q.Session, sessionName(session), 0, plan.Sessions)
+		sources, limitedRead, err = s.readPlannedRanges(job, directory, known, plan.Reads)
+		limitedRead = limitedRead || plan.Truncated
 		return err
 	})
 	if err != nil {
@@ -130,12 +131,13 @@ func (s *Store) QueryWindow(ctx context.Context, q Query) (Collection, error) {
 	if err != nil {
 		return Collection{}, err
 	}
-	result.Truncated = result.Truncated || incompleteInventory
+	result.Truncated = result.Truncated || limitedRead || incompleteInventory
 	dropped, failures := s.Stats()
 	rejected, rejections := s.Rejections()
 	category, remaining, _ := s.Diagnostics()
 	return Collection{
 		Result:              result,
+		InventoryIncomplete: incompleteInventory,
 		Directory:           directory,
 		CurrentSessionPath:  session,
 		Dropped:             dropped,
@@ -265,39 +267,6 @@ func windowQuery(sources []core.LogSource, q Query) core.LogQuery {
 		query.Levels = &levels
 	}
 	return query
-}
-
-// readSources reads each byte range of the plan. A file that disappeared since the inventory,
-// rotated or deleted by retention, is skipped rather than failing the whole query. known maps
-// the kernel's relative paths to the files they were listed from, which differs from the path
-// itself only for older root-level files.
-func (s *Store) readSources(ctx context.Context, root string, known map[string]string, reads []core.LogRead) ([]core.LogSource, error) {
-	sources := make([]core.LogSource, 0, len(reads))
-	for _, read := range reads {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		target, ok := known[read.RelativePath]
-		if !ok {
-			var err error
-			if target, err = safePath(root, read.RelativePath); err != nil {
-				return nil, err
-			}
-		}
-		text, err := s.readRange(target, read.Offset, read.MaxBytes)
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				continue
-			}
-			return nil, err
-		}
-		sources = append(sources, core.LogSource{
-			RelativePath:  read.RelativePath,
-			Text:          text,
-			StartsMidLine: read.Offset > 0,
-		})
-	}
-	return sources, nil
 }
 
 // readRange reads at most limit bytes of target starting at offset. The plan's limits come from

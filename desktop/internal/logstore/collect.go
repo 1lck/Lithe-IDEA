@@ -102,7 +102,7 @@ func (s *Store) Collect(ctx context.Context, q ExportQuery) (Export, error) {
 			return err
 		}
 		incompleteInventory = scan.missingEvidence(q.Session, sessionName(s.sessionPath), q.RecentSessions, plan.Sessions)
-		sources, short, err = s.readExport(job, directory, known, plan.Reads)
+		sources, short, err = s.readPlannedRanges(job, directory, known, plan.Reads)
 		return err
 	})
 	if err != nil {
@@ -166,10 +166,10 @@ func (s *Store) Collect(ctx context.Context, q ExportQuery) (Export, error) {
 	}, nil
 }
 
-// readExport reads each byte range of an export's plan, as readSources does for the window,
+// readPlannedRanges reads each byte range selected for a window query or an export
 // and says whether a range came back shorter than planned: the file shrank, or retention
 // deleted it, since the inventory listed it.
-func (s *Store) readExport(ctx context.Context, root string, known map[string]string, reads []core.LogRead) ([]core.LogSource, bool, error) {
+func (s *Store) readPlannedRanges(ctx context.Context, root string, known map[string]string, reads []core.LogRead) ([]core.LogSource, bool, error) {
 	sources := make([]core.LogSource, 0, len(reads))
 	short := false
 	for _, read := range reads {

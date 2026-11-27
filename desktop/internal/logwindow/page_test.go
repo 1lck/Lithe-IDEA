@@ -388,9 +388,11 @@ func TestTableHeaderHandleResizesAColumn(t *testing.T) {
 func TestStatusShowsPartialResultsUntilACompleteQuery(t *testing.T) {
 	fixture, w, driver := bigFixture(t, 1)
 	m := fixture.model
-	for _, partial := range []bool{true, false} {
+	for _, result := range []core.LogQueryResult{{Truncated: true}, {SkippedInvalidLines: 1}, {}} {
+		partial := result.Truncated || result.SkippedInvalidLines > 0
+		result.Records = m.records
 		m.applyCollection(m.activeQuery, logstore.Collection{
-			Result: core.LogQueryResult{Records: m.records, Truncated: partial},
+			Result: result,
 		})
 		w.inv.Invalidate()
 		settleWindow(t, driver)

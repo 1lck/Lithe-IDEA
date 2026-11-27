@@ -330,6 +330,7 @@ type Model struct {
 	defaultDirectory              string
 	dropped, writeFailures        int
 	partialResults                bool
+	reportedInventoryFailure      bool
 	rejected                      int
 	latestRejection               logstore.Rejection
 	diagnosticRemaining           time.Duration
@@ -645,7 +646,11 @@ func (m *Model) applyCollection(q logstore.Query, c logstore.Collection) {
 	m.directory = c.Directory
 	m.currentSessionPath = c.CurrentSessionPath
 	m.dropped, m.writeFailures = c.Dropped, c.WriteFailures
-	m.partialResults = c.Result.Truncated
+	m.partialResults = c.Result.Truncated || c.Result.SkippedInvalidLines > 0
+	if c.InventoryIncomplete && !m.reportedInventoryFailure {
+		m.reportBackground(opQuery, errors.New("incomplete log session inventory"))
+	}
+	m.reportedInventoryFailure = c.InventoryIncomplete
 	m.setRejections(c.Rejected, c.Rejections)
 	m.setDiagnostics(c.DiagnosticCategory, c.DiagnosticRemaining)
 	m.latestSequences = maps.Clone(c.Result.SessionSequences)
@@ -818,7 +823,7 @@ type liveKey struct {
 
 // append adds the records of a live batch.
 func (m *Model) append(result core.LogQueryResult, summary *logstore.LiveSummary) {
-	m.partialResults = m.partialResults || result.Truncated
+	m.partialResults = m.partialResults || result.Truncated || result.SkippedInvalidLines > 0
 	// A subscription first replays its recent lines; drop the ones the window holds.
 	var additions []core.LogRecord
 	if len(result.Records) > 0 {
