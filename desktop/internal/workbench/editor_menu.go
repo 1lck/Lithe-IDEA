@@ -80,6 +80,7 @@ func (a *App) editorMenuItems(c ui.C, p *project, d *document) func(*ui.MenuItem
 		if menu.Item(i18n.Shared(language, "native.copySourceLocation")).Clicked() {
 			c.After(func() { a.copyReferenceLocation(p, d) })
 		}
+		a.docCommentMenuItems(c, d, menu)
 		menu.Separator()
 		if menu.Item(i18n.Shared(language, "desktop.editorMenu.toggleComment")).Keys(primary, "/").Disabled(readOnly).Clicked() {
 			c.After(func() { a.runLineOperation(p, d, core.ToggleLineComment) })

@@ -118,6 +118,9 @@ func (v *View) SetSelection(anchor, active int) bool {
 	if v.preedit.Composing || anchor < 0 || active < 0 || anchor > v.text.Len() || active > v.text.Len() {
 		return false
 	}
+	if len(v.docs.active) > 0 || v.docs.activeDirty {
+		v.expandDocBlocksInLineRange(v.text.LineOf(min(anchor, active)), v.text.LineOf(max(anchor, active)))
+	}
 	v.anchor, v.caret = anchor, active
 	v.goal, v.lastKind, v.reveal = -1, editOther, true
 	v.clearCursorHistory()

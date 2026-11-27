@@ -392,11 +392,14 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # Lithe-core-rust main at d069224d (#210): extends workspace directory rules with built-in
 # test/generated roles, user-defined custom folder types, custom SVG icons, quick color
 # overrides, and workspace.resolveDirectoryPresentation.
-# Lithe-core-rust #215 head at 914fed28 (not yet on main; re-pin to its main commit once it
-# merges): plugin directory types and marks (workspace/setDirectoryTypes and
-# workspace/setDirectoryMarks) as a layer between shared rules and globs, with submission
-# checks that match the resolver.
-PINNED_CORE_REVISION="914fed28dd0f39f4e2f699214cadedb593d4057f"
+# Lithe-core-rust main at 63932f93 (#215, on top of #210): plugin directory types and marks
+# (workspace/setDirectoryTypes and workspace/setDirectoryMarks) as a layer between shared rules
+# and globs, with submission checks that match the resolver; followed by e4c2eb14 (#216, API-45).
+# Lithe-core-rust branch feat/doc-comment-rendering at 213c8ccf (#214, rebased on main e4c2eb14):
+# adds bounded native HTML/Javadoc/Markdown doc rendering commands (editor.renderDocComment,
+# editor.renderHoverDoc) and renderDocComments / renderDocCommentsInReadOnly editor preferences
+# (#2475). Switch to main's commit once #214 is squash-merged.
+PINNED_CORE_REVISION="213c8ccff5a897d6e5ed3860223e0b15cd196e39"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

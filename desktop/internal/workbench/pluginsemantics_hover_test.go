@@ -10,6 +10,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/vivaui/viva/gfx"
+	"github.com/vivaui/viva/markdown"
 )
 
 func markdownHoverResult(t *testing.T, contents string, span *core.PluginDocumentRange) json.RawMessage {
@@ -413,5 +414,126 @@ func TestHoverMarkdownFencesPlainTextAndSpreadsTabs(t *testing.T) {
 	}
 	if got := hoverMarkdown("int add()", false); got != "```\nint add()\n```" {
 		t.Fatalf("plain = %q", got)
+	}
+}
+
+func TestHoverRendersEmbeddedHTMLInMarkdownAndProtectsEscapedAndCode(t *testing.T) {
+	f := newSemanticFixture(t)
+	f.h.app.semantics.hoverDelay = -1
+	md := "<p>Summary with <em>italic</em>, <strong>bold</strong>, and <a href=\"https://example.com\">Docs</a>.</p>\n\n<ul><li>First item</li><li>Second item</li></ul>\n\n<pre>int one() { return 1; }</pre>\n\nEscaped: &lt;em&gt;literal&lt;/em&gt;\n\nInline: `<p>raw</p>`"
+	f.openPointerHover(t, markdownHoverResult(t, md, nil))
+	page := f.h.app.semantics.hover.page
+	awaitDocumentState(t, f.h, func() bool { return page.tokens != nil })
+
+	// HTML tags must be interpreted natively, never shown literally for prose/list/pre.
+	for _, forbidden := range []string{"<p>Summary", "<em>italic</em>", "<strong>", "<a href", "<ul>", "<li>", "<pre>"} {
+		if strings.Contains(page.label, forbidden) {
+			t.Fatalf("hover leaked raw HTML %q in %q", forbidden, page.label)
+		}
+	}
+	for _, want := range []string{"Summary with italic, bold, and Docs.", "First item", "Second item", "int one() { return 1; }"} {
+		if !strings.Contains(page.label, want) {
+			t.Fatalf("hover missing rendered content %q in %q", want, page.label)
+		}
+	}
+
+	// Verify styled spans, bare external link, and <pre> syntax highlighting.
+	var foundItalic, foundBold, foundLink, foundEscapedLiteral, foundInlineRawCode bool
+	for i := range page.doc.Blocks {
+		b := &page.doc.Blocks[i]
+		spans := page.doc.Spans(b)
+		var joined strings.Builder
+		anyItalic := false
+		for _, sp := range spans {
+			joined.WriteString(sp.Text)
+			if sp.Style&markdown.Italic != 0 {
+				anyItalic = true
+			}
+			if sp.Text == "italic" && sp.Style&markdown.Italic != 0 {
+				foundItalic = true
+			}
+			if sp.Text == "bold" && sp.Style&markdown.Bold != 0 {
+				foundBold = true
+			}
+			if sp.Text == "Docs" && sp.Link == "https://example.com" {
+				foundLink = true
+			}
+			if sp.Text == "<p>raw</p>" && sp.Style&markdown.Mono != 0 {
+				foundInlineRawCode = true
+			}
+		}
+		if strings.Contains(joined.String(), "<em>literal</em>") && !anyItalic {
+			foundEscapedLiteral = true
+		}
+	}
+	if !foundItalic || !foundBold || !foundLink || !foundEscapedLiteral || !foundInlineRawCode {
+		t.Fatalf("span checks failed: italic=%v bold=%v link=%v escaped=%v rawCode=%v label=%q",
+			foundItalic, foundBold, foundLink, foundEscapedLiteral, foundInlineRawCode, page.label)
+	}
+	if runs := f.h.app.hoverCodeRuns(page, "java", "int one() { return 1; }", nil); len(runs) == 0 {
+		t.Fatal("Core-rendered <pre> code block was not syntax highlighted")
+	}
+}
+
+func TestHoverPlaintextKeepsHTMLAndMarkdownCompletelyLiteral(t *testing.T) {
+	f := newSemanticFixture(t)
+	f.h.app.semantics.hoverDelay = -1
+	raw := "<p><em>**plain**</em></p>"
+	f.openPointerHover(t, hoverResult(t, raw))
+	page := f.h.app.semantics.hover.page
+	if !strings.Contains(page.label, raw) {
+		t.Fatalf("plaintext hover altered literal markup: got %q, want %q", page.label, raw)
+	}
+	if len(page.doc.Blocks) != 1 || page.doc.Blocks[0].Kind != markdown.Code || page.doc.Blocks[0].Text != raw {
+		t.Fatalf("plaintext hover blocks = %+v, want single literal code block %q", page.doc.Blocks, raw)
+	}
+}
+
+func TestPopulateMarkdownFromDocIRMapsAllBlocksAndLinksDeterministically(t *testing.T) {
+	ir := core.DocRenderResponse{
+		Blocks: []core.DocBlock{
+			{Kind: core.DocBlockHeading, Level: 2, Spans: []core.DocSpan{{Text: "Title"}}},
+			{Kind: core.DocBlockParagraph, Spans: []core.DocSpan{
+				{Text: "Web", Link: &core.DocLink{Kind: core.DocLinkExternal, Target: "https://example.com"}},
+				{Text: "Anchor", Link: &core.DocLink{Kind: core.DocLinkAnchor, Target: "#fail-fast"}},
+				{Text: "Sym", Code: true, Link: &core.DocLink{Kind: core.DocLinkSymbolRef, Target: "#iterator()"}},
+				{Text: "OtherExt", Link: &core.DocLink{Kind: core.DocLinkExternal, Target: "ftp://example.com/a"}},
+			}},
+			{Kind: core.DocBlockItem, Level: 1, Number: 2, Spans: []core.DocSpan{{Text: "Item", Strike: true}}},
+			{Kind: core.DocBlockCode, Language: "java", Text: "a\tb"},
+			{Kind: core.DocBlockRule},
+			{Kind: core.DocBlockTable, Columns: 2, Rows: [][]core.DocTableCell{
+				{{Align: "center", Spans: []core.DocSpan{{Text: "H1"}}}, {Align: "right", Spans: []core.DocSpan{{Text: "H2"}}}},
+			}},
+			{Kind: core.DocBlockLabeled, TagKind: "param", Spans: []core.DocSpan{{Text: "x", Code: true}}},
+			{Kind: core.DocBlockLabeled, LabelSpans: []core.DocSpan{{Text: "Term", Bold: true}}, Spans: []core.DocSpan{{Text: "Def"}}},
+		},
+	}
+	var doc markdown.Document
+	populateMarkdownFromDocIR(&doc, ir, func(tag string) string {
+		if tag == "param" {
+			return "参数:"
+		}
+		return ""
+	})
+	if len(doc.Blocks) != 8 {
+		t.Fatalf("blocks = %d, want 8", len(doc.Blocks))
+	}
+	spans := doc.Spans(&doc.Blocks[1])
+	if len(spans) != 4 ||
+		spans[0].Link != "https://example.com" ||
+		spans[1].Link != "anchor:fail-fast" ||
+		spans[2].Link != "symbol:#iterator()" ||
+		spans[3].Link != "external:ftp://example.com/a" {
+		t.Fatalf("unexpected encoded links: %+v", spans)
+	}
+	if doc.Blocks[3].Kind != markdown.Code || doc.Blocks[3].Text != "a   b" {
+		t.Fatalf("code block tabs not spread: %+v", doc.Blocks[3])
+	}
+	if labels := doc.LabelSpans(&doc.Blocks[6]); len(labels) != 1 || labels[0].Text != "参数:" {
+		t.Fatalf("localized tag label = %+v", labels)
+	}
+	if labels := doc.LabelSpans(&doc.Blocks[7]); len(labels) != 1 || labels[0].Text != "Term" || labels[0].Style&markdown.Bold == 0 {
+		t.Fatalf("rich LabelSpans = %+v", labels)
 	}
 }

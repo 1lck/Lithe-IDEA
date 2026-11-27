@@ -109,6 +109,7 @@ func (a *App) newTablessDocument(p *project, id int, path, name string, content 
 	})
 	d.view.SetVimExit(func(cmd string) bool { return a.vimExit(p, d, cmd) })
 	setupFolding(d)
+	a.setupDocComments(p, d)
 	d.breakpointText = d.view.TextSnapshot()
 	return d
 }

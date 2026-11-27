@@ -46,6 +46,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	// lays a wrapped text out again for the new width of a cell). Before the first paint nothing
 	// has been measured, so nothing moves.
 	wasCellW, wasLineH := v.cellW, v.lineH
+	wasPainted, wasAreaY, wasTextLeft, wasScrollX := v.painted, v.area.Y, v.textLeft, v.scrollX
 	if wasCellW > 0 && wasCellW != cellW {
 		v.scrollX = v.scrollX / wasCellW * cellW
 	}
@@ -56,15 +57,16 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	v.applyLook(look)
 	lines := v.text.LineCount()
 	digits := v.gutterDigits(lines)
-	// The gutter is the numbers with their padding, then the icon column, then the fold arrows.
+	// The gutter is the numbers with their padding, then the icon column, then doc block toggles, then the fold arrows.
 	numbersEnd := float32(digits)*cellW + 2*gutterPad
 	if v.presentation.HideLineNumbers && !v.decor.labelled {
 		numbersEnd = 2 * gutterPad
 	}
-	gutter := numbersEnd + v.lineIconColumn() + v.foldColumn()
+	gutter := numbersEnd + v.lineIconColumn() + v.docGutterColumn() + v.foldColumn()
 	v.iconX = area.X + numbersEnd + lineIconInset
 	v.numbersRight = area.X + numbersEnd
-	v.fold.x = area.X + numbersEnd + v.lineIconColumn()
+	v.docs.gutterX = area.X + numbersEnd + v.lineIconColumn()
+	v.fold.x = v.docs.gutterX + v.docGutterColumn()
 	v.fold.boxes = v.fold.boxes[:0]
 	v.area = area
 	v.textLeft = area.X + gutter + textPad
@@ -76,7 +78,11 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 		// A cell is kept free at the right edge for the caret after a full row.
 		cols = max(int((v.textRight-v.textLeft-cellW)/cellW), 1)
 	}
-	v.setWrapCols(cols, wasLineH)
+	if len(v.docs.blocks) == 0 {
+		v.setWrapCols(cols, wasLineH)
+	} else {
+		v.prepareDocBlocks(canvas, cols, wasPainted, wasLineH, wasAreaY, wasTextLeft, wasScrollX)
+	}
 	v.revealHiddenCaret()
 	if v.reveal {
 		v.revealCaret()
@@ -95,13 +101,22 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	rows := v.rowCount()
 	firstRow := min(int(v.scroll/v.lineH), rows-1)
 	lastRow := min(int((v.scroll+area.Height)/v.lineH), rows-1)
-	firstLine, firstSub := v.rowLine(firstRow)
-	lastLine, _ := v.rowLine(lastRow)
+	firstDR := v.displayRowAt(firstRow)
+	lastDR := v.displayRowAt(lastRow)
+	firstLine, firstSub := firstDR.line, firstDR.sub
+	lastLine := lastDR.line
+	if lastDR.kind == displayDocBlock {
+		lastLine = v.docs.active[lastDR.block].endLine
+	}
 	// The highlighter keeps the tokens of one range, so it is the lines the minimap shows too.
 	prepareFirst, prepareLast := max(firstLine-prepareMargin, 0), min(lastLine+prepareMargin, lines-1)
 	if _, mapFirst, mapLast, ok := v.minimapRange(); ok {
-		mapFirstLine, _ := v.rowLine(mapFirst)
-		mapLastLine, _ := v.rowLine(mapLast)
+		mapFirstDR := v.displayRowAt(mapFirst)
+		mapLastDR := v.displayRowAt(mapLast)
+		mapFirstLine, mapLastLine := mapFirstDR.line, mapLastDR.line
+		if mapLastDR.kind == displayDocBlock {
+			mapLastLine = v.docs.active[mapLastDR.block].endLine
+		}
 		prepareFirst, prepareLast = min(prepareFirst, mapFirstLine), max(prepareLast, mapLastLine)
 	}
 	v.hl.Prepare(prepareFirst, prepareLast)
@@ -119,6 +134,17 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	canvas.Clip(textArea)
 	annotation := 0
 	top := area.Y + float32(firstRow-firstSub)*v.lineH - v.scroll
+	activeIdx := len(v.docs.active)
+	if len(v.docs.active) > 0 {
+		v.docs.paintedLinks = v.docs.paintedLinks[:0]
+		if firstDR.kind == displayDocBlock {
+			activeIdx = firstDR.block
+			top = area.Y + float32(v.docs.active[activeIdx].displayStartRow)*v.lineH - v.scroll
+		} else {
+			activeIdx = sort.Search(len(v.docs.active), func(i int) bool { return v.docs.active[i].endLine >= firstLine })
+		}
+	}
+	linkBase := docLinkPartBase
 	composeRow, composeAt, composeCells := v.compositionRoom()
 	bracketPair := v.caretBracketPair(selStart, selEnd)
 	guideUnit := 0
@@ -140,11 +166,24 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	var guideGap indentGuideGap
 	guideInk := look.Foreground
 	guideInk.Alpha *= 0.16
-	for line := firstLine; line <= lastLine; line++ {
+	for line := firstLine; line <= lastLine; {
+		if activeIdx < len(v.docs.active) && line >= v.docs.active[activeIdx].startLine {
+			ab := v.docs.active[activeIdx]
+			blockH := float32(ab.rows) * v.lineH
+			if top+v.lineH > area.Y {
+				v.numbers = append(v.numbers, gutterNumber{line: ab.startLine, y: top})
+			}
+			v.paintDocBlock(canvas, textArea, look, ab, top, blockH, &linkBase)
+			top += blockH
+			line = ab.endLine + 1
+			activeIdx++
+			continue
+		}
 		l := v.ref(line)
 		wraps := v.rowsOf(l)
 		if len(wraps) == 0 {
 			// A folded line: no rows, no number.
+			line++
 			continue
 		}
 		if top+v.lineH > area.Y {
@@ -182,7 +221,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 		// rowLine already located the first visible row. Walking its preceding rows
 		// makes repainting a deeply scrolled long line depend on its entire prefix.
 		first := 0
-		if line == firstLine {
+		if line == firstLine && firstDR.kind == displayTextRow {
 			first = firstSub
 		}
 		for k := first; k < len(wraps); k++ {
@@ -262,20 +301,23 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 			}
 		}
 		top += float32(len(wraps)) * v.lineH
+		line++
 	}
 	if v.focused && !v.preedit.Composing && (v.vimBlock() || v.presentation.DisableCursorBlink || v.blinkOn(canvas)) {
 		if len(v.extra) > 0 {
 			v.paintExtraCarets(canvas, look)
 		}
-		x, y := v.caretPoint()
-		if v.vimBlock() {
-			// The Vim modes draw the caret as a block over its character, solid, and let the
-			// text show through it.
-			block := look.Caret
-			block.Alpha *= 0.6
-			canvas.Fill(gfx.Rect{X: float32(math.Round(float64(x))), Y: y, Width: v.cellW, Height: v.lineH}, block)
-		} else {
-			v.paintConfiguredCaret(canvas, x, y, look.Caret)
+		if v.activeDocBlockAtLine(caretLine) < 0 {
+			x, y := v.caretPoint()
+			if v.vimBlock() {
+				// The Vim modes draw the caret as a block over its character, solid, and let the
+				// text show through it.
+				block := look.Caret
+				block.Alpha *= 0.6
+				canvas.Fill(gfx.Rect{X: float32(math.Round(float64(x))), Y: y, Width: v.cellW, Height: v.lineH}, block)
+			} else {
+				v.paintConfiguredCaret(canvas, x, y, look.Caret)
+			}
 		}
 	}
 	canvas.Unclip()
@@ -288,6 +330,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	canvas.Clip(gfx.Rect{X: area.X, Y: area.Y, Width: gutter, Height: area.Height})
 	v.paintGutterDecorations(canvas, area, look, firstLine, lastLine)
 	v.paintLineIcons(canvas, area, look, firstLine, lastLine)
+	v.paintDocGutterIcons(canvas, area, look, firstLine, lastLine)
 	v.paintFoldArrows(canvas, area, look, firstLine, lastLine)
 	style := gfx.TextStyle{Size: font.Size, Color: look.Subtle, Mono: true, MonoFace: font.Face}
 	right := area.X + numbersEnd - gutterPad
@@ -326,6 +369,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	v.paintMinimap(canvas, look, selStart, selEnd)
 	v.paintScrollbars(canvas, look)
 	v.paintToggle(canvas, look)
+	v.docs.editedThisFrame = false
 }
 
 // joinedLines is how many copied lines the view keeps for a text, joinedBytes the longest line

@@ -102,6 +102,14 @@ type Comments struct {
 	Block Pair
 }
 
+// DocCommentDialects declares the documentation comment dialects a language's
+// grammar classifies for block (/** ... */ or /*! ... */) and line (/// or //!)
+// documentation comments. Empty strings leave that comment form as raw source.
+type DocCommentDialects struct {
+	Block string
+	Line  string
+}
+
 // Language is what the editor knows about one language: the files that are in it, the grammar
 // that tokenizes it and how its tokens are named, and the delimiters editing commands use.
 // A Language is not changed once a Registry holds it.
@@ -119,6 +127,7 @@ type Language struct {
 	// Rules name the grammar's tokens; nil means DefaultRules.
 	Rules       []Rule
 	Comments    Comments
+	DocComments DocCommentDialects
 	Brackets    []Pair
 	AutoClosing []Pair
 	// Candidates declares how this grammar names identifiers beyond generic variable scopes.
@@ -147,6 +156,7 @@ type PluginLanguage struct {
 	Grammar     []byte
 	Rules       []Rule
 	Comments    Comments
+	DocComments DocCommentDialects
 	Brackets    []Pair
 	AutoClosing []Pair
 }
@@ -170,6 +180,15 @@ func (s *Syntax) Language() *Language { return s.language }
 
 // Grammar is the compiled grammar.
 func (s *Syntax) Grammar() *textmate.Grammar { return s.grammar }
+
+// DocComments returns the documentation comment dialects declared for the
+// Syntax's language, or zero when documentation rendering is not enabled.
+func (s *Syntax) DocComments() DocCommentDialects {
+	if s == nil || s.language == nil {
+		return DocCommentDialects{}
+	}
+	return s.language.DocComments
+}
 
 // Registry holds the bundled languages and those plugins contribute, picks the language of a
 // file, and compiles the Syntax of a language once. It is safe for concurrent use.
@@ -610,6 +629,9 @@ func (r *Registry) addPluginLocked(source PluginLanguage) (*Language, error) {
 	}
 	if source.Comments != (Comments{}) {
 		language.Comments = source.Comments
+	}
+	if source.DocComments != (DocCommentDialects{}) {
+		language.DocComments = source.DocComments
 	}
 	if source.Brackets != nil {
 		language.Brackets = slices.Clone(source.Brackets)

@@ -177,20 +177,33 @@ func (v *View) key(event gfx.KeyEvent) (gfx.EventResult, bool) {
 		default:
 			v.moveTo(v.nextRune(v.caret), extend)
 		}
-	// Up and down go by rows, so they step through a wrapped line row by row.
+	// Up and down go by rows, so they step through a wrapped line row by row,
+	// and step cleanly across rendered doc blocks without expanding them.
 	case gfx.KeyUp:
 		switch row := v.caretRow(); {
-		case edge || row == 0:
+		case edge:
 			v.moveTo(0, extend)
+		case row == 0:
+			if v.activeDocBlockAtLine(0) < 0 {
+				v.moveTo(0, extend)
+			}
 		default:
-			v.vertical(row-1, extend)
+			if target := v.stepRowAcrossDocBlocks(row-1, -1); target >= 0 {
+				v.vertical(target, extend)
+			}
 		}
 	case gfx.KeyDown:
 		switch row := v.caretRow(); {
-		case edge || row >= v.rowCount()-1:
+		case edge:
 			v.moveTo(v.text.Len(), extend)
+		case row >= v.rowCount()-1:
+			if v.activeDocBlockAtLine(v.text.LineCount()-1) < 0 {
+				v.moveTo(v.text.Len(), extend)
+			}
 		default:
-			v.vertical(row+1, extend)
+			if target := v.stepRowAcrossDocBlocks(row+1, +1); target >= 0 {
+				v.vertical(target, extend)
+			}
 		}
 	case gfx.KeyHome:
 		v.moveTo(v.homeOf(line), extend)
@@ -198,11 +211,20 @@ func (v *View) key(event gfx.KeyEvent) (gfx.EventResult, bool) {
 		v.moveTo(v.lineEnd(line), extend)
 	case gfx.KeyPageUp, gfx.KeyPageDown:
 		rows := max(int(v.area.Height/max(v.lineH, 1))-1, 1)
+		dir := 1
 		if event.Key == gfx.KeyPageUp {
 			rows = -rows
+			dir = -1
 		}
 		row := v.caretRow()
 		target := min(max(row+rows, 0), v.rowCount()-1)
+		if stepped := v.stepRowAcrossDocBlocks(target, dir); stepped >= 0 {
+			target = stepped
+		} else if fallback := v.stepRowAcrossDocBlocks(target, -dir); fallback >= 0 {
+			target = fallback
+		} else {
+			break
+		}
 		v.scroll += float32(target-row) * v.lineH
 		v.vertical(target, extend)
 	case gfx.KeyBackspace:
@@ -412,6 +434,9 @@ func (v *View) applyText(event app.TextEvent) app.TextState {
 		}
 		redraw = true
 	case app.TextSetMarked:
+		if len(v.docs.active) > 0 || v.docs.activeDirty {
+			v.expandDocBlockAtLine(v.text.LineOf(v.caret))
+		}
 		runes := utf8.RuneCountInString(event.Text)
 		v.preedit = app.TextState{
 			Value: event.Text, Selection: event.MarkedSelection,
@@ -435,8 +460,14 @@ func (v *View) Pointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
 	if result, ok := v.chromePointer(event); ok {
 		return result, true
 	}
+	if result, ok := v.docLinkPointer(event); ok {
+		return result, true
+	}
 	if event.Kind == gfx.PointerDown && event.Target == v.cfg.HitID && v.painted {
 		v.gutterContext(event)
+	}
+	if event.Kind == gfx.PointerDown && event.Target == v.cfg.HitID && v.painted && v.docGutterPointer(event) {
+		return gfx.EventResult{Handled: true, Repaint: true, Focus: v.cfg.HitID}, true
 	}
 	if event.Kind == gfx.PointerDown && event.Target == v.cfg.HitID && v.painted && v.foldPointer(event) {
 		return gfx.EventResult{Handled: true, Repaint: true, Focus: v.cfg.HitID}, true
@@ -449,6 +480,11 @@ func (v *View) Pointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
 	}
 	if event.Kind == gfx.PointerDown && event.Target == v.cfg.HitID && v.painted && v.gutterPointer(event) {
 		return gfx.EventResult{Handled: true, Repaint: true, Focus: v.cfg.HitID}, true
+	}
+	if v.painted {
+		if result, ok := v.docBodyPointer(event); ok {
+			return result, true
+		}
 	}
 	switch {
 	case event.Kind == gfx.PointerDown && event.Target == v.cfg.HitID:
@@ -544,9 +580,12 @@ func (v *View) dragSelect(offset int) bool {
 func (v *View) offsetAt(x, y float32) int {
 	row := int((y - v.area.Y + v.scroll) / max(v.lineH, 1))
 	row = min(max(row, 0), v.rowCount()-1)
-	line, sub := v.rowLine(row)
+	dr := v.displayRowAt(row)
+	if dr.kind == displayDocBlock {
+		return v.text.LineStart(dr.line)
+	}
 	cells := (x - v.textLeft + v.scrollX) / max(v.cellW, 1)
-	return v.text.LineStart(line) + v.columnOnRow(line, sub, max(cells, 0))
+	return v.text.LineStart(dr.line) + v.columnOnRow(dr.line, dr.sub, max(cells, 0))
 }
 
 // Scroll scrolls the text with the wheel or the trackpad: up and down, and sideways with a

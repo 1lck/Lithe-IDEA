@@ -115,7 +115,10 @@ func (v *View) breakpointPointer(event gfx.PointerEvent) bool {
 	if row < 0 || row >= v.rowCount() {
 		return false
 	}
-	line, _ := v.rowLine(row)
-	g.onBreakpoint(line)
+	dr := v.displayRowAt(row)
+	if dr.kind == displayDocBlock && dr.sub > 0 {
+		return false
+	}
+	g.onBreakpoint(dr.line)
 	return true
 }
