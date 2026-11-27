@@ -222,10 +222,9 @@ func TestCloseLetsTheShellHandleHangupBeforeReleasingThePTY(t *testing.T) {
 				<-exited
 				return 0, nil
 			},
-			hangup:              func() { calls = append(calls, "hangup") },
-			kill:                func() { calls = append(calls, "kill") },
-			busy:                func() bool { return true },
-			retryHangupAtPrompt: true,
+			hangup: func() { calls = append(calls, "hangup") },
+			kill:   func() { calls = append(calls, "kill") },
+			busy:   func() bool { return true },
 		})
 		shell.space = sync.NewCond(&shell.mu)
 		shell.readDone = make(chan struct{})
@@ -260,12 +259,17 @@ func TestCloseLetsTheShellHandleHangupBeforeReleasingThePTY(t *testing.T) {
 	})
 }
 
-func TestHangupRetriesAtTheBashPromptBeforeForcingExit(t *testing.T) {
+func TestHangupWaitsForTheBashInputModeBeforeForcingExit(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		signals := make(chan string, 3)
+		signals := make(chan string, 5)
 		shell := resizeTestShell(backend{
-			hangup:              func() { signals <- "hangup" },
-			retryHangupAtPrompt: true,
+			hangup: func() { signals <- "hangup" },
+			inputReady: func() bool {
+				signals <- "input ready"
+				return true
+			},
+			interruptInput: func() { signals <- "interrupt" },
+			closeAtInput:   func() { signals <- "close command" },
 		})
 		shell.b.kill = func() {
 			signals <- "kill"
@@ -274,16 +278,14 @@ func TestHangupRetriesAtTheBashPromptBeforeForcingExit(t *testing.T) {
 		shell.lastMark = 'B'
 		shell.hangUp()
 		synctest.Wait()
-		if len(signals) != 1 {
-			t.Errorf("initial signal count = %d, want one hangup", len(signals))
-		}
-
+		shell.sawMark('B')
+		synctest.Wait()
 		select {
 		case <-shell.done:
-		case <-time.After(killGrace + time.Millisecond):
+		case <-time.After(killGrace + 2*promptGrace + time.Millisecond):
 			t.Fatal("the fallback did not end the shell within its original grace period")
 		}
-		for _, want := range []string{"hangup", "hangup", "kill"} {
+		for _, want := range []string{"input ready", "interrupt", "close command", "hangup", "kill"} {
 			select {
 			case got := <-signals:
 				if got != want {

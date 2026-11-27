@@ -31,6 +31,27 @@ func stubTreeTrash(t *testing.T) *[]string {
 	return &trashed
 }
 
+// gateTreeTrash blocks the first trash write until unblock. Cleanup always releases it, so a
+// failed assertion cannot leave a background write hanging.
+func gateTreeTrash(t *testing.T) (<-chan struct{}, func()) {
+	t.Helper()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var startOnce, releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	previous := treeMoveToTrash
+	treeMoveToTrash = func(full string) error {
+		startOnce.Do(func() { close(started) })
+		<-release
+		return os.RemoveAll(full)
+	}
+	t.Cleanup(func() {
+		unblock()
+		treeMoveToTrash = previous
+	})
+	return started, unblock
+}
+
 // Delete is one menu item; its dialog moves the item to the trash by default and offers
 // Delete Permanently beside it, as the IDE does.
 func TestProjectTreeDeleteMovesToTheTrashByDefault(t *testing.T) {
@@ -56,6 +77,172 @@ func TestProjectTreeDeleteMovesToTheTrashByDefault(t *testing.T) {
 	}
 	if p.tree.removal.open {
 		t.Fatal("the Delete dialog stayed open")
+	}
+}
+
+// A slow trash operation must not keep the delete click on the window thread, where it freezes
+// input and paint. The gated trash double controls the order: the operation starts, the click
+// returns while it is still blocked, then the test releases it and checks the final state.
+func TestProjectTreeRemovalReturnsBeforeSlowTrashFinishes(t *testing.T) {
+	root := t.TempDir()
+	writeTreeFiles(t, root, "slow.txt", "keep.txt")
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	p := h.openTree(t, root)
+
+	started, unblock := gateTreeTrash(t)
+
+	h.app.openTreeRemoval(p, []string{"slow.txt"})
+	h.app.invalidator.Invalidate()
+	h.settle()
+	moveToTrash := h.shared("desktop.files.moveToTrash")
+	h.await("the Delete dialog", func() bool {
+		_, ok := h.findPageHit(moveToTrash)
+		return ok
+	})
+	point := center(h.pageHit(moveToTrash).Bounds)
+	result := make(chan error, 1)
+	resultRead := false
+	go func() {
+		if err := h.driver.Click(point.X, point.Y); err != nil {
+			result <- err
+			return
+		}
+		result <- h.driver.Pump()
+	}()
+	defer func() {
+		unblock()
+		if resultRead {
+			return
+		}
+		select {
+		case err := <-result:
+			if err != nil {
+				t.Errorf("the delete click: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Error("the delete click did not finish during cleanup")
+		}
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		unblock()
+		t.Fatal("the trash operation did not start")
+	}
+	select {
+	case err := <-result:
+		resultRead = true
+		if err != nil {
+			t.Fatalf("the delete click: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the delete click waited for the blocked trash operation")
+	}
+	if p.tree.removal.open {
+		t.Fatal("the Delete dialog stayed open")
+	}
+
+	key := gfx.KeyControlLeft
+	if primaryModifier() == gfx.ModifierMeta {
+		key = gfx.KeyMetaLeft
+	}
+	if err := h.driver.KeyDown(key, ""); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = h.driver.KeyUp(key, "") }()
+	h.sendClick(center(h.treeRowHit("keep.txt").Bounds))
+	if !p.tree.marked["keep.txt"] {
+		t.Fatal("the workbench did not accept a new marked row while removal was blocked")
+	}
+	unblock()
+	h.settleChain()
+	if !p.tree.marked["keep.txt"] {
+		t.Fatal("finishing the removal erased a selection made while it was running")
+	}
+	if _, err := os.Stat(filepath.Join(root, "slow.txt")); !os.IsNotExist(err) {
+		t.Fatalf("slow.txt still exists after removal: %v", err)
+	}
+	h.await("the removed row", func() bool { return p.tree.find("slow.txt") == nil })
+}
+
+// Writes into a deletion that is still running are refused: a file moved there after confirmation
+// must not be removed with the confirmed batch.
+func TestProjectTreeRemovalRejectsWritesIntoPendingTargets(t *testing.T) {
+	root := t.TempDir()
+	writeTreeFiles(t, root, "slow/file.txt", "target/existing.txt", "notes.txt")
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	p := h.openTree(t, root)
+	started, unblock := gateTreeTrash(t)
+
+	h.app.removeTreeItems(p, []string{"slow", "target"}, false)
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the trash operation did not start")
+	}
+	if !p.tree.removalConflicts("target/inner.txt") {
+		t.Fatal("the pending removal does not guard its target subtree")
+	}
+
+	h.app.moveTreeItem(p, "notes.txt", "target")
+	if h.app.notice == "" {
+		t.Fatal("the overlapping move was refused without telling the user")
+	}
+	if _, err := os.Stat(filepath.Join(root, "notes.txt")); err != nil {
+		t.Fatalf("the move changed notes.txt despite the pending removal: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "target", "notes.txt")); !os.IsNotExist(err) {
+		t.Fatalf("notes.txt entered the pending deletion: %v", err)
+	}
+
+	h.app.notice = ""
+	p.tree.clip = treeClipboard{paths: []string{"notes.txt"}, cut: true}
+	h.app.treePaste(p, p.tree.find("target"))
+	if h.app.notice == "" {
+		t.Fatal("the overlapping paste was refused without telling the user")
+	}
+	if _, err := os.Stat(filepath.Join(root, "notes.txt")); err != nil {
+		t.Fatalf("the paste changed notes.txt despite the pending removal: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "target", "notes.txt")); !os.IsNotExist(err) {
+		t.Fatalf("paste put notes.txt into the pending deletion: %v", err)
+	}
+
+	unblock()
+	h.settleChain()
+	if len(p.tree.removing) != 0 {
+		t.Fatalf("removal guards still active: %v", p.tree.removing)
+	}
+}
+
+// Closing a project or quitting waits for a confirmed removal instead of leaving its later items
+// untouched when the process exits.
+func TestProjectCloseWaitsForTreeRemoval(t *testing.T) {
+	root := t.TempDir()
+	writeTreeFiles(t, root, "slow.txt")
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	p := h.openTree(t, root)
+	started, unblock := gateTreeTrash(t)
+
+	h.app.removeTreeItems(p, []string{"slow.txt"}, false)
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the trash operation did not start")
+	}
+	closed := false
+	h.app.requestCloseProject(func() { closed = true })
+	if closed || h.app.project != p {
+		t.Fatalf("close finished while removal was blocked: closed %v project %v", closed, h.app.project)
+	}
+	unblock()
+	h.settleChain()
+	if !closed {
+		t.Fatal("close did not continue after the removal finished")
+	}
+	if h.app.project != nil {
+		t.Fatal("the project stayed open after its close was released")
 	}
 }
 
