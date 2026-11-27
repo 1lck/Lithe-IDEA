@@ -4,18 +4,20 @@ CI 构建缓存、架构并行、测试产物和 artifact 保留策略见
 [`2026-09-13-ci-build-cache-and-artifact-strategy.md`](../.agents/notes/implemented/process/2026-09-13-ci-build-cache-and-artifact-strategy.md)。
 本文只保留 CI 使用说明、下载方式和本地资源复用规则。
 
-仓库里会单独触发的桌面端工作流只有三个，都位于 `.github/workflows/`；第四个文件 `desktop-remote-server.yml` 只能被它们调用（`workflow_call`），负责构建并冒烟测试远端服务：
+仓库里会单独触发的桌面端工作流有四个，都位于 `.github/workflows/`；另一个文件 `desktop-remote-server.yml` 只能被它们调用（`workflow_call`），负责构建并冒烟测试远端服务：
 
 | 工作流 | 触发 | 内容 |
 | --- | --- | --- |
-| **Desktop CI**（`desktop-ci.yml`） | PR（Draft 只跑 Linux 作业，`ready_for_review` 时补跑完整矩阵）、推送到 `main`、手动运行 | `pins` 校验固定版本；`linux`（Format and script tests）运行 gofmt、ShellCheck、本地化校验、安装资源路径检查和脚本测试；`linux-test` 通过 `scripts/desktop/check.sh` 运行 Linux 的 vet 和测试；`remote-server`（Remote server）调用可复用工作流 `desktop-remote-server.yml`，分两步：Build for linux amd64 and arm64 任务在一台 x86_64 runner 上编译两种架构的 Linux musl 远端服务，只检查静态链接、ELF 架构、清单与 SHA-256（不运行），上传产物 `remote-server-linux-musl` 并把体积写进任务摘要；随后 Test on linux amd64（`ubuntu-24.04`）和 Test on linux arm64（`ubuntu-24.04-arm`）两个任务并行下载同一份产物，重新校验并各自运行本架构的冒烟测试，两种架构都在原生硬件上运行，不用模拟器；`macos`（`macos-26`）、`windows`（`windows-2022`）同样运行 vet 和测试，只在非 Draft 时执行 |
+| **Desktop CI**（`desktop-ci.yml`） | PR（Draft 只跑 Linux 作业，`ready_for_review` 时补跑完整矩阵）、推送到 `main`、手动运行 | `pins` 校验固定版本；`linux`（Format and script tests）运行 gofmt、ShellCheck、本地化校验、安装资源路径检查和脚本测试；`linux-test`（`ubuntu-22.04`，与发版的 Linux amd64 打包同一镜像）通过 `scripts/desktop/check.sh` 运行 Linux 的 vet 和测试；`remote-server`（Remote server）调用可复用工作流 `desktop-remote-server.yml`，分两步：Build for linux amd64 and arm64 任务在一台 x86_64 runner 上编译两种架构的 Linux musl 远端服务，只检查静态链接、ELF 架构、清单与 SHA-256（不运行），上传产物 `remote-server-linux-musl` 并把体积写进任务摘要；随后 Test on linux amd64（`ubuntu-24.04`）和 Test on linux arm64（`ubuntu-24.04-arm`）两个任务并行下载同一份产物，重新校验并各自运行本架构的冒烟测试，两种架构都在原生硬件上运行，不用模拟器；`macos`（`macos-26`）、`windows`（`windows-2022`）同样运行 vet 和测试，只在非 Draft 时执行 |
 | **Desktop Release**（`desktop-release.yml`） | 推送 `desktop-v*.*.*` 标签，或手动运行并填写版本 | 先调用 `desktop-remote-server.yml` 编译并在两种架构上冒烟测试远端服务，再打包并校验 macOS、Windows、Linux 产物（每个包都嵌入这一份远端服务），核对校验和，然后创建或更新 GitHub prerelease，再签名发布正式版更新源。手动版本必须与 `desktop/viva.toml` 中的版本一致 |
 | **Desktop AutoBuild**（`desktop-autobuild.yml`） | 每天 UTC 10:00 定时，或手动运行 | 与 Release 一样先调用 `desktop-remote-server.yml`，再构建 macOS arm64 与 x64、Windows x64、Linux x64 和 arm64，发布到滚动预发布 `desktop-AutoBuild`。同一提交已经发布时，定时运行不会重复构建 |
+| **Desktop Core cache**（`desktop-core-cache.yml`） | 推送到 `main` 且改了 `scripts/desktop/build-desktop-core.sh` 或本工作流，或手动运行 | 只编译 Desktop CI 不编的两个目标的发布档 Core：`x86_64-apple-darwin`（`macos-26`）和 `aarch64-unknown-linux-gnu`（`ubuntu-22.04-arm`），存进 `main` 的缓存。这个版本的 Core 已有缓存时，查询完就结束 |
 
 - Draft PR 只运行 Linux 检查：macOS 和 Windows 作业带有 `draft == false` 条件。标记为 ready 后，才运行完整的 Desktop CI。
 - `Desktop CI gate` 汇总固定版本、Linux 格式与脚本、Linux 测试、远端服务（可复用工作流里的构建任务和 amd64、arm64 两个测试任务都成功，`remote-server` 才算成功）、macOS 测试和 Windows 测试；普通 PR 必须全部成功，Draft 只允许跳过 macOS 和 Windows。更换已有 PR 的目标分支后，保留 Draft 状态；需要评审时标记为 ready 以针对新基线重新运行完整检查。单纯修改标题或正文不触发平台 runner。
 - Desktop CI 通过 `scripts/desktop/check.sh` 执行 Go 检查：gofmt，带与不带 `dev` 标签各 vet 一次全部包；测试时 `settingswindow`、`pluginview`、`workbench` 三个界面包只在 `dev` 标签下跑一次，其余包不带标签跑，`buildinfo` 两种标签都跑。对这三个包，`dev` 标签只换掉两个文件：Viva 的属性检查只会多报错误；`buildinfo.Development` 只影响 Dock 角标（只在真实窗口里设置）和已安装的更新渠道（测试构建不带打包信息，两种标签下都为空）。所以不带标签再跑一遍检查不到更多问题，只会让 macOS 和 Windows 多花约 8 分钟。Windows 的 `workbench` 用例按顶层测试名分三组串行运行，三组合起来覆盖全部用例，每组仍遵守 Go 默认的 10 分钟上限。Rust 内核由 `scripts/desktop/build-desktop-core.sh` 按 `PINNED_CORE_REVISION` 固定的 Lithe-core-rust 修订构建。
 - Linux 测试作业也运行 `TestVisualLSPActions`，覆盖中英文与明暗主题的代码操作、签名帮助和内联提示失败重试。全量测试失败时仍采集截图。结果作为 `lsp-editor-visual-<系统>-<架构>` artifact 保留 14 天。
+- 发版和 AutoBuild 打包时不编译 Core，五个目标的 staged Core（`build-desktop-core.sh` 输出的静态库、头文件和 `lithe-mcp`）都从 `main` 的缓存恢复。`main` 换了 Core 固定版本后，Desktop CI 的 `linux-test`、`macos`、`windows` 三个任务分别编好 `x86_64-unknown-linux-gnu`、`aarch64-apple-darwin`、`x86_64-pc-windows-gnu`，Desktop Core cache 编好另外两个，编完立即保存，不等测试结果。缓存 key 怎么命名、哪些运行只读不写，见上面链接的 Agent 笔记。
 - Desktop Release 的打包脚本是 `scripts/ci/desktop-release/package-release.sh`，AutoBuild 的打包和发布脚本位于 `scripts/ci/desktop-autobuild/`。
 - 两条发布入口共用 `scripts/desktop/package-desktop.sh`，通过 Viva 的 `--cgo` 选项保留 Rust Core 原生桥接；`desktop-go.sh` 提供目标编译器、静态库及头文件。Linux 发布包由 Ubuntu 22.04 构建，其系统库兼容性需要单独验证，不能按 Viva 的默认纯 Go 包假设没有 glibc 依赖。
 - 本地复现与 CI 相同的检查见 [`desktop-getting-started.md`](development/desktop-getting-started.md) 的“提交前检查”。

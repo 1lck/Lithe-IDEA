@@ -6,7 +6,7 @@
 
 ## 先说结论
 
-CI 缓存的是经过版本和依赖约束的中间构建结果（Core 的编译输出和下载依赖），不缓存最终安装包或可执行文件。Draft PR 只跑 Linux 检查，不占用 macOS 和 Windows runner；标记为 ready 后才运行完整的平台测试。组织使用 GitHub Free 计划，全组织同时最多运行 5 个 GitHub 托管 macOS job，所以每次推送占用的 macOS runner 数量本身就是需要控制的成本。
+CI 缓存的是经过版本和依赖约束的中间构建结果（Core 的编译输出和下载依赖），不缓存最终安装包或可执行文件。五个发布目标的 Core 都由 main 上的运行提前编好，Desktop CI、AutoBuild 和 Desktop Release 用同一个缓存键，正常发版不编译 Core。Draft PR 只跑 Linux 检查，不占用 macOS 和 Windows runner；标记为 ready 后才运行完整的平台测试。组织使用 GitHub Free 计划，全组织同时最多运行 5 个 GitHub 托管 macOS job，所以每次推送占用的 macOS runner 数量本身就是需要控制的成本。
 
 ## 问题
 
@@ -18,8 +18,14 @@ Viva 桌面端要在 macOS、Windows 和 Linux 上构建，Rust Core 和 Go 桌�
 - main 的合并保护统一放在一个规则集中，默认需要 CODEOWNER 审批、最后一次推送后批准以及 `Desktop CI gate`。只有 `1lck` 和 `xiaoyumuxi` 能在 PR 页面选择绕过审批和 CI；豁免只用于 PR，不允许直接推送、强推或删除 main。授权发布者由仓库所有者和 `LITHE_RELEASE_ACTOR` 决定，定时 AutoBuild 仍自动执行。其他 Write 协作者的 GitHub 手工 Release 权限不是工作流名单能限制的，不能宣称该名单覆盖手工发布。
 - `Desktop CI gate` 必须读取五个明确依赖的结果；普通 PR 和 main 推送要求五项全部成功，缺失、失败、取消或意外跳过均失败。Draft 只允许 macOS 和 Windows 两项被跳过，Linux 格式、脚本、测试及固定版本检查仍必须成功。Linux 作业同时检查 Agent Notes、功能矩阵源数据及平台变更对应的能力记录，使文档路径过滤不会绕过必需门禁。
 - 例如功能分支应从 `origin/main` 创建并向 main 提 PR；不要继续向 preview 合并后再提升到 main，也不要把旧 `macOS CI gate` 设为必需检查，它属于已移除客户端。切换已有 PR 的目标分支后先保留 Draft，需要评审时再标记为 ready，针对新基线重跑完整 CI。标题和正文编辑不触发 CI，避免同一提交的跳过结果覆盖先前失败的门禁。
-- Core 的缓存键必须包含运行器的系统与架构、工具链身份、构建目标、发布或调试配置，以及构建脚本的哈希。发布工作流与自动构建使用同一个 release 档 Core 缓存键，因此自动构建通常能复用前一晚的 Core 编译结果。
-- 只缓存 Cargo 的依赖、编译中间产物和构建脚本输出，不缓存最终可执行文件，也不缓存整个增量编译目录。最终打包仍然重新运行必要的构建步骤，保证产物来自当前源码。
+- 发版和测试都尽量不编译 Core。暂存 Core（staged Core，`build-desktop-core.sh` 编好、可以直接拿去链接的 Core 静态库、头文件、`lithe-mcp` 和记录构建身份的 `identity.txt`，每个目标约 13 MB）按构建目标分开缓存。缓存键由“构建目标 + Linux 的 glibc 版本 + Rust 工具链身份 + release + 固定的 Core 修订”组成，Desktop CI、Desktop Core cache、AutoBuild 和 Desktop Release 对同一目标用同一个键。例如 Release 打 Linux arm64 包时恢复 `desktop-core-staged-aarch64-unknown-linux-gnu-glibc2.35-<工具链>-release-<修订>`，这份由 main 上的 Desktop Core cache 保存；恢复后 `build-desktop-core.sh` 核对 `identity.txt` 一致就直接返回，不跑 git 和 cargo。
+- main 负责把五个目标都编好。Desktop CI 在 main 推送时编 aarch64-apple-darwin、x86_64-unknown-linux-gnu 和 x86_64-pc-windows-gnu；`desktop-core-cache.yml` 在 main 改动固定修订或工具链时，编 CI 不测的 x86_64-apple-darwin 和 aarch64-unknown-linux-gnu；AutoBuild 缺哪个就编哪个，存在 main 的作用域。发布标签的运行能读 main 的缓存，所以正常发版一个 Core 都不编。
+- 编完 Core 立刻保存暂存 Core，不等测试或打包成功。不要用 `actions/cache` 在任务结束时统一保存：它只在任务成功时保存，测试失败一次，下一次运行又要冷编。v0.8.20 发版耗时 49 分钟，就是因为 Core 缓存这样丢失了。
+- 缓存里的 Core 必须和打包时自己编出来的一样。Linux 上用新 glibc 编出的 Core 在旧 glibc 上不能运行，所以 Linux 的键带 glibc 版本，Desktop CI 的 Linux 测试也改在 Release 打 Linux amd64 包用的 ubuntu-22.04 上跑，两边的键和字节完全一致。Windows 的暂存 Core 无论在 Windows runner 上原生编，还是在 Linux 上交叉编，得到的都是同样的 Windows 静态库、`lithe-mcp.exe` 和 `identity.txt`，链接都由 Windows runner 的 MinGW 完成，所以用 `enableCrossOsArchive` 共用一个键。
+- Cargo 构建目录（依赖、编译中间产物和构建脚本输出，约 300 MB；固定修订变化时只重编改动的部分）只由 main 保存。PR 只恢复、不保存：同一个 PR 的后续运行已经能恢复暂存 Core，而每个 PR 存一份构建目录会挤掉 main 和发版要读的缓存（仓库缓存上限 10 GB，已经用满）。发布标签的运行也只读 main 的 Cargo 缓存，只保存体积小的暂存 Core，让重跑同一标签的失败任务时不必再编；标签作用域里的缓存只有这个标签自己能读到。
+- macOS 打包任务在同一个 Cargo 目标目录里同时编两种芯片（#2446 合并成一个任务，不要拆开），Cargo 键用 `…-release-darwin-arm64-amd64-…`。缓存键不能含逗号，所以不能直接把 `aarch64-apple-darwin,x86_64-apple-darwin` 写进去。
+- 读取固定修订和 glibc 版本的逻辑只在 `.github/actions/resolve-desktop-core-pin` 一处，所有工作流都调用它，不要在工作流里再复制一份 sed。桌面 Core 的键不含构建脚本的哈希，判断旧缓存能否使用靠 `identity.txt` 记录的修订、rustc、目标、配置和 macOS 部署版本。如果修改构建脚本会改变 Core 的字节，却不改变这些字段（例如新增 Cargo 特性或链接参数），就必须同时把新参数写进 `identity.txt`，否则会继续恢复旧 Core。远程服务器的缓存键另含 `build-remote-server.sh` 的哈希。
+- 只缓存 Cargo 构建目录和暂存 Core，不缓存最终安装包或桌面可执行文件。Go 桌面端和安装包每次都从当前源码重新构建和打包。
 - Draft PR 关闭所有 macOS 和 Windows 测试，只保留 Linux 上的分类、格式、脚本和桌面测试；PR 标记为 ready for review 时重新触发完整检查。
 - 关闭或合并 PR 时，清理工作流按来源仓库、来源分支和关闭时间查找所有历史运行，不能只查最后一次提交。清理使用 GitHub 的强制取消接口，避免旧运行继续占用托管 runner。取消失败只有在运行已经结束时才视为正常竞争；权限或 API 故障必须使清理检查失败，不能伪装成清理成功。保留关闭后创建的运行、其他来源仓库和非 PR 事件。
 - 同一个 PR 的运行共享 concurrency group，新提交取消旧运行。`main` 的 push 使用独立的 concurrency group，`cancel-in-progress: false`，每个提交都完整运行。
@@ -47,6 +53,18 @@ Viva 桌面端要在 macOS、Windows 和 Linux 上构建，Rust Core 和 Go 桌�
 
 能减少网络等待，但无法覆盖 Rust Core 的主要编译成本，因此扩展为缓存 Cargo 的中间输出和构建脚本结果。
 
+### 发版前先用一个共用任务编好全部 Core
+
+可以用一个可复用工作流或计划任务统一编五个目标，再让各打包任务下载。但这样每次发版都会多一层任务依赖和产物传递，而且新的任务结构只能在真实发版时验证，出错就会挡住发版。改为由 main 提前编好、发版只恢复缓存，发版流程本身的结构保持不变。
+
+### PR 也保存 Cargo 构建目录
+
+可以让同一个 PR 的下一次运行少编一点，但同一 PR 已经能恢复暂存 Core，多存的约 300 MB 只会挤掉 main 和发版要读的缓存，因此不采用。
+
+### 发布标签不保存任何缓存
+
+标签作用域的缓存别的运行读不到，看起来没有用处。但发版任务失败后重跑同一个标签很常见，暂存 Core 很小，存下后重跑不用再编；体积大的 Cargo 构建目录仍然不存。
+
 ### 保留 preview 作为长期集成分支
 
 会让审核、必需检查、定时构建和文档基线分成两套，并且需要额外的 preview 到 main 提升 PR。两条分支完成历史整合后改为 main 单一基线，减少权限和源码来源漂移；代价是 main 同时承载日常集成，稳定发布仍通过版本标签区分。
@@ -64,7 +82,10 @@ Release 编译和打包会把反馈推迟到最慢的任务结束。Draft PR 和
 - 普通 PR 更快得到检查结果；Draft PR 迭代期间不占 macOS 和 Windows runner。
 - 缓存命中可以减少 Core 的重复编译，同时通过完整缓存键避免跨环境误复用。
 - 冷构建、编译器变化、依赖变化和 runner 排队仍可能很慢，不能把缓存策略当作总耗时保证。
-- 工作流调整时必须同步检查缓存键、gate 依赖和平台矩阵。
+- 键里加入 glibc 版本、Windows 暂存 Core 改为跨系统共用之后，旧键全部失效，合入后的第一轮 main 运行要重新编一次（能恢复旧 Cargo 目录的目标只重编改动部分）。
+- 固定修订刚改、main 还没编完就发版时，发版任务会自己编缺少的目标，耗时和以前一样；先等 main 上的 Desktop CI 和 Desktop Core cache 跑完再发版。
+- 缓存配额仍然紧张。GitHub 超过 10 GB 时先删最久没用过的缓存，所以 main 每次改固定修订都会让旧修订的缓存逐渐被替换。
+- 工作流调整时必须同步检查缓存键、gate 依赖和平台矩阵；新增发布目标时，要同时在 Desktop CI 或 Desktop Core cache 里加上编这个目标的任务。
 
 ## 验证
 
@@ -76,6 +97,7 @@ Release 编译和打包会把反馈推迟到最慢的任务结束。Draft PR 和
 
 - `node --test --test-timeout=60000 scripts/ci/desktop-ci/verify-ci-gate.test.mjs`：离线验证五项结果汇总、Draft 原生检查延期、失败/取消/缺失结果拒绝，以及命令入口的输入校验。
 - `actionlint`：核对当前工作流的事件、依赖和表达式；GitHub 上还要确认 main 的 `Desktop CI gate` 为必需检查，且只有两个指定账号拥有 PR 豁免。
+- Core 缓存共用的验收要在 GitHub 上看：main 上的 Desktop CI 和 Desktop Core cache 跑完后，`gh cache list --repo 1lck/Lithe-IDEA --ref refs/heads/main --key desktop-core-staged-` 能列出五个目标当前修订的键；之后的 AutoBuild 或 Desktop Release 日志里，五个 “Restore staged … Core” 步骤都显示命中，“Restore the core build” 步骤被跳过。
 - `make -C desktop check`：当前 macOS 本机的格式、vet 和 Go 测试；它不证明 GitHub Actions 或 Windows 已通过。
 - `scripts/desktop/desktop-go.sh test ./internal/core -run '^TestDesktopGoFindsWindowsCargoImportLibraries$'`：受控 Cargo 输出夹具验证导入库发现、带空格路径和冲突拒绝；Windows 实机仍须编译与链接实际 Core。
 - `scripts/desktop/desktop-go.sh test ./internal/core -run '^TestBuildDesktopCoreChecksOutFreshPinnedRevision$'`：使用本地 Git 仓库和编译器替身验证空工作树检出，并确认不会恢复已有工作树中主动删除的文件。
@@ -87,6 +109,9 @@ Release 编译和打包会把反馈推迟到最慢的任务结束。Draft PR 和
 - `.github/workflows/desktop-ci.yml`
 - `.github/workflows/desktop-release.yml`
 - `.github/workflows/desktop-autobuild.yml`
+- `.github/workflows/desktop-core-cache.yml`
+- `.github/workflows/desktop-remote-server.yml`
+- `.github/actions/resolve-desktop-core-pin/action.yml`
 - `.github/actions/setup-desktop-windows-build-tools/action.yml`
 - `scripts/desktop/build-desktop-core.sh`
 - `scripts/desktop/desktop-go.sh`
