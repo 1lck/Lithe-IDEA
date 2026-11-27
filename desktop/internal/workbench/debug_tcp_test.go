@@ -145,12 +145,12 @@ func fixtureWorkspace(t *testing.T) (root, source string) {
 // language server hosts one. It records each connection so a test can see who
 // closed it.
 type adapterServer struct {
-	listener net.Listener
-	root     string
-	mu       sync.Mutex
-	conns    []net.Conn
-	closed   chan struct{}
-	silent   bool
+	listener           net.Listener
+	root               string
+	mu                 sync.Mutex
+	conns              []net.Conn
+	closed             chan struct{}
+	initializeReceived chan struct{}
 }
 
 func serveHostedAdapter(t *testing.T, root string, silent bool) *adapterServer {
@@ -159,7 +159,12 @@ func serveHostedAdapter(t *testing.T, root string, silent bool) *adapterServer {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := &adapterServer{listener: listener, root: root, closed: make(chan struct{}, 4), silent: silent}
+	server := &adapterServer{listener: listener, root: root, closed: make(chan struct{}, 4)}
+	var silentInitialize func()
+	if silent {
+		server.initializeReceived = make(chan struct{})
+		silentInitialize = sync.OnceFunc(func() { close(server.initializeReceived) })
+	}
 	t.Cleanup(func() {
 		_ = listener.Close()
 		server.mu.Lock()
@@ -180,16 +185,7 @@ func serveHostedAdapter(t *testing.T, root string, silent bool) *adapterServer {
 			go func() {
 				defer func() { server.closed <- struct{}{} }()
 				defer conn.Close()
-				if server.silent {
-					// Accepts and says nothing: the adapter that never answers initialize.
-					buffer := make([]byte, 4096)
-					for {
-						if _, err := conn.Read(buffer); err != nil {
-							return
-						}
-					}
-				}
-				serveFixtureAdapter(conn, conn, root)
+				serveFixtureAdapter(conn, conn, root, silentInitialize)
 			}()
 		}
 	}()
@@ -376,7 +372,7 @@ func TestDebugTCPAdapterThatNeverInitializesTimesOut(t *testing.T) {
 	root, _ := fixtureWorkspace(t)
 	server := serveHostedAdapter(t, root, true)
 	h.app.debugHostedPort = func(context.Context, *project, debugAdapter) (int, error) { return server.port(), nil }
-	h.app.debugInitializeWindow = 300 * time.Millisecond
+	h.app.debugInitializeTrigger = server.initializeReceived
 	p := openHostedPanel(t, h, root)
 	h.clickNamed(h.app.text.Debug.Start)
 	awaitStateWithin(t, h, 20*time.Second, "the timeout", func() bool { return p.debug.failure != "" })
