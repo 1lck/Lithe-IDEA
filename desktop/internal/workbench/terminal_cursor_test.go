@@ -73,6 +73,7 @@ func TestChosenTerminalCursorReachesOpenTerminals(t *testing.T) {
 		t.Fatalf("a thin bar was not drawn in the open terminal: %v", widths)
 	}
 
+	h.settle()
 	var stored settings
 	if _, err := h.app.store.Load(settingsFile, &stored); err != nil {
 		t.Fatal(err)

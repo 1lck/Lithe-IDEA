@@ -30,6 +30,7 @@ func TestSettingsANewerVersionWroteAreToldAboutOnceAndKept(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := newHarnessWithOptions(t, Options{Kernel: &testKernel{Client: core.NewClient()}, Store: store.At(dir), Languages: []string{"zh-Hans"}})
+	first.settle()
 	if notices := keptNotices(first.app); len(notices) != 1 || !strings.Contains(notices[0], "1") {
 		t.Fatalf("notices at the first launch = %q, want one naming the kept key", notices)
 	}
@@ -136,6 +137,7 @@ func TestUnreadableSettingsWarnAtStartupAndIdentifyTheBackupOnSave(t *testing.T)
 	}
 
 	h.app.setTheme("dark")
+	h.settle()
 	backups, err = filepath.Glob(path + ".unreadable-*")
 	if err != nil || len(backups) != 1 {
 		t.Fatalf("after saving, backups = %v, %v", backups, err)
@@ -152,6 +154,7 @@ func TestUnreadableSettingsWarnAtStartupAndIdentifyTheBackupOnSave(t *testing.T)
 		t.Fatalf("new settings theme = %q, found = %v, err = %v", restored.Theme, found, err)
 	}
 	h.app.saveSettings()
+	h.settle()
 	if got := len(h.app.notifications.list); got != 2 {
 		t.Fatalf("second save produced a notice, got %d notices", got)
 	}

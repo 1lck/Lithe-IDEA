@@ -39,9 +39,7 @@ func (a *App) subscribeSettings() {
 		return
 	}
 	sub := &settingsSubscription{notices: make(chan settingsNotice, 8), done: make(chan struct{})}
-	sub.editorPreferences = &editorPreferencesPublication{latest: editorPreferencesSnapshot{
-		stored: a.settings.EditorPreferences, resolved: a.editorPreferences, generation: 1,
-	}, watch: &documentWatch{}}
+	sub.editorPreferences = a.settingsSaveState()
 	startWatch := true
 	for target, existing := range settingsWindows.live {
 		if samePreferencesDirectory(a, target) {
@@ -51,6 +49,7 @@ func (a *App) subscribeSettings() {
 		}
 	}
 	a.settingsSubscription = sub
+	a.settingsPublication = sub.editorPreferences
 	settingsWindows.live[a] = sub
 	settingsWindows.Unlock()
 	if startWatch {
