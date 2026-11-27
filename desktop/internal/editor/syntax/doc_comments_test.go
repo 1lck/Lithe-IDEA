@@ -315,4 +315,13 @@ func TestExtractDocCommentsLimitsAndUnsupportedLanguages(t *testing.T) {
 	if got, trunc := ExtractDocComments(ctx, javaSyn, rope.FromString("/** x */"), 1024); got != nil || !trunc {
 		t.Fatalf("cancelled ctx: got=%v trunc=%v, want nil, true", got, trunc)
 	}
+
+	// An over-limit line leaves TextMate lexical state unknown (e.g. an open JS
+	// template literal). Stop scanning instead of misclassifying subsequent text.
+	jsSyn := r.Syntax("javascript")
+	longTemplateOpen := "const s = `" + strings.Repeat("a", maxLineBytes+64) + "\n/** Not a doc comment */\n`;\n"
+	got, trunc = ExtractDocComments(context.Background(), jsSyn, rope.FromString(longTemplateOpen), 1<<20)
+	if !trunc || len(got) != 0 {
+		t.Fatalf("over-limit template literal: got=%+v trunc=%v, want empty, true", got, trunc)
+	}
 }

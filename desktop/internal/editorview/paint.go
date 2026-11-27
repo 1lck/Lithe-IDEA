@@ -175,7 +175,7 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 			if top+v.lineH > area.Y {
 				v.numbers = append(v.numbers, gutterNumber{line: ab.startLine, y: top})
 			}
-			v.paintDocBlock(canvas, textArea, look, ab, top, blockH, &linkBase)
+			v.paintDocBlock(canvas, textArea, look, ab, top, blockH, v.docBlockSelected(ab, selStart, selEnd), &linkBase)
 			top += blockH
 			line = ab.endLine + 1
 			activeIdx++

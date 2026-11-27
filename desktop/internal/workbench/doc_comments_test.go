@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -296,5 +297,81 @@ func TestDocCommentRenderingSupportsRustSlashDocComments(t *testing.T) {
 	}
 	if strings.Contains(rendered, "<p>") || strings.Contains(rendered, "<em>") {
 		t.Fatalf("Rust rendered doc leaked raw HTML tags: %q", rendered)
+	}
+}
+
+func TestDocCommentReadOnlyPrefPreservesWritableChoiceAndOffScreenRenderAllCancel(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.app.editor.docComments.scanDelay = -1
+
+	root := t.TempDir()
+	h.open(root)
+	var longSrc strings.Builder
+	longSrc.WriteString("/**\n * Top class docs.\n */\npublic class LongDemo {\n")
+	for i := range 120 {
+		fmt.Fprintf(&longSrc, "    int field%d = %d;\n", i, i)
+	}
+	longSrc.WriteString("}\n")
+
+	path := filepath.Join(root, "LongDemo.java")
+	if err := os.WriteFile(path, []byte(longSrc.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := h.app.project
+	h.app.openFile(p, path)
+	h.settleChain()
+	d := p.docs.byPath(path)
+	if d == nil {
+		t.Fatal("LongDemo.java did not open")
+	}
+	h.await("doc comment candidate discovered", func() bool {
+		return d.view.DocBlockCount() == 1
+	})
+
+	// 1. Manually render the comment in a writable file, then disable read-only
+	// auto-rendering: writable file's effective default did not change, so its
+	// manual choice must be preserved.
+	h.app.toggleDocCommentAtLine(d, 0)
+	h.settleChain()
+	h.await("manual toggle renders comment", func() bool {
+		return d.view.ActiveDocBlockCount() == 1
+	})
+	prefs := h.app.editorPreferences
+	prefs.RenderDocCommentsInReadOnly = false
+	h.app.editorPreferences = prefs
+	h.app.applyDocCommentPreferences()
+	h.settleChain()
+	if d.view.ActiveDocBlockCount() != 1 || d.view.RequestedDocBlockCount() != 1 {
+		t.Fatalf("changing read-only preference reset writable file manual choice: active=%d requested=%d",
+			d.view.ActiveDocBlockCount(), d.view.RequestedDocBlockCount())
+	}
+
+	// 2. Switch back to source, jump far off-screen from line 0, run Render All:
+	// even while ActiveDocBlockCount == 0 (off-screen), Show Source for All must
+	// become enabled and cancel the queued render.
+	h.app.setAllDocCommentsRendered(d, false)
+	h.settleChain()
+	d.view.GoToLine(110)
+	h.settleChain()
+	h.app.setAllDocCommentsRendered(d, true)
+	h.settleChain()
+	if d.view.RequestedDocBlockCount() != 1 {
+		t.Fatalf("RequestedDocBlockCount = %d, want 1 after off-screen Render All", d.view.RequestedDocBlockCount())
+	}
+	var editAll *command
+	for _, cmd := range h.app.commands() {
+		if cmd.id == "editor.editAllDocComments" {
+			c := cmd
+			editAll = &c
+			break
+		}
+	}
+	if editAll == nil || !editAll.runnable() {
+		t.Fatal("editor.editAllDocComments must be runnable after off-screen Render All")
+	}
+	h.app.startCommand(*editAll, surfacePalette)
+	h.settleChain()
+	if d.view.RequestedDocBlockCount() != 0 {
+		t.Fatalf("RequestedDocBlockCount = %d after Show Source for All, want 0", d.view.RequestedDocBlockCount())
 	}
 }

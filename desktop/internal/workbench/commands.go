@@ -144,8 +144,8 @@ func (a *App) commands() []command {
 		caretLine, _ := d.view.CaretUTF16()
 		_, _, onDoc := d.view.DocBlockAtLine(caretLine)
 		add("editor.toggleRenderedDocComment", t.GroupEditor, i18n.Shared(a.language(), "desktop.editor.toggleRenderedDocComment"), "", onDoc, func() { a.toggleDocCommentAtCaret(d) })
-		add("editor.renderAllDocComments", t.GroupEditor, i18n.Shared(a.language(), "desktop.editor.renderAllDocComments"), "", hasDocs, func() { a.setAllDocCommentsRendered(d, true) })
-		add("editor.editAllDocComments", t.GroupEditor, i18n.Shared(a.language(), "desktop.editor.editAllDocComments"), "", hasDocs && d.view.ActiveDocBlockCount() > 0, func() { a.setAllDocCommentsRendered(d, false) })
+		add("editor.renderAllDocComments", t.GroupEditor, i18n.Shared(a.language(), "desktop.editor.renderAllDocComments"), "", hasDocs && d.view.RequestedDocBlockCount() < d.view.DocBlockCount(), func() { a.setAllDocCommentsRendered(d, true) })
+		add("editor.editAllDocComments", t.GroupEditor, i18n.Shared(a.language(), "desktop.editor.editAllDocComments"), "", hasDocs && d.view.RequestedDocBlockCount() > 0, func() { a.setAllDocCommentsRendered(d, false) })
 	}
 	// The carets of the selected document: occurrences and clones of the primary caret (multicaret.go).
 	if d := p.selectedDocument(p.docs.group); d != nil {

@@ -446,15 +446,22 @@ func (a *App) applyDocCommentPreferences() {
 	if p == nil {
 		return
 	}
+	changed := false
 	for _, d := range p.docs.list {
 		if d == nil || d.view == nil {
 			continue
 		}
 		want := a.docRenderDefaultFor(d)
+		if d.view.DocRenderDefault() == want {
+			continue
+		}
 		d.view.SetDocRenderDefault(want)
 		d.view.SetAllDocBlocksRendered(want)
+		changed = true
 	}
-	a.invalidator.Invalidate()
+	if changed {
+		a.invalidator.Invalidate()
+	}
 }
 
 func (a *App) updateDocCommentReadOnly(d *document) {
@@ -462,6 +469,9 @@ func (a *App) updateDocCommentReadOnly(d *document) {
 		return
 	}
 	want := a.docRenderDefaultFor(d)
+	if d.view.DocRenderDefault() == want {
+		return
+	}
 	d.view.SetDocRenderDefault(want)
 	if a.editorPreferences.RenderDocCommentsInReadOnly && !a.editorPreferences.RenderDocComments {
 		d.view.SetAllDocBlocksRendered(want)
@@ -522,12 +532,12 @@ func (a *App) docCommentMenuItems(c ui.C, d *document, menu *ui.MenuItems) {
 			}
 		}
 	}
-	if d.view.ActiveDocBlockCount() < d.view.DocBlockCount() {
+	if d.view.RequestedDocBlockCount() < d.view.DocBlockCount() {
 		if menu.Item(i18n.Shared(language, "desktop.editor.renderAllDocComments")).Clicked() {
 			c.After(func() { a.setAllDocCommentsRendered(d, true) })
 		}
 	}
-	if d.view.ActiveDocBlockCount() > 0 {
+	if d.view.RequestedDocBlockCount() > 0 {
 		if menu.Item(i18n.Shared(language, "desktop.editor.editAllDocComments")).Clicked() {
 			c.After(func() { a.setAllDocCommentsRendered(d, false) })
 		}

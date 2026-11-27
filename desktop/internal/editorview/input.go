@@ -220,13 +220,21 @@ func (v *View) key(event gfx.KeyEvent) (gfx.EventResult, bool) {
 		target := min(max(row+rows, 0), v.rowCount()-1)
 		if stepped := v.stepRowAcrossDocBlocks(target, dir); stepped >= 0 {
 			target = stepped
-		} else if fallback := v.stepRowAcrossDocBlocks(target, -dir); fallback >= 0 {
-			target = fallback
+			v.scroll += float32(target-row) * v.lineH
+			v.vertical(target, extend)
 		} else {
-			break
+			// No source row exists in the requested direction (for example, a rendered
+			// doc comment starts or ends the file). Advance the caret to the furthest
+			// reachable source row if it moves in dir, and scroll the viewport by one
+			// page without letting revealCaret snap scroll back to the caret.
+			nextScroll := v.scroll + float32(rows)*v.lineH
+			if fallback := v.stepRowAcrossDocBlocks(target, -dir); fallback >= 0 && (fallback-row)*dir > 0 {
+				v.vertical(fallback, extend)
+			}
+			v.scroll = nextScroll
+			v.clampScroll()
+			v.reveal = false
 		}
-		v.scroll += float32(target-row) * v.lineH
-		v.vertical(target, extend)
 	case gfx.KeyBackspace:
 		switch {
 		case start != end:
@@ -578,11 +586,18 @@ func (v *View) dragSelect(offset int) bool {
 
 // offsetAt is the offset of the character edge nearest the point (x, y).
 func (v *View) offsetAt(x, y float32) int {
-	row := int((y - v.area.Y + v.scroll) / max(v.lineH, 1))
+	lineH := max(v.lineH, 1)
+	row := int((y - v.area.Y + v.scroll) / lineH)
 	row = min(max(row, 0), v.rowCount()-1)
 	dr := v.displayRowAt(row)
 	if dr.kind == displayDocBlock {
-		return v.text.LineStart(dr.line)
+		ab := v.docs.active[dr.block]
+		blockTop := v.area.Y + float32(ab.displayStartRow)*lineH - v.scroll
+		blockMid := blockTop + float32(ab.rows)*lineH*0.5
+		if y >= blockMid {
+			return v.lineEnd(ab.endLine)
+		}
+		return v.text.LineStart(ab.startLine)
 	}
 	cells := (x - v.textLeft + v.scrollX) / max(v.cellW, 1)
 	return v.text.LineStart(dr.line) + v.columnOnRow(dr.line, dr.sub, max(cells, 0))

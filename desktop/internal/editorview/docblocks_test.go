@@ -1046,6 +1046,192 @@ func TestDocBlockLinkCleanupAndUnmatchedAnchor(t *testing.T) {
 	}
 }
 
+func TestDocBlockDragSelectionBoundaryAndHighlight(t *testing.T) {
+	src := "/**\n * First paragraph.\n *\n * Second paragraph.\n */\npublic class Demo {}\n"
+	var doc markdown.Document
+	doc.Reset()
+	doc.AppendParagraph(0, 0, []markdown.Span{{Text: "First paragraph of rendered Javadoc."}})
+	doc.AppendParagraph(0, 0, []markdown.Span{{Text: "Second paragraph of rendered Javadoc."}})
+	doc.AppendParagraph(0, 0, []markdown.Span{{Text: "Third paragraph so the rendered block has clear top and bottom halves."}})
+
+	v, canvas := setupSimpleDocView(t, src, []DocBlockCandidate{
+		{StartLine: 0, EndLine: 4, ContentHash: 11, ShellKind: "block", Dialect: "javadoc-html"},
+	}, map[uint64]markdown.Document{11: doc}, nil)
+
+	area := gfx.Rect{Width: 600, Height: 400}
+	selColor := gfx.RGB24(0x2255AA)
+	selColor.Alpha = 0.5
+	look := Look{Dark: true, Foreground: gfx.RGB24(0xBCBEC4), Subtle: gfx.RGB24(0x6F737A), Selection: selColor}
+	canvas.Reset()
+	v.Paint(canvas, area, look)
+	if len(v.docs.active) != 1 || v.docs.active[0].rows < 3 {
+		t.Fatalf("expected multi-row active doc block, got %+v", v.docs.active)
+	}
+	ab := v.docs.active[0]
+	blockTop := area.Y + float32(ab.displayStartRow)*v.lineH - v.scroll
+	blockH := float32(ab.rows) * v.lineH
+	codeY := blockTop + blockH + v.lineH*0.5
+
+	hasBlockSelectionFill := func(c *gfx.Canvas) bool {
+		for _, op := range c.Rectangles() {
+			if op.Color == selColor && op.Bounds.Y <= blockTop+1 && op.Bounds.Y+op.Bounds.Height >= blockTop+blockH-1 {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Start drag on the declaration below the rendered Javadoc.
+	v.Pointer(gfx.PointerEvent{Target: v.cfg.HitID, Kind: gfx.PointerDown, Button: gfx.PointerButtonPrimary, ClickCount: 1, X: v.textLeft + 40, Y: codeY})
+	// Drag upward into the bottom quarter of the rendered Javadoc: must NOT swallow the comment.
+	v.Pointer(gfx.PointerEvent{Target: v.cfg.HitID, Kind: gfx.PointerMove, Button: gfx.PointerButtonPrimary, X: v.textLeft + 40, Y: blockTop + blockH*0.85})
+	start, end := v.Selection()
+	if start < v.lineEnd(ab.endLine) {
+		t.Fatalf("drag into bottom half unexpectedly selected doc comment: sel=[%d,%d) docEnd=%d", start, end, v.lineEnd(ab.endLine))
+	}
+	canvas.Reset()
+	v.Paint(canvas, area, look)
+	if hasBlockSelectionFill(canvas) {
+		t.Fatal("rendered doc block should not be highlighted when not included in selection")
+	}
+
+	// Drag further upward into the top quarter: selects the whole doc block atomically AND highlights it visibly.
+	v.Pointer(gfx.PointerEvent{Target: v.cfg.HitID, Kind: gfx.PointerMove, Button: gfx.PointerButtonPrimary, X: v.textLeft + 40, Y: blockTop + blockH*0.15})
+	start, end = v.Selection()
+	if start != v.text.LineStart(ab.startLine) || end <= v.lineEnd(ab.endLine) {
+		t.Fatalf("drag into top half sel=[%d,%d), want [%d, >%d)", start, end, v.text.LineStart(ab.startLine), v.lineEnd(ab.endLine))
+	}
+	canvas.Reset()
+	v.Paint(canvas, area, look)
+	if !hasBlockSelectionFill(canvas) {
+		t.Fatal("expected visible selection highlight fill over rendered doc block before deletion")
+	}
+}
+
+func TestDocBlockDuplicateAnchorsPreferOriginBlock(t *testing.T) {
+	var sb strings.Builder
+	sb.WriteString("// first doc\n")
+	for i := range 25 {
+		fmt.Fprintf(&sb, "func spacer%d() {}\n", i)
+	}
+	sb.WriteString("// second doc\nfunc target() {}\n")
+
+	var doc1, doc2 markdown.Document
+	doc1.Reset()
+	doc1.AppendHeading(0, 2, []markdown.Span{{Text: "First Example"}})
+	doc1.AppendParagraph(0, 0, []markdown.Span{{Text: "First body."}})
+	doc2.Reset()
+	doc2.AppendHeading(0, 2, []markdown.Span{{Text: "Second Example"}})
+	doc2.AppendParagraph(0, 0, []markdown.Span{
+		{Text: "Local", Link: "anchor:example"},
+		{Text: " "},
+		{Text: "Cross", Link: "anchor:only-first"},
+	})
+
+	v := newTestView(t, sb.String())
+	var tree gfx.Tree
+	scope := tree.Feature("editor-dup-anchors")
+	v.Bind(tree.ID(scope, "hit"), scope)
+	v.SetDocBlockIcons(testDocRenderIcon, testDocEditIcon)
+	v.SetDocRenderDefault(true)
+	v.SetDocBlockCallbacks(DocBlockCallbacks{
+		RequestParse: func(docGen uint64, revision int, blockID uint64, startLine, endLine int, contentHash uint64, shellKind, dialect string) {
+			if contentHash == 1 {
+				v.InstallPreparedDocBlock(PreparedDocBlock{
+					DocGeneration: docGen, Revision: revision, BlockID: blockID, ContentHash: contentHash,
+					Doc: doc1, Anchors: []DocBlockAnchor{{ID: "example", BlockIndex: 0}, {ID: "only-first", BlockIndex: 0}},
+				})
+			} else {
+				v.InstallPreparedDocBlock(PreparedDocBlock{
+					DocGeneration: docGen, Revision: revision, BlockID: blockID, ContentHash: contentHash,
+					Doc: doc2, Anchors: []DocBlockAnchor{{ID: "example", BlockIndex: 0}},
+				})
+			}
+		},
+	})
+	v.SetDocBlockCandidates(1, v.Revision(), []DocBlockCandidate{
+		{StartLine: 0, EndLine: 0, ContentHash: 1, ShellKind: "line", Dialect: "godoc"},
+		{StartLine: 26, EndLine: 26, ContentHash: 2, ShellKind: "line", Dialect: "godoc"},
+	})
+
+	canvas := new(gfx.Canvas)
+	area := gfx.Rect{Width: 600, Height: 120}
+	look := Look{Dark: true, Foreground: gfx.RGB24(0xBCBEC4), Subtle: gfx.RGB24(0x6F737A)}
+	// Paint top so block 0 parses and activates, then scroll to block 1 so block 1 parses and paints links.
+	v.Paint(canvas, area, look)
+	v.scroll = float32(v.lineRow(26)) * v.lineH
+	canvas.Reset()
+	v.Paint(canvas, area, look)
+	if len(v.docs.active) != 2 || len(v.docs.paintedLinks) == 0 {
+		t.Fatalf("expected 2 active blocks and painted links for block 1, active=%d links=%d", len(v.docs.active), len(v.docs.paintedLinks))
+	}
+
+	// Click #example inside block 1: must stay at block 1, NOT jump back to block 0!
+	block1Top := float32(v.docs.active[1].displayStartRow) * v.lineH
+	localLink := scope.At(v.docs.paintedLinks[0].base)
+	crossLink := scope.At(v.docs.paintedLinks[0].base + 1)
+	v.scroll = block1Top + 30
+	res, ok := v.Pointer(gfx.PointerEvent{Target: localLink, Kind: gfx.PointerDown, Button: gfx.PointerButtonPrimary})
+	if !ok || !res.Handled {
+		t.Fatal("expected local duplicate anchor click to be handled")
+	}
+	if v.scroll < block1Top-v.lineH {
+		t.Fatalf("duplicate #example jumped to earlier block: scroll=%v want >= %v", v.scroll, block1Top)
+	}
+
+	// Click #only-first inside block 1: must fall back to block 0 (cross-comment link).
+	res, ok = v.Pointer(gfx.PointerEvent{Target: crossLink, Kind: gfx.PointerDown, Button: gfx.PointerButtonPrimary})
+	if !ok || !res.Handled {
+		t.Fatal("expected cross-comment anchor click to be handled")
+	}
+	if v.scroll > v.lineH {
+		t.Fatalf("cross-comment #only-first did not jump to block 0: scroll=%v", v.scroll)
+	}
+}
+
+func TestDocBlockPageUpScrollsIntoTopRenderedComment(t *testing.T) {
+	var md strings.Builder
+	for i := range 35 {
+		fmt.Fprintf(&md, "Crate documentation paragraph %02d.\n\n", i)
+	}
+	v, canvas := setupSimpleDocView(t, "// crate doc\nfn main() {}\nfn next() {}\n", []DocBlockCandidate{
+		{StartLine: 0, EndLine: 0, ContentHash: 77, ShellKind: "line", Dialect: "markdown-html"},
+	}, map[uint64]markdown.Document{77: makeTestMarkdownDoc(md.String())}, nil)
+
+	area := gfx.Rect{Width: 600, Height: 120}
+	look := Look{Dark: true, Foreground: gfx.RGB24(0xBCBEC4), Subtle: gfx.RGB24(0x6F737A)}
+	canvas.Reset()
+	v.Paint(canvas, area, look)
+	if len(v.docs.active) != 1 || v.docs.active[0].rows < 20 {
+		t.Fatalf("expected tall top doc block, got %+v", v.docs.active)
+	}
+	// Place caret on first source line below the rendered doc block and scroll there.
+	v.moveTo(v.text.LineStart(1), false)
+	v.scroll = float32(v.lineRow(1)) * v.lineH
+	v.clampScroll()
+	canvas.Reset()
+	v.Paint(canvas, area, look)
+	before := v.scroll
+	if before <= area.Height {
+		t.Fatalf("expected initial scroll below tall top doc block, got %v", before)
+	}
+
+	// Press Page Up: viewport must scroll upward into the rendered doc comment and stay there after Paint.
+	res, ok := v.Key(gfx.KeyEvent{Target: v.cfg.HitID, Key: gfx.KeyPageUp})
+	if !ok || !res.Handled {
+		t.Fatal("expected KeyPageUp to be handled")
+	}
+	if v.scroll >= before {
+		t.Fatalf("Page Up stalled at top rendered doc block: before=%v after=%v", before, v.scroll)
+	}
+	scrolled := v.scroll
+	canvas.Reset()
+	v.Paint(canvas, area, look)
+	if v.scroll != scrolled {
+		t.Fatalf("Paint snapped scroll back after Page Up into doc block: got %v want %v", v.scroll, scrolled)
+	}
+}
+
 func absInt(x int) int {
 	if x < 0 {
 		return -x

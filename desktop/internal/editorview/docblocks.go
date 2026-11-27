@@ -248,6 +248,12 @@ func (v *View) SetDocRenderDefault(on bool) {
 	v.docs.renderDefault = on
 }
 
+// DocRenderDefault reports whether newly discovered doc block candidates start
+// with rendered mode requested.
+func (v *View) DocRenderDefault() bool {
+	return v.docs.renderDefault
+}
+
 // ClearDocBlocks drops all document-scoped doc block candidates, active
 // projections, and cached IR/layouts while preserving host callbacks, icons,
 // and the render default.
@@ -584,6 +590,19 @@ func (v *View) ActiveDocBlockCount() int {
 	return len(v.docs.active)
 }
 
+// RequestedDocBlockCount returns how many known doc blocks currently have
+// rendering requested, including off-screen candidates waiting for viewport
+// layout.
+func (v *View) RequestedDocBlockCount() int {
+	n := 0
+	for i := range v.docs.blocks {
+		if v.docs.blocks[i].wantRendered {
+			n++
+		}
+	}
+	return n
+}
+
 // DocBlockCount returns the total number of known doc comment candidates in
 // the current document, regardless of whether they are rendered or in source.
 func (v *View) DocBlockCount() int {
@@ -663,50 +682,70 @@ func (v *View) DocBlockAtPoint(x, y float32) (startLine int, rendered bool, ok b
 // JumpToDocAnchor scrolls the editor to the rendered block section (or source
 // block start) matching anchorID.
 func (v *View) JumpToDocAnchor(anchorID string) bool {
+	return v.JumpToDocAnchorFrom(0, anchorID)
+}
+
+// JumpToDocAnchorFrom resolves anchorID inside originBlockID first (when
+// non-zero) before falling back to document-order lookup across all blocks.
+func (v *View) JumpToDocAnchorFrom(originBlockID uint64, anchorID string) bool {
 	if anchorID == "" || len(v.docs.blocks) == 0 {
 		return false
 	}
 	v.ensureActiveDocBlocks()
+	jumpTo := func(entry *docBlockEntry, a DocBlockAnchor) bool {
+		lineH := max(v.lineH, 1)
+		if entry.active {
+			abIdx := v.activeDocBlockByStartLine(entry.startLine)
+			if abIdx >= 0 {
+				ab := v.docs.active[abIdx]
+				target := float32(ab.displayStartRow) * lineH
+				if entry.view != nil {
+					if y, ok := entry.view.BlockAnchorTop(a.BlockIndex); ok {
+						target += docBlockPadY + y
+					}
+				}
+				v.scroll = target
+				v.reveal = false
+				if v.painted {
+					v.clampScroll()
+				}
+				return true
+			}
+		}
+		// Source mode or hidden under outer fold: unfold any hiding fold and jump to StartLine.
+		if v.fold.hides(entry.startLine) {
+			for start, end := range v.fold.collapsed {
+				if start < entry.startLine && entry.startLine <= end {
+					delete(v.fold.collapsed, start)
+				}
+			}
+			v.refold()
+		}
+		v.scroll = float32(v.lineRow(entry.startLine)) * lineH
+		v.reveal = false
+		if v.painted {
+			v.clampScroll()
+		}
+		return true
+	}
+	if originBlockID != 0 {
+		if idx, ok := v.docs.byID[originBlockID]; ok && idx >= 0 && idx < len(v.docs.blocks) {
+			entry := &v.docs.blocks[idx]
+			if entry.blockID == originBlockID {
+				for _, a := range entry.anchors {
+					if a.ID == anchorID {
+						return jumpTo(entry, a)
+					}
+				}
+			}
+		}
+	}
 	for i := range v.docs.blocks {
 		entry := &v.docs.blocks[i]
 		for _, a := range entry.anchors {
-			if a.ID != anchorID {
-				continue
+			if a.ID == anchorID {
+				return jumpTo(entry, a)
 			}
-			lineH := max(v.lineH, 1)
-			if entry.active {
-				abIdx := v.activeDocBlockByStartLine(entry.startLine)
-				if abIdx >= 0 {
-					ab := v.docs.active[abIdx]
-					target := float32(ab.displayStartRow) * lineH
-					if entry.view != nil {
-						if y, ok := entry.view.BlockAnchorTop(a.BlockIndex); ok {
-							target += docBlockPadY + y
-						}
-					}
-					v.scroll = target
-					v.reveal = false
-					if v.painted {
-						v.clampScroll()
-					}
-					return true
-				}
-			}
-			// Source mode or hidden under outer fold: unfold any hiding fold and jump to StartLine.
-			if v.fold.hides(entry.startLine) {
-				for start, end := range v.fold.collapsed {
-					if start < entry.startLine && entry.startLine <= end {
-						delete(v.fold.collapsed, start)
-					}
-				}
-				v.refold()
-			}
-			v.scroll = float32(v.lineRow(entry.startLine)) * lineH
-			v.reveal = false
-			if v.painted {
-				v.clampScroll()
-			}
-			return true
 		}
 	}
 	return false
@@ -1847,10 +1886,41 @@ func (v *View) docMinimapColor() gfx.Color {
 	return gfx.RGB24(0x7A8699)
 }
 
+// docBlockSelected reports whether any active editor selection overlaps the
+// source byte span of rendered doc block ab.
+func (v *View) docBlockSelected(ab activeDocBlock, selStart, selEnd int) bool {
+	blockStart := v.text.LineStart(ab.startLine)
+	blockEnd := v.text.LineEnd(ab.endLine)
+	if blockEnd <= blockStart {
+		return false
+	}
+	if selStart < selEnd && selStart < blockEnd && selEnd > blockStart {
+		return true
+	}
+	for _, c := range v.extra {
+		a, b := c.anchor, c.caret
+		if a > b {
+			a, b = b, a
+		}
+		if a < b && a < blockEnd && b > blockStart {
+			return true
+		}
+	}
+	return false
+}
+
 // paintDocBlock draws one active rendered doc block once for the frame using
 // its displayStartRow top Y and textArea clip.
-func (v *View) paintDocBlock(canvas *gfx.Canvas, textArea gfx.Rect, look Look, ab activeDocBlock, top, blockH float32, linkBase *int) {
+func (v *View) paintDocBlock(canvas *gfx.Canvas, textArea gfx.Rect, look Look, ab activeDocBlock, top, blockH float32, selected bool, linkBase *int) {
 	entry := &v.docs.blocks[ab.blockIdx]
+
+	if selected && look.Selection.Alpha > 0 {
+		selTop := max(top, textArea.Y)
+		selBottom := min(top+blockH, textArea.Y+textArea.Height)
+		if selBottom > selTop {
+			canvas.Fill(gfx.Rect{X: textArea.X, Y: selTop, Width: textArea.Width, Height: selBottom - selTop}, look.Selection)
+		}
+	}
 
 	// Left accent vertical bar (2px wide, subtle muted color).
 	barTop := max(top+docAccentPadY, textArea.Y)
@@ -1987,7 +2057,7 @@ func (v *View) docLinkPointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
 					dest := entry.view.Link(idx - span.base)
 					if dest != "" {
 						if anchorID, ok := strings.CutPrefix(dest, "anchor:"); ok {
-							v.JumpToDocAnchor(anchorID)
+							v.JumpToDocAnchorFrom(span.blockID, anchorID)
 							return gfx.EventResult{Handled: true, Repaint: true, Focus: v.cfg.HitID}, true
 						}
 						if v.docs.cb.OnLinkClick != nil {

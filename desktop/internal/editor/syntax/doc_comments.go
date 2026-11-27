@@ -122,7 +122,11 @@ func ExtractDocComments(ctx context.Context, syn *Syntax, text rope.Rope, maxByt
 			}
 			inBlock = false
 			blockInvalid = false
-			continue
+			// Skipping an over-limit line leaves the outgoing TextMate lexical
+			// state unknown (for example, the skipped line may open a template
+			// literal or multi-line string). Stop scanning rather than reusing
+			// the stale pre-skip state on subsequent lines.
+			return ranges, true
 		}
 
 		lineBuf = text.AppendLine(lineBuf[:0], line)
