@@ -89,6 +89,8 @@ func (s appDirectoryMarks) snapshotOf(p *project) settingswindow.DirectoryMarksS
 	}
 	return settingswindow.DirectoryMarksSnapshot{
 		HasWorkspace:        true,
+		WorkspaceRoot:       p.root,
+		ConfigFingerprint:   p.indexing.configFingerprint,
 		LocalConfigPath:     localPath,
 		SharedConfigEnabled: p.indexing.sharedConfigEnabled,
 		SharedConfigPath:    sharedPath,
@@ -115,10 +117,12 @@ func (s appDirectoryMarks) Load(ctx context.Context) (settingswindow.DirectoryMa
 
 func (s appDirectoryMarks) Save(ctx context.Context, next settingswindow.DirectoryMarksSnapshot) (settingswindow.DirectoryMarksSnapshot, error) {
 	type projectSnapshot struct {
-		p          *project
-		root       string
-		rules      json.RawMessage
-		unreadable bool
+		p           *project
+		root        string
+		rules       json.RawMessage
+		loaded      bool
+		unreadable  bool
+		fingerprint string
 	}
 	infoCh := make(chan projectSnapshot, 1)
 	s.app.post(func(a *App) {
@@ -127,7 +131,14 @@ func (s appDirectoryMarks) Save(ctx context.Context, next settingswindow.Directo
 			infoCh <- projectSnapshot{}
 			return
 		}
-		infoCh <- projectSnapshot{p: p, root: p.root, rules: p.indexing.rules, unreadable: p.indexing.unreadable}
+		infoCh <- projectSnapshot{
+			p:           p,
+			root:        p.root,
+			rules:       p.indexing.rules,
+			loaded:      p.indexing.loaded,
+			unreadable:  p.indexing.unreadable,
+			fingerprint: p.indexing.configFingerprint,
+		}
 	})
 	var info projectSnapshot
 	select {
@@ -138,12 +149,31 @@ func (s appDirectoryMarks) Save(ctx context.Context, next settingswindow.Directo
 	if info.p == nil {
 		return settingswindow.DirectoryMarksSnapshot{}, errors.New("no local project open")
 	}
+	if !info.loaded {
+		return settingswindow.DirectoryMarksSnapshot{}, errors.New("directory rules are still loading")
+	}
 	if info.unreadable {
 		return settingswindow.DirectoryMarksSnapshot{}, errors.New("stored directory rules are unreadable")
+	}
+	if next.WorkspaceRoot != "" && info.root != next.WorkspaceRoot {
+		return settingswindow.DirectoryMarksSnapshot{}, errors.New("active workspace changed; reload directory marks settings before saving")
 	}
 	meta, ok := s.app.kernel.(directoryMetaKernel)
 	if !ok || s.app.store == nil {
 		return settingswindow.DirectoryMarksSnapshot{}, errors.New("directory metadata kernel unavailable")
+	}
+	expectedFP := next.ConfigFingerprint
+	if expectedFP == "" {
+		expectedFP = info.fingerprint
+	}
+	if expectedFP != "" {
+		diskFP, err := directoryRulesFingerprint(s.app.store.Dir(), info.root)
+		if err != nil {
+			return settingswindow.DirectoryMarksSnapshot{}, err
+		}
+		if diskFP != expectedFP {
+			return settingswindow.DirectoryMarksSnapshot{}, errors.New("private directory config changed on disk; reload before saving")
+		}
 	}
 
 	rules := info.rules
@@ -207,6 +237,7 @@ func (s appDirectoryMarks) Save(ctx context.Context, next settingswindow.Directo
 	}); err != nil {
 		return settingswindow.DirectoryMarksSnapshot{}, err
 	}
+	newFP, _ := directoryRulesFingerprint(s.app.store.Dir(), info.root)
 
 	done := make(chan settingswindow.DirectoryMarksSnapshot, 1)
 	s.app.post(func(a *App) {
@@ -219,6 +250,9 @@ func (s appDirectoryMarks) Save(ctx context.Context, next settingswindow.Directo
 		p.indexing.hideBgTint = !next.ShowBgTint
 		p.indexing.hideTags = !next.ShowTags
 		p.indexing.customIconCache = nil
+		if newFP != "" {
+			p.indexing.configFingerprint = newFP
+		}
 		if a.project == p {
 			a.installIndexing(p, true)
 		}
@@ -232,7 +266,7 @@ func (s appDirectoryMarks) Save(ctx context.Context, next settingswindow.Directo
 	}
 }
 
-func (s appDirectoryMarks) ImportIcon(ctx context.Context, sourcePath string) (settingswindow.DirectoryMarksSnapshot, error) {
+func (s appDirectoryMarks) ImportIcon(ctx context.Context, base settingswindow.DirectoryMarksSnapshot, sourcePath string) (settingswindow.DirectoryMarksSnapshot, error) {
 	if s.app == nil || s.app.store == nil {
 		return settingswindow.DirectoryMarksSnapshot{}, errors.New("store unavailable")
 	}
@@ -251,28 +285,29 @@ func (s appDirectoryMarks) ImportIcon(ctx context.Context, sourcePath string) (s
 		return settingswindow.DirectoryMarksSnapshot{}, err
 	}
 
-	base := strings.TrimSuffix(filepath.Base(sourcePath), filepath.Ext(sourcePath))
-	slug := sanitizeIconSlug(base)
+	baseName := strings.TrimSuffix(filepath.Base(sourcePath), filepath.Ext(sourcePath))
+	slug := sanitizeIconSlug(baseName)
 	if slug == "" {
 		slug = "custom"
 	}
 	id := fmt.Sprintf("icon.%s_%d", slug, time.Now().UnixMilli()%100000)
 	relPath := filepath.ToSlash(filepath.Join(customDirectoryIconsDir, id+".svg"))
 	destPath := filepath.Join(s.app.store.Dir(), filepath.FromSlash(relPath))
-	if err := atomicfile.Write(destPath, data, 0o644); err != nil {
-		return settingswindow.DirectoryMarksSnapshot{}, err
-	}
 
-	return s.mutateRulesIcon(ctx, func(rules json.RawMessage) (bool, json.RawMessage, error) {
+	return s.mutateRulesIcon(ctx, base, func() error {
+		return atomicfile.Write(destPath, data, 0o644)
+	}, func() {
+		_ = os.Remove(destPath)
+	}, func(rules json.RawMessage) (bool, json.RawMessage, error) {
 		return meta.UpsertCustomDirectoryIcon(ctx, core.CustomDirectoryIcon{
 			ID:   id,
-			Name: base,
+			Name: baseName,
 			Path: relPath,
 		}, rules)
 	}, "")
 }
 
-func (s appDirectoryMarks) DeleteIcon(ctx context.Context, id string) (settingswindow.DirectoryMarksSnapshot, error) {
+func (s appDirectoryMarks) DeleteIcon(ctx context.Context, base settingswindow.DirectoryMarksSnapshot, id string) (settingswindow.DirectoryMarksSnapshot, error) {
 	if s.app == nil || s.app.store == nil {
 		return settingswindow.DirectoryMarksSnapshot{}, errors.New("store unavailable")
 	}
@@ -280,16 +315,26 @@ func (s appDirectoryMarks) DeleteIcon(ctx context.Context, id string) (settingsw
 	if !ok {
 		return settingswindow.DirectoryMarksSnapshot{}, errors.New("directory metadata kernel unavailable")
 	}
-	return s.mutateRulesIcon(ctx, func(rules json.RawMessage) (bool, json.RawMessage, error) {
+	return s.mutateRulesIcon(ctx, base, nil, nil, func(rules json.RawMessage) (bool, json.RawMessage, error) {
 		return meta.DeleteCustomDirectoryIcon(ctx, id, rules)
 	}, id)
 }
 
-func (s appDirectoryMarks) mutateRulesIcon(ctx context.Context, reduce func(json.RawMessage) (bool, json.RawMessage, error), removeIconID string) (settingswindow.DirectoryMarksSnapshot, error) {
+func (s appDirectoryMarks) mutateRulesIcon(
+	ctx context.Context,
+	base settingswindow.DirectoryMarksSnapshot,
+	beforeSave func() error,
+	rollbackBeforeSave func(),
+	reduce func(json.RawMessage) (bool, json.RawMessage, error),
+	removeIconID string,
+) (settingswindow.DirectoryMarksSnapshot, error) {
 	type reqInfo struct {
-		p    *project
-		root string
-		file directoryRulesFile
+		p           *project
+		root        string
+		loaded      bool
+		unreadable  bool
+		fingerprint string
+		file        directoryRulesFile
 	}
 	ch := make(chan reqInfo, 1)
 	s.app.post(func(a *App) {
@@ -299,8 +344,11 @@ func (s appDirectoryMarks) mutateRulesIcon(ctx context.Context, reduce func(json
 			return
 		}
 		ch <- reqInfo{
-			p:    p,
-			root: p.root,
+			p:           p,
+			root:        p.root,
+			loaded:      p.indexing.loaded,
+			unreadable:  p.indexing.unreadable,
+			fingerprint: p.indexing.configFingerprint,
 			file: directoryRulesFile{
 				Root:                p.root,
 				Rules:               p.indexing.rules,
@@ -322,15 +370,47 @@ func (s appDirectoryMarks) mutateRulesIcon(ctx context.Context, reduce func(json
 	if info.p == nil {
 		return settingswindow.DirectoryMarksSnapshot{}, errors.New("no local project open")
 	}
+	if !info.loaded {
+		return settingswindow.DirectoryMarksSnapshot{}, errors.New("directory rules are still loading")
+	}
+	if info.unreadable {
+		return settingswindow.DirectoryMarksSnapshot{}, errors.New("stored directory rules are unreadable")
+	}
+	if base.WorkspaceRoot != "" && info.root != base.WorkspaceRoot {
+		return settingswindow.DirectoryMarksSnapshot{}, errors.New("active workspace changed; reload directory marks settings before saving")
+	}
+	expectedFP := base.ConfigFingerprint
+	if expectedFP == "" {
+		expectedFP = info.fingerprint
+	}
+	if expectedFP != "" {
+		diskFP, err := directoryRulesFingerprint(s.app.store.Dir(), info.root)
+		if err != nil {
+			return settingswindow.DirectoryMarksSnapshot{}, err
+		}
+		if diskFP != expectedFP {
+			return settingswindow.DirectoryMarksSnapshot{}, errors.New("private directory config changed on disk; reload before saving")
+		}
+	}
+
 	beforeState := core.ParseDirectoryRules(info.file.Rules)
 	_, nextRules, err := reduce(info.file.Rules)
 	if err != nil {
 		return settingswindow.DirectoryMarksSnapshot{}, err
 	}
+	if beforeSave != nil {
+		if err := beforeSave(); err != nil {
+			return settingswindow.DirectoryMarksSnapshot{}, err
+		}
+	}
 	info.file.Rules = nextRules
 	if err := s.app.store.Save(directoryRulesName(info.root), info.file); err != nil {
+		if rollbackBeforeSave != nil {
+			rollbackBeforeSave()
+		}
 		return settingswindow.DirectoryMarksSnapshot{}, err
 	}
+	newFP, _ := directoryRulesFingerprint(s.app.store.Dir(), info.root)
 	if removeIconID != "" {
 		for _, ci := range beforeState.CustomIcons {
 			if ci.ID == removeIconID {
@@ -345,6 +425,9 @@ func (s appDirectoryMarks) mutateRulesIcon(ctx context.Context, reduce func(json
 	s.app.post(func(a *App) {
 		info.p.indexing.rules = nextRules
 		info.p.indexing.customIconCache = nil
+		if newFP != "" {
+			info.p.indexing.configFingerprint = newFP
+		}
 		if a.project == info.p {
 			a.refreshDirectoryPresentation(info.p)
 		}

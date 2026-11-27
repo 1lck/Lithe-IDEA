@@ -244,13 +244,19 @@ func (a *App) removeTreeItems(p *project, paths []string, permanent bool) {
 		a.background(p, 0, func(context.Context) func(*App) {
 			failed := 0
 			var reason error
-			for _, f := range full {
+			var removed []string
+			for i, f := range full {
 				if err := remove(f); err != nil {
 					failed++
 					reason = err
+				} else if i < len(paths) {
+					removed = append(removed, paths[i])
 				}
 			}
 			return func(a *App) {
+				for _, rel := range removed {
+					a.relocateDirectoryRules(p, rel, "")
+				}
 				a.finishRemoval(p, paths, parents, performed, failed, reason, failure)
 			}
 		})

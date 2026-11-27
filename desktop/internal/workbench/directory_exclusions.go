@@ -1,12 +1,14 @@
 package workbench
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -65,7 +67,8 @@ type projectIndexing struct {
 	customTypesSeeded   bool
 	gitIgnore           bool
 	loaded              bool
-	unreadable          bool // saved rules could not be decoded; do not replace their file
+	unreadable          bool   // saved rules could not be decoded; do not replace their file
+	configFingerprint   string // SHA-256 hex of private rules file when last loaded or saved ("missing" if absent)
 	status              core.IndexingStatus
 	presentation        map[string]core.ResolvedDirectoryEntry
 	customIconCache     map[string]gfx.Icon
@@ -92,6 +95,7 @@ type directoryMetaKernel interface {
 	DeleteCustomDirectoryType(ctx context.Context, id string, rules json.RawMessage) (bool, json.RawMessage, error)
 	UpsertCustomDirectoryIcon(ctx context.Context, dirIcon core.CustomDirectoryIcon, rules json.RawMessage) (bool, json.RawMessage, error)
 	DeleteCustomDirectoryIcon(ctx context.Context, id string, rules json.RawMessage) (bool, json.RawMessage, error)
+	RelocateDirectoryRules(ctx context.Context, source, destination string, caseInsensitive bool, rules json.RawMessage) (json.RawMessage, error)
 	ResolveDirectoryPresentation(ctx context.Context, rules, sharedRules json.RawMessage, gitExcluded []string, caseInsensitive bool, paths []string) (core.DirectoryPresentationResult, error)
 }
 
@@ -135,8 +139,12 @@ func (a *App) installIndexing(p *project, refresh bool) {
 	lang := a.language()
 	a.background(p, kernelCallTimeout, func(ctx context.Context) func(*App) {
 		var readFailure error
+		var loadedFingerprint string
 		if !loaded {
 			name := directoryRulesName(root)
+			if fp, fperr := directoryRulesFingerprint(s.Dir(), root); fperr == nil {
+				loadedFingerprint = fp
+			}
 			var stored directoryRulesFile
 			found, err := s.Load(name, &stored)
 			if err == nil && found {
@@ -174,15 +182,11 @@ func (a *App) installIndexing(p *project, refresh bool) {
 				}
 			}
 		}
-		policy := core.IndexingPolicyOf(rules, gitIgnore)
+		var effectiveShared json.RawMessage
 		if sharedEnabled && len(sharedRules) > 0 {
-			sharedPolicy := core.IndexingPolicyOf(sharedRules, false)
-			for _, dir := range sharedPolicy.ManualExcludedDirectories {
-				if !slices.Contains(policy.ManualExcludedDirectories, dir) && !slices.Contains(policy.IncludedDirectories, dir) {
-					policy.ManualExcludedDirectories = append(policy.ManualExcludedDirectories, dir)
-				}
-			}
+			effectiveShared = sharedRules
 		}
+		policy := resolveEffectiveIndexingPolicy(ctx, a.kernel, root, rules, effectiveShared, gitIgnore)
 		status, err := kernel.ConfigureIndexing(ctx, root, owner, policy, refresh)
 		return func(a *App) {
 			if ix.generation != generation {
@@ -192,6 +196,7 @@ func (a *App) installIndexing(p *project, refresh bool) {
 				ix.rules, ix.gitIgnore, ix.loaded = rules, gitIgnore, true
 				ix.sharedConfigEnabled, ix.sharedConfigPath, ix.sharedRules = sharedEnabled, sharedPath, sharedRules
 				ix.hideBgTint, ix.hideTags, ix.customTypesSeeded = hideBgTint, hideTags, seeded
+				ix.configFingerprint = loadedFingerprint
 				ix.unreadable = readFailure != nil
 				if readFailure != nil {
 					a.storedStateFailed("directory_rules", readFailure)
@@ -217,7 +222,7 @@ func (a *App) installIndexing(p *project, refresh bool) {
 // refreshDirectoryPresentation asks Core for the flat presentation map of all currently loaded
 // tree nodes so drawTreeContent can style each row in O(1) without per-frame work.
 func (a *App) refreshDirectoryPresentation(p *project) {
-	if p == nil || p.remote != nil {
+	if p == nil || p.remote != nil || p.ctx == nil {
 		return
 	}
 	meta, ok := a.kernel.(directoryMetaKernel)
@@ -299,6 +304,103 @@ func directoryRulesName(root string) string {
 	return "workspace-directory-rules-" + hex.EncodeToString(sum[:8]) + ".json"
 }
 
+// directoryRulesFingerprint returns the SHA-256 hex digest of the stored private directory
+// rules file on disk, or "missing" when the file does not exist yet.
+func directoryRulesFingerprint(storeDir, root string) (string, error) {
+	full := filepath.Join(storeDir, directoryRulesName(root))
+	data, err := os.ReadFile(full)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "missing", nil
+		}
+		return "", err
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+const maxGlobWalkDirs = 50_000
+
+// hasExcludingGlob reports whether any custom directory type in rules or sharedRules
+// combines excludeIndexing with a non-empty matchGlob pattern.
+func hasExcludingGlob(rules, sharedRules json.RawMessage) bool {
+	for _, raw := range []json.RawMessage{rules, sharedRules} {
+		if len(raw) == 0 {
+			continue
+		}
+		for _, ct := range core.ParseDirectoryRules(raw).CustomTypes {
+			if ct.ExcludeIndexing && strings.TrimSpace(ct.MatchGlob) != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// walkWorkspaceDirs collects workspace-relative directory paths under root (up to maxGlobWalkDirs)
+// without following symlinks and skipping .git, so Core can evaluate glob-based exclusions.
+func walkWorkspaceDirs(root string) []string {
+	if root == "" {
+		return nil
+	}
+	var dirs []string
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if p == root {
+			return nil
+		}
+		if d.Type()&os.ModeSymlink != 0 {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		if d.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		rel, rerr := filepath.Rel(root, p)
+		if rerr != nil || rel == "." {
+			return nil
+		}
+		dirs = append(dirs, filepath.ToSlash(rel))
+		if len(dirs) >= maxGlobWalkDirs {
+			return fs.SkipAll
+		}
+		return nil
+	})
+	return dirs
+}
+
+// resolveEffectiveIndexingPolicy asks Core for effective manual exclusions (honoring
+// user > shared > glob precedence and includedDirectories) and falls back to IndexingPolicyOf
+// when the kernel does not implement directoryMetaKernel.
+func resolveEffectiveIndexingPolicy(ctx context.Context, k any, root string, rules, sharedRules json.RawMessage, gitIgnore bool) core.IndexingPolicy {
+	policy := core.IndexingPolicyOf(rules, gitIgnore)
+	meta, ok := k.(directoryMetaKernel)
+	if !ok {
+		return policy
+	}
+	var globCandidates []string
+	if hasExcludingGlob(rules, sharedRules) {
+		globCandidates = walkWorkspaceDirs(root)
+	}
+	res, err := meta.ResolveDirectoryPresentation(ctx, rules, sharedRules, nil, false, globCandidates)
+	if err != nil {
+		return policy
+	}
+	if res.ManualExcludedDirectories == nil {
+		policy.ManualExcludedDirectories = []string{}
+	} else {
+		policy.ManualExcludedDirectories = res.ManualExcludedDirectories
+	}
+	return policy
+}
+
 // readSharedDirectoryRules reads an optional workspace-relative shared directory rules file.
 func readSharedDirectoryRules(root, relPath string) (json.RawMessage, bool, error) {
 	full, err := resolveWorkspaceFilePath(root, relPath)
@@ -347,10 +449,34 @@ func resolveWorkspaceFilePath(root, relPath string) (string, error) {
 	if filepath.IsAbs(cleaned) {
 		return "", errors.New("shared config path must be workspace-relative")
 	}
-	joined := filepath.Clean(filepath.Join(root, filepath.FromSlash(cleaned)))
-	rel, err := filepath.Rel(root, joined)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve workspace root: %w", err)
+	}
+	realRoot = filepath.Clean(realRoot)
+	joined := filepath.Clean(filepath.Join(realRoot, filepath.FromSlash(cleaned)))
+	rel, err := filepath.Rel(realRoot, joined)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", errors.New("shared config path escapes workspace root")
+	}
+	// Walk every segment inside realRoot with Lstat so neither existing nor dangling symlinks
+	// can redirect reads or writes outside the workspace root.
+	cur := realRoot
+	for _, seg := range strings.Split(rel, string(filepath.Separator)) {
+		if seg == "" || seg == "." {
+			continue
+		}
+		cur = filepath.Join(cur, seg)
+		fi, lerr := os.Lstat(cur)
+		if errors.Is(lerr, os.ErrNotExist) {
+			break
+		}
+		if lerr != nil {
+			return "", lerr
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return "", errors.New("shared config path must not traverse symlinks")
+		}
 	}
 	return joined, nil
 }
@@ -423,6 +549,34 @@ func (a *App) setGitIgnoreIndexing(p *project, on bool) {
 	}, on)
 }
 
+// relocateDirectoryRules asks Core to migrate directory marks, previous roles, include
+// exceptions and color overrides after a rename/move (destRel != "") or delete (destRel == "").
+func (a *App) relocateDirectoryRules(p *project, sourceRel, destRel string) {
+	if p == nil || p.remote != nil || p.ctx == nil || !p.indexing.loaded || p.indexing.unreadable {
+		return
+	}
+	meta, ok := a.kernel.(directoryMetaKernel)
+	if !ok || a.store == nil {
+		return
+	}
+	state := core.ParseDirectoryRules(p.indexing.rules)
+	if len(state.Marks) == 0 && len(state.Colors) == 0 && len(state.IncludedDirectories) == 0 && len(state.PreviousRoles) == 0 {
+		return
+	}
+	src := path.Clean(sourceRel)
+	dst := ""
+	if destRel != "" {
+		dst = path.Clean(destRel)
+	}
+	a.changeIndexingRules(p, func(ctx context.Context, rules json.RawMessage) (bool, json.RawMessage, error) {
+		next, err := meta.RelocateDirectoryRules(ctx, src, dst, false, rules)
+		if err != nil {
+			return false, nil, err
+		}
+		return !bytes.Equal(bytes.TrimSpace(rules), bytes.TrimSpace(next)), next, nil
+	}, p.indexing.gitIgnore)
+}
+
 // changeIndexingRules applies reduce to the project's rules off the window thread, stores the
 // result with gitIgnore and installs it.
 func (a *App) changeIndexingRules(p *project, reduce func(context.Context, json.RawMessage) (bool, json.RawMessage, error), gitIgnore bool) {
@@ -442,19 +596,36 @@ func (a *App) changeIndexingRules(p *project, reduce func(context.Context, json.
 	sharedPath := p.indexing.sharedConfigPath
 	hideBgTint := p.indexing.hideBgTint
 	hideTags := p.indexing.hideTags
+	expectedFP := p.indexing.configFingerprint
 	a.background(p, kernelCallTimeout, func(ctx context.Context) func(*App) {
 		changed, next, err := reduce(ctx, rules)
+		var newFP string
 		if err == nil && changed {
-			err = s.Save(directoryRulesName(root), directoryRulesFile{
-				Root:                root,
-				Rules:               next,
-				GitIgnoreDisabled:   !gitIgnore,
-				SharedConfigEnabled: sharedEnabled,
-				SharedConfigPath:    sharedPath,
-				HideBgTint:          hideBgTint,
-				HideTags:            hideTags,
-				CustomTypesSeeded:   true,
-			})
+			if expectedFP != "" {
+				diskFP, fperr := directoryRulesFingerprint(s.Dir(), root)
+				if fperr != nil {
+					err = fperr
+				} else if diskFP != expectedFP {
+					err = errors.New("private directory config changed on disk; reload before saving")
+				}
+			}
+			if err == nil {
+				err = s.Save(directoryRulesName(root), directoryRulesFile{
+					Root:                root,
+					Rules:               next,
+					GitIgnoreDisabled:   !gitIgnore,
+					SharedConfigEnabled: sharedEnabled,
+					SharedConfigPath:    sharedPath,
+					HideBgTint:          hideBgTint,
+					HideTags:            hideTags,
+					CustomTypesSeeded:   true,
+				})
+				if err == nil {
+					if fp, fperr := directoryRulesFingerprint(s.Dir(), root); fperr == nil {
+						newFP = fp
+					}
+				}
+			}
 		}
 		return func(a *App) {
 			if err != nil {
@@ -466,6 +637,9 @@ func (a *App) changeIndexingRules(p *project, reduce func(context.Context, json.
 				return
 			}
 			p.indexing.rules, p.indexing.gitIgnore = next, gitIgnore
+			if newFP != "" {
+				p.indexing.configFingerprint = newFP
+			}
 			if a.project == p {
 				a.installIndexing(p, true)
 			}

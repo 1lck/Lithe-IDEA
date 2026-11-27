@@ -437,6 +437,7 @@ func (a *App) renameTreeItem(p *project) {
 		a.renamedLocalHistory(p, oldFull, newFull, before)
 		a.performed("workspace.file.rename", surfaceButton)
 		a.moveOpenDocuments(p, oldFull, newFull)
+		a.relocateDirectoryRules(p, oldRel, newRel)
 		a.listTree(p, path.Dir(oldRel))
 		a.loadGit(p)
 	})
@@ -539,8 +540,12 @@ func (a *App) directoryMarkMenu(c ui.C, p *project, n *treeNode, menu *ui.MenuIt
 	entry, hasMeta := p.indexing.presentation[n.path]
 	rulesState := core.ParseDirectoryRules(p.indexing.rules)
 	excluded := p.directoryExcluded(n.path)
+	// Cancel Exclusion only reverses built-in "excluded" marks or VCS (.gitignore) exclusions;
+	// custom-type exclusions (e.g. custom.archive) are cleared via Unmark Directory or role switch.
+	canCancelExclusion := (hasMeta && entry.Excluded && (entry.Role == "excluded" || entry.Source == "vcs")) || (!hasMeta && excluded)
 
 	menu.Sub(i18n.Shared(language, "desktop.directoryMarks.menuTitle"), func(sub *ui.MenuItems) {
+		sub.WidthRange(212, 320)
 		sub.Label(i18n.Shared(language, "desktop.directoryMarks.settings.groupBuiltin"))
 		builtinRoles := []struct {
 			role  string
@@ -560,7 +565,7 @@ func (a *App) directoryMarkMenu(c ui.C, p *project, n *treeNode, menu *ui.MenuIt
 				c.After(func() { a.setDirectoryRole(p, n.path, role) })
 			}
 		}
-		if excluded {
+		if canCancelExclusion {
 			if sub.Item(i18n.Shared(language, "indexing.cancelExclusion")).Icon(directoryIcon("excluded", a.colors.Dark)).Checked(true).Clicked() {
 				c.After(func() { a.excludeFromSearch(p, n.path, true) })
 			}
@@ -584,32 +589,49 @@ func (a *App) directoryMarkMenu(c ui.C, p *project, n *treeNode, menu *ui.MenuIt
 
 		sub.Separator()
 		sub.Label(i18n.Shared(language, "desktop.directoryMarks.quickColor"))
-		sub.ContentPage(30, func(mc ui.C, _ ui.Rect) {
-			ui.Row(mc).Fill().PadX(10).Gap(7).Items(ui.Center).Children(func() {
-				for _, sw := range directoryColorSwatchesFor(language) {
-					hex := sw.hex
-					col, ok := parseHexColor(hex, 0xff)
-					if !ok {
-						continue
-					}
-					btn := ui.ButtonBase(mc.Key("ctx-sw-"+hex), sw.label).Size(18, 18).Radius(9).Background(col)
-					if hasMeta && strings.EqualFold(entry.Color, hex) {
-						btn = btn.Stroke(2, a.colors.Text)
-					}
-					if btn.Clicked() {
-						c.After(func() { a.setDirectoryColor(p, n.path, hex) })
-					}
+		swatches := directoryColorSwatchesFor(language)
+		_, hasColorOverride := rulesState.Colors[n.path]
+		sub.Content(30, func(surface *gfx.Canvas, bounds gfx.Rect, _ gfx.Theme) {
+			const (
+				dotSize = float32(16)
+				dotGap  = float32(6)
+				padX    = float32(10)
+			)
+			x := bounds.X + padX
+			y := bounds.Y + (bounds.Height-dotSize)/2
+			scope := sub.GetScope()
+			for i, sw := range swatches {
+				hex := sw.hex
+				col, ok := parseHexColor(hex, 0xff)
+				if !ok {
+					continue
 				}
-				if _, hasOverride := rulesState.Colors[n.path]; hasOverride {
-					clearBtn := ui.ButtonBase(mc.Part("ctx-sw-clear"), i18n.Shared(language, "desktop.directoryMarks.clearColor")).Size(18, 18).Radius(9).Center().Stroke(1, a.colors.Line)
-					if clearBtn.Clicked() {
-						c.After(func() { a.setDirectoryColor(p, n.path, "") })
-					}
-					clearBtn.Children(func() {
-						ui.Icon(mc, icons.X).Size(11, 11).Color(a.colors.Subtle)
-					})
+				rect := gfx.Rect{X: x, Y: y, Width: dotSize, Height: dotSize}
+				id := scope.At(1000 + i)
+				surface.Hit(id, rect)
+				borderWidth := float32(0)
+				borderColor := col
+				if (hasMeta && strings.EqualFold(entry.Color, hex)) || surface.Hovered() == id {
+					borderWidth = 2
+					borderColor = a.colors.Text
 				}
-			})
+				surface.RoundedBorder(rect, dotSize/2, borderWidth, borderColor, col)
+				if surface.Clicked(id) {
+					c.After(func() { a.setDirectoryColor(p, n.path, hex) })
+				}
+				x += dotSize + dotGap
+			}
+			if hasColorOverride {
+				rect := gfx.Rect{X: x, Y: y, Width: dotSize, Height: dotSize}
+				id := scope.At(1000 + len(swatches))
+				surface.Hit(id, rect)
+				surface.RoundedBorder(rect, dotSize/2, 1, a.colors.Line, gfx.Color{})
+				iconRect := gfx.Rect{X: rect.X + 3.5, Y: rect.Y + 3.5, Width: 11, Height: 11}
+				surface.DrawIcon(icons.X, iconRect, a.colors.Subtle)
+				if surface.Clicked(id) {
+					c.After(func() { a.setDirectoryColor(p, n.path, "") })
+				}
+			}
 		})
 
 		sub.Separator()
