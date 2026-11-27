@@ -17,13 +17,43 @@ import (
 const settingsFlushTimeout = 5 * time.Second
 
 type settingsSaveRequest struct {
-	target     *App
-	ctx        context.Context
-	next       settings
-	geometry   windowGeometry
-	appliedGeo bool
-	serial     uint64
-	writer     func(*store.Store, settings) (string, error)
+	target       *App
+	ctx          context.Context
+	next         settings
+	geometry     settingsGeometry
+	geometryOnly bool
+	serial       uint64
+	writer       func(*store.Store, settings) (string, error)
+}
+
+type settingsWindowSize struct{ width, height int }
+
+// Geometry can change when a stale tab closes. Keep its changes separate from
+// the full preference snapshot so they can be applied to newer values.
+type settingsGeometry struct {
+	owner          *windowSessions
+	workbench      windowGeometry
+	settingsWindow *settingsWindowSize
+}
+
+func (g settingsGeometry) with(later settingsGeometry) settingsGeometry {
+	if later.owner != nil {
+		g.owner, g.workbench = later.owner, later.workbench
+	}
+	if later.settingsWindow != nil {
+		g.settingsWindow = later.settingsWindow
+	}
+	return g
+}
+
+func (g settingsGeometry) apply(next *settings) {
+	if g.owner != nil {
+		next.WindowWidth, next.WindowHeight = g.workbench.width, g.workbench.height
+		next.WindowMaximized = g.workbench.maximized
+	}
+	if size := g.settingsWindow; size != nil {
+		next.SettingsWindowWidth, next.SettingsWindowHeight = size.width, size.height
+	}
 }
 
 // A pending batch can be replaced by the latest snapshot until the worker holds the
@@ -52,24 +82,30 @@ func (a *App) settingsSaveState() *editorPreferencesPublication {
 	return a.settingsPublication
 }
 
-// A tab opened during a write starts with the in-memory settings it would have read
-// had that write already finished. The caller clones the immutable snapshot.
-func (state *editorPreferencesPublication) queuedSettings() *settings {
+// A tab opened during a write starts with the settings it would have read
+// had the write finished. A geometry-only update can overlay a disk read.
+func (state *editorPreferencesPublication) queuedSettings() (*settings, settingsGeometry) {
+	var geometry settingsGeometry
 	if state == nil {
-		return nil
+		return nil, geometry
 	}
 	state.Lock()
 	defer state.Unlock()
-	b := state.pendingSave
-	if b == nil {
-		b = state.activeSave
+	var next *settings
+	for _, batch := range [2]*settingsSaveBatch{state.activeSave, state.pendingSave} {
+		if batch == nil {
+			continue
+		}
+		req := &batch.request
+		if req.geometryOnly {
+			geometry = geometry.with(req.geometry)
+		} else {
+			snapshot := req.next
+			snapshot.EditorPreferences = state.latest.stored
+			next, geometry = &snapshot, req.geometry
+		}
 	}
-	if b == nil {
-		return nil
-	}
-	next := b.request.next
-	next.EditorPreferences = state.latest.stored
-	return &next
+	return next, geometry
 }
 
 func (a *App) saveSettings() {
@@ -79,19 +115,34 @@ func (a *App) saveSettings() {
 func (a *App) queueSettingsSave() *settingsSaveBatch {
 	a.settings.WorkbenchBackground = a.savedBackgroundState()
 	a.updates.store(&a.settings)
-	geo, appliedGeo := a.sessions.applyWindowGeometry(&a.settings)
-	next := a.settings.clone()
+	return a.enqueueSettingsSave(false, nil)
+}
+
+func (a *App) enqueueSettingsSave(geometryOnly bool, settingsSize *settingsWindowSize) *settingsSaveBatch {
+	geometry := settingsGeometry{settingsWindow: settingsSize}
+	if geo, applied := a.sessions.applyWindowGeometry(&a.settings); applied {
+		geometry.owner, geometry.workbench = a.sessions, geo
+	}
+	request := settingsSaveRequest{
+		target: a, ctx: a.operationContext(context.Background()), next: a.settings.clone(),
+		geometry: geometry, geometryOnly: geometryOnly, writer: a.settingsDiskWriter,
+	}
 	state := a.settingsSaveState()
 	state.Lock()
 	if state.pendingSave == nil {
 		state.pendingSave = &settingsSaveBatch{done: make(chan struct{})}
+	} else {
+		previous := state.pendingSave.request
+		if request.geometryOnly {
+			// Keep a full save and its operation context when a close only adds sizes.
+			request = previous
+		}
+		request.geometry = previous.geometry.with(geometry)
 	}
 	batch := state.pendingSave
 	state.saveSerial++
-	batch.request = settingsSaveRequest{
-		target: a, ctx: a.operationContext(context.Background()), next: next,
-		geometry: geo, appliedGeo: appliedGeo, serial: state.saveSerial, writer: a.settingsDiskWriter,
-	}
+	request.serial = state.saveSerial
+	batch.request = request
 	start := state.saveIdle == nil
 	if start {
 		state.saveIdle = make(chan struct{})
@@ -148,8 +199,8 @@ func (state *editorPreferencesPublication) writeSettings(dir string) {
 			state.Lock()
 			latest := state.savedSerial == req.serial
 			state.Unlock()
-			if err == nil && req.appliedGeo && latest {
-				a.sessions.noteSavedWindowGeometry(req.geometry)
+			if err == nil && req.geometry.owner != nil && latest {
+				req.geometry.owner.noteSavedWindowGeometry(req.geometry.workbench)
 			}
 		})
 		state.Lock()
@@ -177,6 +228,10 @@ func (r settingsSaveRequest) write(dir string, editor core.EditorStoredPreferenc
 	var current settings
 	found, loadErr := disk.Load(settingsFile, &current)
 	next := r.next
+	if r.geometryOnly && found && loadErr == nil {
+		next = current
+	}
+	r.geometry.apply(&next)
 	if pendingEditor {
 		next.EditorPreferences = editor
 	} else if found && loadErr == nil {

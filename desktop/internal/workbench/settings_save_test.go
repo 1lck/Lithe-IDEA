@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"sync"
@@ -71,6 +72,106 @@ func TestSettingsSaveCoalescesPendingWritesAndFlushesOnClose(t *testing.T) {
 	var saved settings
 	if found, err := h.store.Load(settingsFile, &saved); err != nil || !found || saved.TerminalScrollback != 6000 {
 		t.Fatalf("disk scrollback = %d, found = %v, error = %v; want 6000", saved.TerminalScrollback, found, err)
+	}
+}
+
+func TestSettingsCloseKeepsLatestPreferencesAcrossTabs(t *testing.T) {
+	for _, test := range []struct {
+		name             string
+		pending          bool
+		closedDirectly   bool
+		settingsSizeOnly bool
+	}{
+		{name: "workbench close during active save"},
+		{name: "workbench close with a newer pending save", pending: true},
+		{name: "direct window close", closedDirectly: true},
+		{name: "settings window close with a newer pending save", pending: true, settingsSizeOnly: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			h, alpha, beta := newTabsHarness(t)
+			h.open(alpha)
+			h.app.openProject(beta)
+			s := h.app.sessions
+			h.await("second project to open in its own tab", func() bool {
+				return s.active != h.app && h.shownRoot() != ""
+			})
+			writerTab := s.active
+			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			defer cancel()
+			for _, tab := range s.list {
+				if err := tab.tasks.running.WaitContext(ctx); err != nil {
+					t.Fatalf("waiting for project setup: %v", err)
+				}
+			}
+			if err := h.driver.Pump(); err != nil {
+				t.Fatal(err)
+			}
+			if !test.settingsSizeOnly {
+				if err := h.driver.Resize(1600, 980); err != nil {
+					t.Fatal(err)
+				}
+			}
+			started, release := make(chan struct{}), make(chan struct{})
+			releaseWrite := sync.OnceFunc(func() { close(release) })
+			defer releaseWrite()
+			writerTab.settingsDiskWriter = func(disk *store.Store, next settings) (string, error) {
+				if next.TerminalScrollback == 3000 {
+					close(started)
+					<-release
+				}
+				return disk.SaveWithBackup(settingsFile, next)
+			}
+
+			writerTab.setTerminalScrollback(3000)
+			awaitSettingsSave(t, started, "changed preference reached the blocked writer")
+			wantScrollback := 3000
+			if test.pending {
+				wantScrollback = 6000
+				writerTab.setTerminalScrollback(wantScrollback)
+			}
+			if h.app.settings.TerminalScrollback == wantScrollback {
+				t.Fatal("the other tab must still hold the old preference")
+			}
+
+			allowed := false
+			switch {
+			case test.settingsSizeOnly:
+				// Report the final size from the tab that owns the closing settings window.
+				h.app.setSettingsWindowSize(1180, 820)
+			case test.closedDirectly:
+				s.activate(h.app)
+				h.driver.Close()
+			default:
+				h.config.OnCloseRequest(func() { allowed = true })
+				h.await("close request to reach the last tab with the writer blocked", func() bool {
+					return len(s.list) == 1 && s.list[0] == h.app && h.app.project == nil
+				})
+				if allowed {
+					t.Fatal("close proceeded with settings writes still blocked")
+				}
+			}
+
+			idle := h.app.settingsPublication.settingsSaveIdle()
+			releaseWrite()
+			awaitSettingsSave(t, idle, "settings saved after closing")
+			if !test.closedDirectly && !test.settingsSizeOnly {
+				h.await("window close to finish after settings are saved", func() bool { return allowed })
+			}
+			var saved settings
+			if found, err := h.store.Load(settingsFile, &saved); err != nil || !found {
+				t.Fatalf("load saved settings: found=%v err=%v", found, err)
+			}
+			if saved.TerminalScrollback != wantScrollback {
+				t.Errorf("saved scrollback = %d, want %d", saved.TerminalScrollback, wantScrollback)
+			}
+			if test.settingsSizeOnly {
+				if saved.SettingsWindowWidth != 1180 || saved.SettingsWindowHeight != 820 {
+					t.Errorf("saved settings window = %dx%d, want 1180x820", saved.SettingsWindowWidth, saved.SettingsWindowHeight)
+				}
+			} else if saved.WindowWidth != 1600 || saved.WindowHeight != 980 {
+				t.Errorf("saved workbench window = %dx%d, want 1600x980", saved.WindowWidth, saved.WindowHeight)
+			}
+		})
 	}
 }
 

@@ -127,5 +127,5 @@ func (s *windowSessions) saveWindowGeometry() {
 	if target == nil {
 		return
 	}
-	target.saveSettings()
+	target.enqueueSettingsSave(true, nil)
 }

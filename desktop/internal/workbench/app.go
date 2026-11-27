@@ -1010,9 +1010,10 @@ func New(options Options) *App {
 	}
 	var settingsErr error
 	var queued *settings
+	var queuedGeometry settingsGeometry
 	if options.first != nil {
 		a.settingsPublication = options.first.settingsPublication
-		queued = a.settingsPublication.queuedSettings()
+		queued, queuedGeometry = a.settingsPublication.queuedSettings()
 	}
 	if queued != nil {
 		a.settings = queued.clone()
@@ -1022,6 +1023,7 @@ func New(options Options) *App {
 	if settingsErr != nil {
 		a.settings = settings{}
 	}
+	queuedGeometry.apply(&a.settings)
 	consoleEncoding := a.settings.ConsoleEncoding
 	a.consoleEncoding.Store(&consoleEncoding)
 	// A value of a shape this version cannot take leaves only its own setting on the default;
