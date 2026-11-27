@@ -20,7 +20,8 @@
 
 - **Note**：构建时从当前工作区读取 `.agents/notes/`，解析规则与校验器共用 [`scripts/agent-notes/agent-notes-parser.mjs`](../../../../scripts/agent-notes/agent-notes-parser.mjs)。每篇 Note 的演进时间线来自 `main` 的第一父提交历史：提交标题以 `(#N)` 结尾、且 GitHub 记录该 PR 正是以这个提交合入（或标题与 PR 标题一致）时，才算这个 PR 交付了这篇 Note。
 - **PR 与 Issue**：[`scripts/agent-notes/engineering-board-github.mjs`](../../../../scripts/agent-notes/engineering-board-github.mjs) 用 GitHub GraphQL 读取。仓库范围是 `1lck/Lithe-IDEA`，加上每次刷新时重新发现的 `Lithe-IDEA` 组织下所有公开、未归档仓库；仓库归档或转为私有后，下次刷新就把它的记录从缓存里删掉。
-- **增量缓存**：读取结果写在 `.artifacts/agent-notes-board/cache/github.json`（先写临时文件再改名，进程中断也不会留下半个文件）。每个仓库按更新时间保存水位线，下次只读更新过的记录；打开的 PR 每次都重新读，因为评审、CI 和冲突状态会变但不一定改变更新时间。缓存可以随时删除，删除后下一次构建全量读取。
+- **增量缓存**：读取结果写在 `.artifacts/agent-notes-board/cache/github.json`（先写临时文件再改名，进程中断也不会留下半个文件）。每个仓库按更新时间保存水位线，下次只读更新过的记录；打开的 PR 每次都重新读，因为评审、CI 和冲突状态会变但不一定改变更新时间。文件是合法的 JSON，但每条记录占一行、按仓库和编号排序，同样的数据总是写出同样的字节，改一条记录只改一行。缓存可以随时删除，删除后下一次构建全量读取。
+- **缓存放在仓库的数据分支上**：Pages 工作流把缓存保存在本仓库的 `engineering-board-cache` 分支，分支里只有 `github.json` 和一份说明。运行前用 [`scripts/ci/deploy-agent-notes-board/board-cache.sh`](../../../../scripts/ci/deploy-agent-notes-board/board-cache.sh) `restore` 取回上一次的文件，发布成功后由单独的任务 `save`：以分支当前提交为父提交生成一个新提交，内容没变就不提交，推送不强制覆盖。分支不存在或读不到时照常全量读取，删除分支就等于清空缓存。
 
 ### 关联怎么算
 
@@ -40,7 +41,7 @@
 
 ### 公开快照和本地实时模式
 
-- **Pages**：[`.github/workflows/deploy-agent-notes-board.yml`](../../../../.github/workflows/deploy-agent-notes-board.yml) 在 `Desktop Release` 工作流成功完成后运行（`workflow_run`），也可以手动运行。它校验 Note、生成功能矩阵，再执行 `scripts/agent-notes/build-agent-notes-board.mjs` 读取 GitHub 并输出静态站点。读不到 GitHub 时构建失败，Pages 保留上一版，不会发布一份没有 PR 和 Issue 的看板。同一站点里的平台功能矩阵也随之改为发版时更新。
+- **Pages**：[`.github/workflows/deploy-agent-notes-board.yml`](../../../../.github/workflows/deploy-agent-notes-board.yml) 在 `Desktop Release` 工作流成功完成后运行（`workflow_run`），也可以手动运行。它校验 Note、生成功能矩阵、从数据分支恢复缓存，再执行 `scripts/agent-notes/build-agent-notes-board.mjs` 增量读取 GitHub 并输出静态站点。读取 PR 和 Issue 正文的任务只有只读令牌；写回缓存的是另一个只有 `contents: write` 权限的任务，它通过一天后过期的 Actions artifact 拿到新缓存，不读取任何外部文本。读不到 GitHub 时构建失败，Pages 保留上一版，不会发布一份没有 PR 和 Issue 的看板。同一站点里的平台功能矩阵也随之改为发版时更新。
 - **本地实时模式**：[`scripts/agent-notes/serve-agent-notes-board.mjs`](../../../../scripts/agent-notes/serve-agent-notes-board.mjs) 只监听 `127.0.0.1`，数据放在内存里。启动时先用 Note 和缓存出一版，再增量读取 GitHub；页面开着时每 10 分钟刷新一次，也可以点“刷新”；保存 Note 会立即重建，但不访问 GitHub。页面通过 `/events`（服务器推送事件）得知新版本后重新拉取数据。令牌按 `GITHUB_TOKEN`、`GH_TOKEN`、`gh auth token` 的顺序查找，只在服务器进程里使用，不交给页面。
 
 ### 正确做法
@@ -50,7 +51,9 @@
 
 ### 不要这样做
 
-- 不要把生成的站点或 GitHub 缓存提交到仓库；它们都在 `.artifacts/` 下，可以随时重建。
+- 不要把生成的站点或 GitHub 缓存提交到 `main`；站点每次重建，缓存只放在数据分支上。
+- 不要手动修改、变基或合并 `engineering-board-cache`。缓存有问题时直接删除这个分支，下一次运行会全量读取并重新创建它。
+- 不要把写仓库的权限给构建看板的任务。它处理外部贡献者写的 PR 和 Issue 正文，只需要只读令牌。
 - 不要让页面直接带着令牌调用 GitHub。公开页面没有令牌，本地页面拿到令牌也会扩大泄露面。
 - 不要为了“更完整”去读评论内容或代码差异。看板只回答“这项工作是什么、和谁有关、现在卡在哪”。
 
@@ -76,6 +79,18 @@
 
 原来的单文件看板可以离线打开。现在有两千多个 PR、八百多个 Issue，全部正文内嵌后首屏要下载十几 MB。改为首屏只加载索引，正文按需加载。
 
+### 缓存放在 Actions 缓存里
+
+不占仓库空间，也不需要写权限。但 Actions 缓存 7 天没有被读取就会被删除，两次发版之间常常超过 7 天，实际效果接近每次全量读取；维护者也希望缓存留在仓库里，可以查看和删除。
+
+### 缓存提交到 `main`
+
+所有人都能直接看到缓存。但 `main` 的规则集要求通过 PR 合入，工作流不能直接推送；每次发版都开一个只改缓存的 PR，会给评审和 CI 增加无意义的工作。
+
+### 缓存放在不属于分支的自定义引用
+
+例如 `refs/engineering-board/cache`，普通克隆和 `fetch-depth: 0` 的检出都不会下载它，没有额外的下载量。但 GitHub 网页上看不到这种引用，查看和删除都只能用命令行，出了问题不容易发现；按目前的大小，数据分支带来的额外下载量可以接受，所以选了普通分支。
+
 ### 包含私有仓库
 
 能看到全部工作。但 Pages 是公开的，会把私有仓库的标题和正文发布出去，因此只读公开仓库。
@@ -85,14 +100,16 @@
 - 维护者在一个页面里看到所有公开仓库需要处理的 PR 和 Issue，以及它们和决策的关联；外部贡献、CI 失败、冲突和无人回复的 Issue 都有单独的信号。
 - 代价一：公开快照在两次发版之间会落后，评审、CI 和冲突状态可能已经变化；页面会写明快照时间，并提示用本地实时模式。
 - 代价二：首屏索引包含全部 Note 正文和全部 PR、Issue 的摘要字段，目前约 4.8 MB（gzip 后约 1.4 MB），会随仓库增长。
-- 代价三：Pages 工作流不在两次运行之间保存缓存，每次发版都从空缓存全量读取。2026-11-28 在本机实测，全量读取 3102 条记录用了 33 次请求、约 2 分钟；有缓存时增量读取用了 11 次请求、约 24 秒，其中多数记录是每次都要重读的打开 PR。每次发版只运行一次，没有为它另加缓存步骤。
+- 代价三：数据分支让仓库变大。2026-11-28 实测，缓存文件约 15 MB（3105 条记录），第一次提交压缩后约 4.8 MB；之后每次运行只增加改动过的记录，一次真实的增量刷新压缩后只多约 10 KB。普通 `git clone`、`git fetch` 和 `fetch-depth: 0` 的 CI 检出（目前是 Desktop CI 的 Linux 任务和功能矩阵校验）都会多下载这一份。作为对比，全量读取 GitHub 用了 33 次请求、约 2 分钟，增量读取用了 11 次请求、约 24 秒，其中多数记录是每次都要重读的打开 PR；第一次运行（分支还不存在）仍是全量读取。
 - 代价四：Actions 的 `GITHUB_TOKEN` 要能读取其他组织的公开仓库。如果某次发版后构建因权限失败，Pages 保留旧版，需要改用有只读权限的令牌。
-- 需要重新评估的情况：首屏索引超过 10 MB，或组织转为私有仓库为主，或 Pages 不再公开。
+- 代价五：数据分支的历史会保留曾经公开过的记录。某个仓库转为私有后，新提交里会删掉它，但旧提交仍在；需要彻底清除时删除数据分支，下一次运行全量重建。
+- 需要重新评估的情况：首屏索引超过 10 MB，或缓存文件接近 GitHub 的 50 MB 单文件警告线，或数据分支压缩后超过 50 MB，或组织转为私有仓库为主，或 Pages 不再公开。
 
 ## 验证
 
 - `./scripts/agent-notes/verify-agent-notes.sh`
 - `node --test scripts/agent-notes/test-engineering-board.mjs`
+- `node --test scripts/ci/deploy-agent-notes-board/board-cache.test.mjs`
 - `node scripts/agent-notes/build-agent-notes-board.mjs --offline`
 - `git diff --check`
 
@@ -108,5 +125,7 @@
 - `scripts/agent-notes/agent-notes-parser.mjs`
 - `.agents/skills/agent-notes/SKILL.md`
 - `.github/workflows/deploy-agent-notes-board.yml`
+- `scripts/ci/deploy-agent-notes-board/board-cache.sh`
+- `scripts/ci/deploy-agent-notes-board/board-cache.test.mjs`
 - `.github/workflows/verify-agent-notes.yml`
 - `.agents/notes/`

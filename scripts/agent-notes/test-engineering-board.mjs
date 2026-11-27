@@ -360,6 +360,39 @@ describe("GitHub cache refresh", () => {
         assert.deepEqual(github.readCache(path), cache);
         assert.equal(existsSync(`${path}.${process.pid}.tmp`), false);
     });
+
+    test("writes one sorted record per line so git stores only what changed", (t) => {
+        const path = join(tempDir(t), "github.json");
+        const record = (number, title) => ({ repo: APP, number, kind: "pr", title });
+        const cache = {
+            ...github.emptyCache(),
+            fetchedAt: at(2),
+            repos: [APP],
+            watermarks: { [`${APP}:pr`]: at(2) },
+            items: { [`${APP}#2`]: record(2, "two"), [`${APP}#10`]: record(10, "ten"), [`${APP}#1`]: record(1, "one") },
+        };
+        github.writeCache(path, cache);
+        const first = readFileSync(path, "utf8");
+        assert.deepEqual(github.readCache(path), cache);
+        const lines = first.trimEnd().split("\n");
+        assert.equal(lines.length, 5);
+        assert.deepEqual(lines.slice(1, 4).map((line) => JSON.parse(`{${line.replace(/,$/, "")}}`)), [
+            { [`${APP}#1`]: record(1, "one") },
+            { [`${APP}#10`]: record(10, "ten") },
+            { [`${APP}#2`]: record(2, "two") },
+        ]);
+
+        // The same records in another insertion order give the same bytes; changing one record
+        // changes exactly one record line besides the header.
+        github.writeCache(path, { ...cache, items: Object.fromEntries(Object.entries(cache.items).reverse()) });
+        assert.equal(readFileSync(path, "utf8"), first);
+        github.writeCache(path, { ...cache, fetchedAt: at(3), items: { ...cache.items, [`${APP}#10`]: record(10, "TEN") } });
+        const changed = readFileSync(path, "utf8").trimEnd().split("\n");
+        assert.deepEqual(changed.map((line, index) => line !== lines[index]), [true, false, true, false, false]);
+
+        github.writeCache(path, github.emptyCache());
+        assert.deepEqual(github.readCache(path), github.emptyCache());
+    });
 });
 
 describe("board assembly", () => {

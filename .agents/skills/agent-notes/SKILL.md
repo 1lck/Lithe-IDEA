@@ -173,8 +173,11 @@ node scripts/agent-notes/build-agent-notes-board.mjs
 构建脚本直接失败（`--offline` 除外），避免生成没有 PR 和 Issue 的站点。
 
 `.github/workflows/deploy-agent-notes-board.yml` 在 `Desktop Release` 成功后
-发布 Pages，也可以手动运行；不要提交生成的站点或
-`.artifacts/agent-notes-board/cache/` 下的缓存。
+发布 Pages，也可以手动运行。工作流把 GitHub 缓存保存在数据分支
+`engineering-board-cache` 上，下次运行先恢复它，只读取变化的记录；读写由
+`scripts/ci/deploy-agent-notes-board/board-cache.sh` 完成。不要手动修改或合并这个分支，
+也不要把生成的站点或 `.artifacts/agent-notes-board/cache/` 下的缓存提交到 `main`。
+删除数据分支后，下一次运行全量读取并重新创建它。
 
 ## 代码入口绑定
 

@@ -4,7 +4,9 @@
 // Only the records themselves are read (title, body, state, labels, review and CI summary,
 // comment count). Code, diffs and comment text are never requested. The cache file keeps
 // every record so a later run only asks GitHub for what changed since; it lives under
-// .artifacts/agent-notes-board/cache/, is private to the checkout and can be deleted at any time.
+// .artifacts/agent-notes-board/cache/ and can be deleted at any time. The Pages workflow keeps a
+// copy on the engineering-board-cache data branch between releases
+// (scripts/ci/deploy-agent-notes-board/board-cache.sh).
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -237,10 +239,20 @@ export function readCache(path) {
     }
 }
 
+// Serializes the cache as valid JSON with one record per line, records sorted by key. The data
+// branch keeps every version of this file; a stable line-per-record layout lets git store a new
+// version as the few records that changed instead of another full copy.
+export function formatCache(cache) {
+    const { items = {}, ...head } = cache;
+    const lines = Object.keys(items).sort().map((key) => `${JSON.stringify(key)}:${JSON.stringify(items[key])}`);
+    const prefix = JSON.stringify({ ...head, items: {} }).slice(0, -"{}}".length);
+    return lines.length === 0 ? `${prefix}{}}\n` : `${prefix}{\n${lines.join(",\n")}\n}}\n`;
+}
+
 export function writeCache(path, cache) {
     mkdirSync(dirname(path), { recursive: true });
     const temp = `${path}.${process.pid}.tmp`;
-    writeFileSync(temp, JSON.stringify(cache));
+    writeFileSync(temp, formatCache(cache));
     renameSync(temp, path);
 }
 
