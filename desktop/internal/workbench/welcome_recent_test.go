@@ -59,8 +59,14 @@ func TestWelcomeMostRecentlyPinnedProjectMovesFirst(t *testing.T) {
 	h.resizeWelcome()
 	h.pinWelcomeProject(newer)
 	h.pinWelcomeProject(older)
+	if h.shows(i18n.Shared(h.app.language(), "layout.pinned")) {
+		t.Fatal("pinned project row rendered an extra Pinned label instead of a background tint")
+	}
 	if h.welcomeRowHit(older).Bounds.Y >= h.welcomeRowHit(newer).Bounds.Y {
 		t.Fatal("the most recently pinned project did not reach the top")
+	}
+	if h.welcomeRowHit(older).Bounds.Height != float32(welcomeRowHeight) {
+		t.Fatalf("pinned row height = %v, want %v without a pinned sub-row", h.welcomeRowHit(older).Bounds.Height, welcomeRowHeight)
 	}
 	h.rightClickRow(older)
 	h.clickNamed(h.app.text.Welcome.MenuUnpin)

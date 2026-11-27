@@ -22,7 +22,6 @@ func welcomeMessages(language Language) WelcomeMessages {
 		MenuPin:           Shared(language, "desktop.welcome.menuPin"),
 		MenuUnpin:         Shared(language, "desktop.welcome.menuUnpin"),
 		MenuRemove:        Shared(language, "native.removeFromRecentProjects"),
-		Pinned:            Shared(language, "layout.pinned"),
 		Missing:           Shared(language, "desktop.welcome.missing"),
 		DropFolderOnly:    Shared(language, "desktop.welcome.dropFolderOnly"),
 	}

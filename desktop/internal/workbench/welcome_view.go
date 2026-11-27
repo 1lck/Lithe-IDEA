@@ -164,16 +164,21 @@ func (a *App) welcomeProjects(c ui.C) {
 		if branch != "" {
 			rowHeight += 20
 		}
-		if entry.Pinned {
-			rowHeight += 16
-		}
 		if len(entry.Tags) != 0 {
 			rowHeight += 16
 		}
 		item := row.Element.FillWidth().Height(rowHeight).Items(ui.Center).Gap(12).PadX(12).
 			Radius(a.theme.Metrics.RadiusItem()).
-			Hover(ui.Look{}.Background(a.colors.Hover)).
 			Pressed(ui.Look{}.Background(a.colors.Active))
+		if row.Selected() {
+			item.Background(a.colors.Selection)
+		} else {
+			if entry.Pinned {
+				// Pinned rows use a subtle background tint (similar to WeChat pinned chats) instead of an icon sub-row.
+				item.Background(a.colors.Hover.WithAlpha(0.55))
+			}
+			item.Hover(ui.Look{}.Background(a.colors.Hover))
+		}
 		path := entry.Path
 		ui.ContextMenu(row.C, row.Element, a.welcomeMenuItems(row.C, path))
 		item.Children(func() {
@@ -187,13 +192,6 @@ func (a *App) welcomeProjects(c ui.C) {
 			ui.Column(row.C).Grow(1).PadSides(8, 0, 0, 0).Children(func() {
 				ui.Text(row.C, info.name).Ellipsis()
 				ui.Text(row.C, info.path).Ellipsis().Muted().FontSize(a.theme.Metrics.FontSizeS)
-				if entry.Pinned {
-					// Pinned projects come first; the mark says why this one is up there.
-					ui.Row(row.C).Height(14).Items(ui.Center).Gap(4).Children(func() {
-						ui.Icon(row.C, icons.Pin).Size(12, 12).Shrink(0).Color(a.colors.Subtle)
-						ui.Text(row.C, a.text.Welcome.Pinned).FontSize(a.theme.Metrics.FontSizeS).Muted()
-					})
-				}
 				if len(entry.Tags) != 0 {
 					ui.Text(row.C, strings.Join(entry.Tags, ", ")).Ellipsis().Muted().FontSize(a.theme.Metrics.FontSizeS)
 				}
