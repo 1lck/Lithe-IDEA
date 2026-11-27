@@ -9765,6 +9765,13 @@
       ]
     },
     {
+      "id": "desktop.files.removalInProgress",
+      "description": "Notice when a project-tree write is refused because the item or its destination is already being deleted",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.files.moveToTrash",
       "description": "Delete dialog: the default button, which moves the items to the system trash",
       "platforms": [
