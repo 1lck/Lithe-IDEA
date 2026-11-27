@@ -453,6 +453,10 @@ window.__LITHE_BOARD_MODE__ = "static";
 // write both; see scripts/agent-notes/engineering-board-model.mjs.
 const L = window.LitheEngineeringBoardLinks;
 const MODE = window.__LITHE_BOARD_MODE__;
+// The local server's data changes in memory, so live mode never reuses a stored copy. The
+// published site changes only at release time: revalidating lets the browser keep its copy
+// and receive 304 Not Modified until a new snapshot is deployed.
+const FETCH_CACHE = MODE === 'live' ? 'no-store' : 'no-cache';
 const PAGE = 200;
 const DAY = 864e5;
 const LIFE = { implemented: '已落地', proposed: '待评审', rejected: '已否决', archived: '已归档' };
@@ -828,7 +832,7 @@ async function loadBody(it) {
   if (!it.bodySize) return '';
   const name = shardName(it.repo, it.n);
   if (!S.bodies.has(name)) {
-    S.bodies.set(name, fetch(`data/bodies/${name}`, { cache: MODE === 'live' ? 'no-store' : 'default' }).then((r) => {
+    S.bodies.set(name, fetch(`data/bodies/${name}`, { cache: FETCH_CACHE }).then((r) => {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return r.json();
     }).catch((err) => { S.bodies.delete(name); throw err; }));
@@ -1506,7 +1510,7 @@ document.addEventListener('keydown', (e) => {
 
 /* ---------- 载入与实时更新 ---------- */
 async function fetchIndex() {
-  const r = await fetch('data/index.json', { cache: 'no-store' });
+  const r = await fetch('data/index.json', { cache: FETCH_CACHE });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.json();
 }
