@@ -9,7 +9,7 @@ toolchain go1.27.4
 require (
 	github.com/creack/pty v1.1.24
 	github.com/tailscale/hujson v0.0.0-20260727124030-b80ff77dac4f
-	github.com/vivaui/viva v0.6.10-0.20261126141347-79c3557bb08a
+	github.com/vivaui/viva v0.6.10-0.20261127092127-0ec90b26e9d4
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/sys v0.50.0
 )
@@ -21,4 +21,4 @@ require (
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 )
 
-replace github.com/vivaui/viva => github.com/Lithe-IDEA/viva v0.6.10-0.20261127104933-8d5bd50e2a20
+replace github.com/vivaui/viva => github.com/Lithe-IDEA/viva v0.6.10-0.20261127155323-33cad87b8987
