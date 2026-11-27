@@ -232,6 +232,16 @@ LITHE_VISUAL_OUTPUT_DIR=/path/to/output scripts/desktop/desktop-go.sh test -tags
 架构或工具链 identity stamp，不跨工作树复制。目标工作树运行
 `node scripts/platform-feature-matrix/generate-platform-feature-matrix.mjs`，校验源数据后重新生成。
 
+工程看板的 GitHub 缓存 `.artifacts/agent-notes-board/cache/github.json` 由 `scripts/agent-notes/build-agent-notes-board.mjs`
+和 `serve-agent-notes-board.mjs` 写入（先写临时文件再改名），内容只是主仓库与 Lithe-IDEA 组织公开、未归档仓库的 PR 和 Issue
+记录及每个仓库的更新水位线，和源码修订、平台、架构、工具链都无关。它可以直接复制到另一个工作树，省去第一次全量读取；
+不复制也可以，下一次构建会全量重新读取。删除它是安全的。CI Pages 工作流不依赖本地副本：运行前用
+`scripts/ci/deploy-agent-notes-board/board-cache.sh restore` 从数据分支 `engineering-board-cache` 取回上一次的缓存，
+发布成功后由只有 `contents: write` 权限的独立任务用 `board-cache.sh save` 写回；本地需要时也可以用
+`git show origin/engineering-board-cache:github.json` 取一份放到上述路径。生成的站点 `.artifacts/agent-notes-board/site/`（CI Pages 使用
+`<runner-temp>/lithe-agent-notes-site/`）依赖当前检出的 Note、`main` 的提交历史和模板，不跨工作树复制，在目标工作树重新构建。
+两者都只在本地或 CI 构建时写入，不提交到 `main`（缓存只另存在数据分支上），不进入安装包，也不影响代码签名或增量更新基线。
+
 `.artifacts/desktop/` 只有留在同一个检出里才能增量复用，所以默认不新建工作树：先在空闲的主检出或空闲的已有工作树里
 切分支，都被占用才新建，判定方法见 `develop-lithe` Skill 的“检出与编译缓存复用”一节。
 Git worktree 只共享 Git 对象，不共享各自的 `.artifacts` 目录，仓库也不提供跨工作树复制资源的脚本（#2002 已删除）。
