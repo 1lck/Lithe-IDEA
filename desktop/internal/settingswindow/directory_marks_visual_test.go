@@ -108,7 +108,7 @@ func TestVisualDirectoryMarks(t *testing.T) {
 				}), Values{Language: language.Code(), Theme: theme})
 				w.sess.page = pageDirectoryMarks
 				config := w.config()
-				config.Width, config.Height = 1160, 860
+				config.Width, config.Height = 1180, 960
 				session, err := headless.Open(config, nil, headless.Options{})
 				if err != nil {
 					t.Fatal(err)
@@ -123,7 +123,7 @@ func TestVisualDirectoryMarks(t *testing.T) {
 					d.pump()
 					time.Sleep(10 * time.Millisecond)
 				}
-				w.dirMarksDraft.iconPickerOpen = true
+				w.dirMarksDraft.iconPickerOpen = false
 				d.pump()
 				d.pump()
 				if err := session.Screenshot(filepath.Join(out, "directory-marks-"+language.Code()+"-"+theme+".png")); err != nil {

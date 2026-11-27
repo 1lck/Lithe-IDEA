@@ -11765,7 +11765,17 @@
     "desktop.directoryMarks.settings.importIconPath": "Path to .svg file…",
     "desktop.directoryMarks.settings.importIconHelp": "Imports a local SVG icon into Lithe user storage (never into the app bundle). When you have many icons, use the search box and category tabs above.",
     "desktop.directoryMarks.settings.deleteIcon": "Delete Custom Icon",
-    "desktop.directoryMarks.settings.noMatchingIcons": "No matching icons."
+    "desktop.directoryMarks.settings.noMatchingIcons": "No matching icons.",
+    "desktop.directoryMarks.settings.typeList": "Type List",
+    "desktop.directoryMarks.settings.typeCount": "{count} items",
+    "desktop.directoryMarks.settings.groupBuiltin": "BUILT-IN",
+    "desktop.directoryMarks.settings.groupCustom": "USER MODES",
+    "desktop.directoryMarks.settings.badgeBuiltin": "Built-in",
+    "desktop.directoryMarks.settings.badgeCustom": "Custom",
+    "desktop.directoryMarks.settings.localStoredBadge": "Local",
+    "desktop.directoryMarks.settings.livePreview": "Live Preview",
+    "desktop.directoryMarks.settings.visualSemantics": "Visual & Semantics",
+    "desktop.directoryMarks.settings.enabledShort": "Enabled"
   },
   "overrides": {
     "windows": {

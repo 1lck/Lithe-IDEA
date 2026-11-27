@@ -11765,7 +11765,17 @@
     "desktop.directoryMarks.settings.importIconPath": "输入 .svg 文件路径…",
     "desktop.directoryMarks.settings.importIconHelp": "将本地 SVG 图标导入到 Lithe 用户数据目录（绝不写入安装包）。图标较多时可通过上方搜索框和分类快速筛选。",
     "desktop.directoryMarks.settings.deleteIcon": "删除自定义图标",
-    "desktop.directoryMarks.settings.noMatchingIcons": "没有匹配的图标。"
+    "desktop.directoryMarks.settings.noMatchingIcons": "没有匹配的图标。",
+    "desktop.directoryMarks.settings.typeList": "类型列表",
+    "desktop.directoryMarks.settings.typeCount": "{count} 项",
+    "desktop.directoryMarks.settings.groupBuiltin": "内置类型（BUILT-IN）",
+    "desktop.directoryMarks.settings.groupCustom": "自定义模式（USER）",
+    "desktop.directoryMarks.settings.badgeBuiltin": "内置语义",
+    "desktop.directoryMarks.settings.badgeCustom": "用户自定义",
+    "desktop.directoryMarks.settings.localStoredBadge": "本地存储",
+    "desktop.directoryMarks.settings.livePreview": "实时预览",
+    "desktop.directoryMarks.settings.visualSemantics": "视觉与语义行为",
+    "desktop.directoryMarks.settings.enabledShort": "已启用"
   },
   "overrides": {
     "macos": {

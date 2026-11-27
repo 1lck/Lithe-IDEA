@@ -110764,6 +110764,79 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.typeList",
+      "description": "Header of the left folder types list",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.typeCount",
+      "description": "Count of folder types in the list",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.directoryMarks.settings.groupBuiltin",
+      "description": "Group header for built-in directory roles",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.groupCustom",
+      "description": "Group header for user custom directory modes",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.badgeBuiltin",
+      "description": "Badge for built-in directory role",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.badgeCustom",
+      "description": "Badge for user custom directory type",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.localStoredBadge",
+      "description": "Status badge for local private config file",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.livePreview",
+      "description": "Section label for live tree row preview",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.visualSemantics",
+      "description": "Label for visual and semantic behavior checkboxes",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.directoryMarks.settings.enabledShort",
+      "description": "Short label for enabled checkbox",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }
