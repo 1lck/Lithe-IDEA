@@ -1109,6 +1109,79 @@ func TestProjectTreeRootIsVisibleAndCollapsible(t *testing.T) {
 	}
 }
 
+func TestProjectTreeStylesLoadedBuildModuleRoots(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "ModuleWorkspace")
+	writeTreeFiles(t, root, "common/src/file.txt", "docs/guide.txt", "module-a/file.txt", "module-b/file.txt")
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	p := h.openTree(t, root)
+	h.click(center(h.treeRowHit("common").Bounds))
+	awaitDocumentState(t, h, func() bool { return p.tree.find("common/src") != nil })
+
+	checkRow := func(name string, weight float32, wantBadge bool) {
+		t.Helper()
+		row := h.treeRowHit(name).Bounds
+		snapshot := h.driver.Snapshot()
+		for _, label := range snapshot.Labels {
+			if label.Value != name || label.Bounds.Y < row.Y || label.Bounds.Y >= row.Y+row.Height {
+				continue
+			}
+			badge := slices.ContainsFunc(snapshot.Primitives, func(primitive app.Primitive) bool {
+				if primitive.Kind != app.TrianglePrimitive {
+					return false
+				}
+				color := primitive.Color
+				point := primitive.Points[0]
+				return color.Blue > color.Red+0.25 && color.Blue > color.Green+0.2 &&
+					point.X >= label.Bounds.X-treelist.Icon-treelist.Gap && point.X < label.Bounds.X &&
+					point.Y >= row.Y && point.Y < row.Y+row.Height
+			})
+			if label.Weight != weight || badge != wantBadge {
+				t.Errorf("%s: weight=%g, blue badge=%v, want weight=%g, blue badge=%v", name, label.Weight, badge, weight, wantBadge)
+			}
+			return
+		}
+		t.Fatalf("no label for %q in the Project tree", name)
+	}
+	model := func(paths ...string) core.BuildModel {
+		var result core.BuildModel
+		for _, path := range paths {
+			result.Projects = append(result.Projects, core.BuildProject{ID: path, Name: filepath.Base(path), Path: path})
+		}
+		return result
+	}
+
+	checkRow("ModuleWorkspace", gfx.WeightSemibold, false)
+	checkRow("common", gfx.WeightRegular, false)
+	a := h.app
+	a.finishBuildDetection(p, p.build.generation, []buildInstance{
+		{BuildInstance: core.BuildInstance{ID: "first"}, Model: model(".", "common"), modelLoaded: true},
+		{BuildInstance: core.BuildInstance{ID: "second"}, modelLoaded: true},
+	}, nil)
+	a.finishBuildModel(p, "second", model("module-a"), nil)
+	h.settle()
+	checkRow("ModuleWorkspace", gfx.WeightBold, true)
+	checkRow("common", gfx.WeightBold, true)
+	checkRow("module-a", gfx.WeightBold, true)
+	checkRow("module-b", gfx.WeightRegular, false)
+	checkRow("docs", gfx.WeightRegular, false)
+	checkRow("src", gfx.WeightRegular, false)
+
+	a.finishBuildModel(p, "second", model("module-b"), nil)
+	h.settle()
+	checkRow("common", gfx.WeightBold, true)
+	checkRow("module-a", gfx.WeightRegular, false)
+	checkRow("module-b", gfx.WeightBold, true)
+	checkRow("src", gfx.WeightRegular, false)
+
+	a.invalidateBuild(p)
+	if err := h.driver.Advance(time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	checkRow("ModuleWorkspace", gfx.WeightSemibold, false)
+	checkRow("common", gfx.WeightRegular, false)
+	checkRow("module-b", gfx.WeightRegular, false)
+}
+
 func TestProjectTreeEmptyRootRemainsVisible(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	h.open(t.TempDir())

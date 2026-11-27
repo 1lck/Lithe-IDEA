@@ -171,8 +171,23 @@ func (a *App) syncTreeSelection(canvas *gfx.Canvas, t *fileTree) {
 	}
 }
 
+func (t *fileTree) isModuleRoot(n *treeNode) bool {
+	_, module := t.moduleRoots[n.path]
+	return n.dir && module
+}
+
+func (t *fileTree) rowWeight(n *treeNode) float32 {
+	if t.isModuleRoot(n) {
+		return gfx.WeightBold
+	}
+	if n == t.root {
+		return gfx.WeightSemibold
+	}
+	return gfx.WeightRegular
+}
+
 // measureTree is how wide the widest row is: the width the rows are given so that every name
-// shows whole. It is measured again only when rows came or went, or the font changed.
+// shows whole. It is measured again only when the rows, their weights, or the font change.
 func (a *App) measureTree(canvas *gfx.Canvas, t *fileTree) float32 {
 	font := float32(treeFontSize)
 	if !t.measureDirty && t.measureFont == font {
@@ -180,34 +195,32 @@ func (a *App) measureTree(canvas *gfx.Canvas, t *fileTree) float32 {
 	}
 	width := float32(0)
 	for _, n := range t.rows {
-		weight := gfx.WeightRegular
-		if n == t.root {
-			weight = gfx.WeightSemibold
-		}
 		// Every row starts after the room of a chevron, which a row without one keeps empty.
-		row := float32(n.depth*treelist.Indent) + treeChevron + treelist.Icon + treelist.Gap + canvas.TextWidthWeight(n.name, font, weight) + treelist.Trailing
+		row := float32(n.depth*treelist.Indent) + treeChevron + treelist.Icon + treelist.Gap + canvas.TextWidthWeight(n.name, font, t.rowWeight(n)) + treelist.Trailing
 		width = max(width, row)
 	}
 	t.measureDirty, t.measureFont = false, font
 	return width + treeScrollPad
 }
 
-// drawTreeContent declares what row of the tree shows after its chevron: the node's icon and its
-// name, the root's in bold, which labels the row and carries its context menu. Viva's Tree
+// drawTreeContent declares what a row shows after its chevron: the node's icon and the name
+// that labels the row and carries its context menu. Viva's Tree
 // starts a row without a chevron (a file, an empty folder) where the chevron of a folder at its
 // depth is, so such a row keeps the chevron's room empty, and its icon lines up with the icons
 // of the folders beside it.
 func (a *App) drawTreeContent(c ui.C, p *project, row gfx.ID, n *treeNode) {
 	content := func() {
-		icon := fileicons.ForFile(n.name, a.colors.Dark)
-		if n.dir {
+		var icon gfx.Icon
+		switch {
+		case p.tree.isModuleRoot(n):
+			icon = fileicons.ForBuildNode(fileicons.BuildProject, a.colors.Dark)
+		case n.dir:
 			icon = fileicons.ForDirectory(n.name, a.colors.Dark)
+		default:
+			icon = fileicons.ForFile(n.name, a.colors.Dark)
 		}
 		ui.Icon(c, icon).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Subtle)
-		name := ui.Text(c, n.name).FontSize(treeFontSize).Color(a.treeTextColor(p, n)).Shrink(0)
-		if n == p.tree.root {
-			name.Bold()
-		}
+		name := ui.Text(c, n.name).FontSize(treeFontSize).Weight(p.tree.rowWeight(n)).Color(a.treeTextColor(p, n)).Shrink(0)
 		a.projectTreeMenu(c, p, row, n, name)
 	}
 	if n.dir && !n.empty {

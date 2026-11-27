@@ -107,4 +107,5 @@ func (a *App) reloadPluginBuildModels(p *project, id string) {
 			a.loadBuildModel(p, index)
 		}
 	}
+	p.refreshTreeModuleRoots()
 }

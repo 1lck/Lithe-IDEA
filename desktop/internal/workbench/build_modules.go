@@ -1,12 +1,38 @@
 package workbench
 
 import (
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 )
+
+// refreshTreeModuleRoots updates directory styling only when the loaded build projects
+// change. Core supplies normalized workspace-relative paths, using "." for the workspace root.
+func (p *project) refreshTreeModuleRoots() {
+	roots := make(map[string]struct{})
+	for _, instance := range p.build.instances {
+		if !instance.modelLoaded {
+			continue
+		}
+		for _, project := range instance.Model.Projects {
+			path := project.Path
+			if path == "." {
+				path = ""
+			}
+			roots[path] = struct{}{}
+		}
+	}
+	if !maps.Equal(p.tree.moduleRoots, roots) {
+		p.tree.moduleRoots = roots
+		p.tree.measureDirty = true
+		if p.tree.wake != nil {
+			p.tree.wake()
+		}
+	}
+}
 
 // moduleFor returns the build project a workspace-relative file belongs to: the project whose
 // directory is the deepest ancestor of the file. Only models that are loaded and current take

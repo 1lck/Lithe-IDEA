@@ -71,6 +71,8 @@ type fileTree struct {
 	rows      []*treeNode
 	rowsDirty bool
 	view      ui.TreeState
+	// moduleRoots indexes the workspace-relative paths of loaded build projects.
+	moduleRoots map[string]struct{}
 	// area is where the tree was laid out in the last paint, read by its draw hook.
 	area     gfx.Rect
 	areaDraw func(*ui.DrawContext)
@@ -78,8 +80,8 @@ type fileTree struct {
 	focusNode *treeNode
 	// wake asks for a paint.
 	wake func()
-	// measureDirty says the rows were laid out again since the width of the widest row was
-	// measured, and measureFont the font size it was measured with.
+	// measureDirty says the rows or their weights changed since the width of the widest row
+	// was measured, and measureFont is the font size it was measured with.
 	measureDirty bool
 	measureFont  float32
 	// pending and reading coalesce native events into one bounded Core request.
