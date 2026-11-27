@@ -99,7 +99,6 @@ func (s *Store) QueryWindow(ctx context.Context, q Query) (Collection, error) {
 		if err != nil {
 			return err
 		}
-		incompleteInventory = scan.missingEvidence(q.Session, sessionName(session))
 		files := scan.files
 		known := make(map[string]string, len(files))
 		metadata := make([]core.LogFile, 0, len(files))
@@ -119,6 +118,7 @@ func (s *Store) QueryWindow(ctx context.Context, q Query) (Collection, error) {
 		if err != nil {
 			return err
 		}
+		incompleteInventory = plan.Truncated || scan.missingEvidence(q.Session, sessionName(session), 0, plan.Sessions)
 		sources, err = s.readSources(job, directory, known, plan.Reads)
 		return err
 	})

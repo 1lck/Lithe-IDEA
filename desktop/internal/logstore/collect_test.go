@@ -127,6 +127,12 @@ func TestUnreadableOldSessionDoesNotAffectReadableSessions(t *testing.T) {
 	if !collect(t, s, ExportQuery{Session: "all"}).Truncated {
 		t.Error("all sessions were reported complete")
 	}
+	if collect(t, s, ExportQuery{Session: "all", RecentSessions: 1}).Truncated {
+		t.Error("an unreadable session outside the newest-session limit marked the export incomplete")
+	}
+	if !collect(t, s, ExportQuery{Session: "all", RecentSessions: 2}).Truncated {
+		t.Error("an unreadable session inside the newest-session limit was reported complete")
+	}
 }
 
 // TestCollectAppliesTheWindowFilter checks that an export of the current filter keeps only the

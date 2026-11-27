@@ -385,6 +385,27 @@ func TestTableHeaderHandleResizesAColumn(t *testing.T) {
 	}
 }
 
+func TestStatusShowsPartialResultsUntilACompleteQuery(t *testing.T) {
+	fixture, w, driver := bigFixture(t, 1)
+	m := fixture.model
+	for _, partial := range []bool{true, false} {
+		m.applyCollection(m.activeQuery, logstore.Collection{
+			Result: core.LogQueryResult{Records: m.records, Truncated: partial},
+		})
+		w.inv.Invalidate()
+		settleWindow(t, driver)
+		found := false
+		for _, label := range driver.Snapshot().Labels {
+			if label.Value == w.text.Logs.PartialResults {
+				found = true
+			}
+		}
+		if found != partial {
+			t.Fatalf("partial results label visible = %v for Truncated = %v", found, partial)
+		}
+	}
+}
+
 func TestPausedTableKeepsTopRecordWhenEarlierRecordsExpire(t *testing.T) {
 	fixture, w, driver := bigFixture(t, 500)
 	m := fixture.model

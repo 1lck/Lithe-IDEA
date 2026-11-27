@@ -1567,7 +1567,7 @@ func (scan *fileScan) record(scope string, err error) {
 
 // missingEvidence reports whether an unreadable session could contribute structured logs
 // to the selection. Legacy files are only used for disk usage, retention and clearing.
-func (scan *fileScan) missingEvidence(selection, current string) bool {
+func (scan *fileScan) missingEvidence(selection, current string, recent int, planned []string) bool {
 	if scan.incomplete["sessions"] {
 		return true
 	}
@@ -1575,7 +1575,29 @@ func (scan *fileScan) missingEvidence(selection, current string) bool {
 		return current != "" && scan.incomplete[current]
 	}
 	for name := range scan.incomplete {
-		if name != "" && (selection == "all" || name != current) {
+		if name == "" || selection == "previous" && name == current {
+			continue
+		}
+		// Core picks the newest non-current session for "previous". Canonical
+		// names sort by UTC start time and then by ID, as in its planner.
+		if selection == "previous" && len(planned) > 0 && name < planned[0] {
+			continue
+		}
+		if recent == 0 || name == current {
+			return true
+		}
+		// Count only sessions Core actually selected. The current session
+		// reserves a slot even if it has no files or its clock is behind.
+		newer := 0
+		if current != "" {
+			newer++
+		}
+		for _, session := range planned {
+			if session != current && session > name {
+				newer++
+			}
+		}
+		if newer < recent {
 			return true
 		}
 	}

@@ -456,6 +456,7 @@ var english = Messages{
 			return SharedFormat(English, "desktop.logs.operation", map[string]string{"op": op, "count": strconv.Itoa(count), "duration": duration})
 		},
 		Tailing:          Shared(English, "logs.window.tailing"),
+		PartialResults:   Shared(English, "desktop.logs.partialResults"),
 		PausedScrolledUp: Shared(English, "logs.window.pausedScrolledUp"),
 		VisibleCount: func(visible, total, line string) string {
 			return SharedFormat(English, "logs.window.visibleCount", map[string]string{"visible": visible, "total": total, "line": line})

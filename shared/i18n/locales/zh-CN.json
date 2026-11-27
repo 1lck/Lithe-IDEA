@@ -1233,6 +1233,7 @@
     "desktop.logs.clearTitle": "清空已收集的日志？",
     "desktop.logs.diagnostics": "详细诊断",
     "desktop.logs.dropped": "已丢弃 {count}",
+    "desktop.logs.partialResults": "结果不完整",
     "desktop.logs.environmentHint": "应用版本、{osName} 版本、架构、已启用插件",
     "desktop.logs.exportDialog.currentSession": "当前会话",
     "desktop.logs.exportDialog.export": "导出…",
