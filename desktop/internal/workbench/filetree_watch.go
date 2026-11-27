@@ -164,7 +164,7 @@ func (a *App) resyncTreeListings(p *project) {
 	var paths []string
 	var collect func(*treeNode)
 	collect = func(n *treeNode) {
-		if n == nil || !n.dir || !n.expanded {
+		if n == nil || !n.dir || (!n.expanded && !n.empty) {
 			return
 		}
 		paths = append(paths, n.path)
@@ -210,7 +210,7 @@ func (a *App) applyFilteredTreeEvents(p *project, names []string) {
 		for {
 			n := lookup(parent)
 			if n != nil && n.dir {
-				if n != p.tree.root && !n.expanded {
+				if n != p.tree.root && !n.expanded && !n.empty {
 					parent = treeParentPath(n.path)
 				} else {
 					parent = n.path
@@ -279,11 +279,7 @@ func (a *App) drainTreeWatch(p *project, path string, slot *documentWatch) {
 		}
 	}
 	if changed {
-		refresh := path
-		if n := p.tree.find(path); n != nil && n.empty && !n.expanded {
-			refresh = treeParentPath(path)
-		}
-		a.listTree(p, refresh)
+		a.listTree(p, path)
 	}
 }
 

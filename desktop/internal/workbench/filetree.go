@@ -170,13 +170,17 @@ func (t *fileTree) replaceChildren(parent *treeNode, entries []core.WorkspaceNod
 			}
 			child = t.node(entry, parent.depth+1)
 		} else {
-			child.name, child.empty = entry.Name, entry.Leaf
-			if child.empty {
+			child.name = entry.Name
+			if entry.Leaf {
+				child.empty = true
 				child.listed = true
 				for _, descendant := range child.children {
 					t.forgetNode(descendant)
 				}
 				child.children = nil
+			} else if child.empty && !child.expanded && !t.recursiveWatch && t.watches[child.path] == nil {
+				// A collapsed directory without a watch may have changed since its last read.
+				child.empty, child.listed = false, false
 			}
 		}
 		if t.byPath != nil {
@@ -298,6 +302,9 @@ func (a *App) pumpTreeListings(p *project) {
 				if listing, ok := byPath[path]; ok {
 					n.linked = listing.Linked
 					t.replaceChildren(n, listing.Children)
+					if n != t.root && !n.listed && len(n.children) == 0 {
+						n.expanded = false
+					}
 					n.listed, n.empty = true, len(n.children) == 0
 					if n == t.root {
 						t.failed = ""

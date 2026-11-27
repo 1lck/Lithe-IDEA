@@ -775,9 +775,11 @@ func TestProjectTreeEmptyFolderBecomesExpandable(t *testing.T) {
 	p := h.app.project
 	awaitDocumentState(t, h, func() bool { return p.tree.root != nil && p.tree.root.listed })
 	folder := p.tree.find("empty")
-	if folder == nil || !folder.empty {
-		t.Fatal("Core did not report the initially empty directory")
+	if folder == nil || folder.listed || folder.empty {
+		t.Fatal("the parent listing should leave its child unchecked")
 	}
+	h.app.toggleFolder(p, folder)
+	awaitDocumentState(t, h, func() bool { return folder.listed && folder.empty && !folder.expanded })
 	if err := os.WriteFile(filepath.Join(root, "empty", "created.txt"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -801,9 +803,11 @@ func TestProjectTreeManyEmptyDirectoriesShareRecursiveWatch(t *testing.T) {
 	p := h.app.project
 	awaitDocumentState(t, h, func() bool { return p.tree.root != nil && p.tree.root.listed })
 	folder := p.tree.find("folder-139")
-	if folder == nil || !folder.empty {
-		t.Fatal("expected an empty directory")
+	if folder == nil || folder.listed {
+		t.Fatal("expected an unloaded directory")
 	}
+	h.app.toggleFolder(p, folder)
+	awaitDocumentState(t, h, func() bool { return folder.empty })
 	if err := os.WriteFile(filepath.Join(root, "folder-139", "new.txt"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -837,6 +841,7 @@ func TestProjectTreeCollapsedDirectoryBecomesEmpty(t *testing.T) {
 	if err := os.Remove(file); err != nil {
 		t.Fatal(err)
 	}
+	h.app.toggleFolder(p, folder)
 	awaitDocumentState(t, h, func() bool { return folder.empty })
 }
 
@@ -1284,9 +1289,7 @@ func TestProjectTreeKeyboardKeepsSelectionVisible(t *testing.T) {
 	if err := h.driver.Click(point.X, point.Y); err != nil {
 		t.Fatal(err)
 	}
-	if !first.empty {
-		t.Fatal("empty directory was not identified by Core")
-	}
+	awaitDocumentState(t, h, func() bool { return first.listed && first.empty })
 	if err := h.driver.Key(gfx.KeyRight, 0); err != nil {
 		t.Fatal(err)
 	}
