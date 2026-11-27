@@ -395,10 +395,9 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # Lithe-core-rust main at 63932f9 (#215): plugin directory types and marks
 # (workspace/setDirectoryTypes and workspace/setDirectoryMarks) as a layer between shared
 # rules and globs, with submission checks that match the resolver.
-# Lithe-core-rust #216 head at 6763fb46 (not yet on main; re-pin to its main commit once it
-# merges): API-45 agents capability 0, native agent sessions (agents.*) and local agent
-# session records (agentSessions.*).
-PINNED_CORE_REVISION="6763fb4621608cd5ebebdff426629b07e2535aa5"
+# Lithe-core-rust main at e4c2eb14 (#216): API-45 agents capability 0, native agent sessions
+# (agents.*) and local agent session records (agentSessions.*).
+PINNED_CORE_REVISION="e4c2eb14ba7dff6eab217d7330fb0b601b997687"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do
