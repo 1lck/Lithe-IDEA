@@ -42,13 +42,15 @@ func (a *App) startupBackground() app.Color {
 }
 
 // rememberWindowBackground stores color as the background of the next launch when it differs from
-// the one stored last. A failed write is not reported: the next launch simply uses the default.
+// the last attempted color. Even on failure, retry only when the color changes, not every frame.
 func (a *App) rememberWindowBackground(color gfx.Color) {
 	if a.store == nil || color == a.savedBackground {
 		return
 	}
 	a.savedBackground = color
-	_ = a.store.Save(windowBackgroundFile, storedWindowBackground{Red: color.Red, Green: color.Green, Blue: color.Blue, Alpha: color.Alpha})
+	if err := a.store.Save(windowBackgroundFile, storedWindowBackground{Red: color.Red, Green: color.Green, Blue: color.Blue, Alpha: color.Alpha}); err != nil {
+		a.backgroundFailed("window_background_save", documentLogError(err))
+	}
 }
 
 // appColor converts a toolkit color to the window configuration's color.

@@ -122,6 +122,28 @@ func TestUnreadableDirectoryRulesAreLoggedAndNeverReplacedByAnEdit(t *testing.T)
 	}
 }
 
+func TestWindowBackgroundSaveFailureIsLoggedOncePerColor(t *testing.T) {
+	prefs := store.At(t.TempDir())
+	if err := os.Mkdir(prefs.Path(windowBackgroundFile), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	logger := &treeRecordingLog{}
+	a := &App{store: prefs, logSink: logger}
+	_, dark := look(themeDark)
+	a.rememberWindowBackground(dark.Editor)
+	a.rememberWindowBackground(dark.Editor)
+	if len(logger.events) != 1 {
+		t.Fatalf("background save logged %d events for the same color, want 1", len(logger.events))
+	}
+	event := logger.events[0]
+	if event.Level != core.LevelWarn || event.Event != backgroundFailedEvent || event.Fields["operation"] != "window_background_save" {
+		t.Fatalf("unexpected background save diagnostic: %+v", event)
+	}
+	if detail := fmt.Sprint(event.Fields["error"]); detail == "<nil>" || detail == "" || strings.Contains(detail, prefs.Dir()) {
+		t.Fatalf("expected a cause without the private settings path, got %q", detail)
+	}
+}
+
 func TestStartupBackgroundLogsUnreadableStoredColor(t *testing.T) {
 	for _, test := range []struct {
 		name, content string

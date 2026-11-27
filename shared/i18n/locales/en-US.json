@@ -1233,6 +1233,7 @@
     "desktop.logs.clearTitle": "Clear collected logs?",
     "desktop.logs.diagnostics": "Detailed diagnostics",
     "desktop.logs.dropped": "dropped {count}",
+    "desktop.logs.partialResults": "Partial results",
     "desktop.logs.environmentHint": "App version, {osName} version, architecture, enabled plugins",
     "desktop.logs.exportDialog.currentSession": "Current session",
     "desktop.logs.exportDialog.export": "Export…",

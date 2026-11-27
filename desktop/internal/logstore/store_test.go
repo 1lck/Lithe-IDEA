@@ -74,7 +74,7 @@ func openStore(t *testing.T, mutate func(*Options)) (*Store, *testClock, string)
 // flush writes everything queued and fails the test if the writer does not answer.
 func flush(t *testing.T, s *Store) {
 	t.Helper()
-	if err := s.do(context.Background(), s.drain); err != nil {
+	if err := s.Flush(); err != nil {
 		t.Fatalf("flush: %v", err)
 	}
 }
@@ -206,7 +206,6 @@ func TestStoreWritesSessionFilesAndAnswersQueries(t *testing.T) {
 	for i := range 3 {
 		action(s, fmt.Sprintf("step_%d", i))
 	}
-	s.Flush()
 	flush(t, s)
 
 	ctx, cancel := context.WithTimeout(context.Background(), waitLimit)
@@ -500,6 +499,40 @@ func TestChangeDirectoryMovesNewEvents(t *testing.T) {
 	}
 }
 
+func TestChangeDirectoryReportsSaveAndRollbackFailures(t *testing.T) {
+	settings := store.At(t.TempDir())
+	s, _, _ := openStore(t, func(o *Options) { o.Settings = settings })
+	previous := filepath.Join(t.TempDir(), "previous-logs")
+	if err := s.ChangeDirectory(previous); err != nil {
+		t.Fatal(err)
+	}
+	// Both destinations become unusable after a successful initial change.
+	if err := os.Remove(previous); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(previous, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	saved := settings.Path(settingsName)
+	if err := os.Remove(saved); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(saved, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target := t.TempDir()
+	err := s.ChangeDirectory(target)
+	if err == nil || !strings.Contains(err.Error(), saved) || !strings.Contains(err.Error(), previous) {
+		t.Fatalf("ChangeDirectory = %v, want errors for both %q and %q", err, saved, previous)
+	}
+	if !errors.Is(err, errRestoreDirectory) {
+		t.Fatalf("joined error has no path-independent rollback cause: %v", err)
+	}
+	if got := s.Directory(); got != target {
+		t.Fatalf("active directory = %q, want the last usable target %q", got, target)
+	}
+}
+
 func TestRotationKeepsFilesUnderTheLimit(t *testing.T) {
 	const limit = 1500
 	s, _, dir := openStore(t, func(o *Options) { o.fileLimit = limit })
@@ -668,6 +701,32 @@ func TestStartupRetentionRemovesExpiredSessionsOnly(t *testing.T) {
 	}
 }
 
+func TestPartialStartupInventoryDoesNotRepeatPluginCleanup(t *testing.T) {
+	root := t.TempDir()
+	makeUnreadableDir(t, filepath.Join(root, "application"))
+	s, clock, _ := openStore(t, func(o *Options) { o.Dir = root })
+	flush(t, s)
+
+	// Another process starts a session after this store's initial maintenance.
+	dir := filepath.Join(root, "sessions", "2026-11-08T09-30-01_cafebabe", "plugins", "example", "files")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	active := filepath.Join(dir, "output.log")
+	if err := os.WriteFile(active, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(active, 21<<20); err != nil {
+		t.Fatal(err)
+	}
+	clock.Advance(maintenanceInterval)
+	action(s, "after_startup")
+	flush(t, s)
+	if _, err := os.Stat(active); err != nil {
+		t.Fatalf("runtime maintenance removed another session's plugin file: %v", err)
+	}
+}
+
 func TestClearLogsRemovesFilesAndWritingContinues(t *testing.T) {
 	s, _, dir := openStore(t, nil)
 	action(s, "before_clear")
@@ -679,8 +738,8 @@ func TestClearLogsRemovesFilesAndWritingContinues(t *testing.T) {
 	if err := s.ClearLogs(); err != nil {
 		t.Fatalf("ClearLogs: %v", err)
 	}
-	if files, err := inventory(dir); err != nil || len(files) != 0 {
-		t.Fatalf("inventory after clearing = %d files, %v", len(files), err)
+	if scan, err := inventory(dir); err != nil || scan.firstErr != nil || len(scan.files) != 0 {
+		t.Fatalf("inventory after clearing = %+v, %v", scan, err)
 	}
 	if used := s.UsedBytes(); used != 0 {
 		t.Fatalf("UsedBytes = %d after clearing", used)
@@ -721,7 +780,7 @@ func TestPluginFilesDirectoryIsASessionDirectory(t *testing.T) {
 	if err := os.WriteFile(plugin, []byte("plugin output\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if files, err := inventory(dir); err != nil || !slices.ContainsFunc(files, func(f diskFile) bool { return f.path == plugin }) {
+	if scan, err := inventory(dir); err != nil || !slices.ContainsFunc(scan.files, func(f diskFile) bool { return f.path == plugin }) {
 		t.Fatalf("the inventory does not list the plugin's file: %v", err)
 	}
 	if err := s.ClearLogs(); err != nil {
@@ -755,7 +814,9 @@ func TestCloseWritesWhatIsQueuedAndIsFinal(t *testing.T) {
 	s.Close()
 
 	s.Emit(core.LevelInfo, "app.session.started", "", nil)
-	s.Flush()
+	if err := s.Flush(); !errors.Is(err, ErrClosed) {
+		t.Fatalf("Flush after Close = %v, want ErrClosed", err)
+	}
 	if err := s.ClearLogs(); !errors.Is(err, ErrClosed) {
 		t.Fatalf("ClearLogs after Close = %v, want ErrClosed", err)
 	}
@@ -775,7 +836,9 @@ func TestConcurrentUseIsSafe(t *testing.T) {
 			for i := range 50 {
 				action(s, fmt.Sprintf("w%d_%d", g, i))
 				if i%10 == 0 {
-					s.Flush()
+					if err := s.Flush(); err != nil && !errors.Is(err, ErrBusy) {
+						t.Errorf("concurrent Flush: %v", err)
+					}
 					s.Stats()
 					_ = s.Directory()
 					_ = s.SessionPath()
