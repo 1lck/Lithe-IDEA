@@ -340,7 +340,8 @@ func (a *App) ideAPIOnProject(ctx context.Context, conn *ideAPIConnection, fn fu
 	answer := make(chan any, 1)
 	a.post(func(a *App) {
 		// The window may wake after dispatch timed out or the connection was revoked.
-		if ctx.Err() != nil {
+		deadline, bounded := ctx.Deadline()
+		if ctx.Err() != nil || (bounded && !time.Now().Before(deadline)) {
 			answer <- ideAPITimeout()
 			return
 		}

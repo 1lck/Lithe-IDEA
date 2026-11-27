@@ -24,6 +24,8 @@ Core 的 `lithe-ide-host` 目录定义 16 个工具（环境、Maven、Build、R
 
 Core 的 `poll` 在返回完整请求时已原子领取该请求。工作台使用其中的工具名和参数校验、分发，再用原请求 ID 回包。`claim` 供仅收到 ID 的事件订阅者领取请求。轮询后再调用它会得到空值，客户端即使能列出工具，也会在调用时等待 120 秒。窗口处理排队的动作前还要检查调用上下文，避免在连接已撤销或等待窗口已超时后启动操作。
 
+轮询前记录单调时间，将 Core 返回的剩余毫秒数和工作台的 10 秒上限取较小值。旧 Core 的轮询响应缺少该字段，工作台用上次确认队列为空的轮询起点估算最早的入队时间。队列长时间持续非空时，这可能提前拒绝一个较新的请求；队列一空估算即恢复。
+
 - `ideAPIOnProject` 把工作投递到窗口线程并在调用上下文内等待结果；连接所属项目已关闭或换成另一个根目录时返回 `NO_PROJECT`，绝不操作“当前碰巧打开的项目”。
 - `lithe_build_inspect` 只读：返回插件实例、声明的任务、已解码模型的项目/目标/任务和当前选择；模型未加载或加载失败时如实报告，不触发工具链。
 - `lithe_build_reload` 清掉已解码模型后调用现有的 `loadBuildModel`，让插件重新产出模型。
@@ -48,7 +50,7 @@ Core 的 `poll` 在返回完整请求时已原子领取该请求。工作台使�
 
 - `cd desktop && ../scripts/desktop/desktop-go.sh test -race ./internal/workbench/ -run 'TestIDEAPI|TestIDEBuild|TestIDEOperation'` 覆盖工具发布列表、Build inspect 身份、未知实例/忙碌拒绝、输出 cursor/reset 和状态结算。
 - `TestIDEAPIEnableAndDisable` 用真实 Core 打开连接，证明 `toolExposure` 的工具名能通过 Core 目录校验。
-- `TestIDEAPIPolledToolCall` 用设置页的配置启动 stdio helper，连续检查项目、权限拒绝、参数错误和后续调用。只有收到该工作区的真实工具结果才算通过。
+- `TestIDEAPIPolledToolCall` 用设置页的配置启动 stdio helper，连续检查项目、权限拒绝、参数错误、由窗口线程返回的操作列表和后续调用。`TestIDEAPIRequestDeadline` 覆盖有无剩余时限的两种轮询响应。
 - 全量 `go test ./... -p 4`。
 - 真机验收仍需在开启了 IDE 连接的客户端上，用 MCP 客户端完成一次 inspect → reload → wait loaded → execute → output → stop 流程。
 

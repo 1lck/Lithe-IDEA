@@ -191,6 +191,25 @@ func TestIDEAPIPolledToolCall(t *testing.T) {
 	}
 }
 
+func TestIDEAPIRequestDeadline(t *testing.T) {
+	start := time.Now()
+	lastEmpty := start.Add(-ideAPIBrokerTimeout + time.Second)
+	for _, tc := range []struct {
+		name      string
+		remaining *int64
+		want      time.Duration
+	}{
+		{"old Core after a long queue", nil, time.Second},
+		{"oldest request just expired", new(int64(0)), 0},
+		{"remaining enqueue budget", new(int64(23)), 23 * time.Millisecond},
+		{"fresh request behind old work", new(int64(115000)), ideAPICallTimeout},
+	} {
+		if got := ideAPIRequestDeadline(start, lastEmpty, tc.remaining).Sub(start); got != tc.want {
+			t.Errorf("%s: deadline offset = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestIDEAPICancelledWindowAction(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		app := &App{project: &project{root: "project"}}

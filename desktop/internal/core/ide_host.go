@@ -43,6 +43,8 @@ type IDEHostRequest struct {
 	RequestID string          `json:"requestID"`
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments"`
+	// Older Core revisions report the remaining enqueue budget only on event-driven claim.
+	RemainingMilliseconds *int64 `json:"remainingMilliseconds,omitempty"`
 }
 
 // IDEHostPollResult lists requests delivered by poll. Poll returns at most one.
