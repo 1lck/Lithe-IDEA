@@ -252,6 +252,20 @@ func (d *directoryMarksDraft) pullTypeFields() {
 	}
 }
 
+// directoryMultiRow keeps the same 40%/60% two-column alignment as settingsRow while letting
+// multi-line controls (stacked checkboxes, color swatches, icon picker) grow vertically.
+func (w *window) directoryMultiRow(c ui.C, title, help string, body func()) {
+	ui.Row(c).FillWidth().MinHeight(28).Items(ui.Start).Gap(12).Children(func() {
+		ui.Row(c).WidthPercent(40).Height(28).Shrink(1).MinWidth(0).Items(ui.Center).Gap(6).Children(func() {
+			ui.Text(c, title).FontSize(12).Color(w.pal.text).Ellipsis().Shrink(1)
+			if help != "" {
+				w.infoButton(c, help)
+			}
+		})
+		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(6).Children(body)
+	})
+}
+
 func (w *window) directoryMarksPage(c ui.C) {
 	d := &w.dirMarksDraft
 	language := w.marketLanguage()
@@ -290,45 +304,41 @@ func (w *window) directoryMarksPage(c ui.C) {
 					},
 				)
 
-				w.settingsRow(c,
+				w.directoryMultiRow(c,
 					i18n.Shared(language, "desktop.directoryMarks.settings.sharedPath"),
 					i18n.Shared(language, "desktop.directoryMarks.settings.sharedPathHelp"),
 					func() {
-						ui.Column(c).FillWidth().Gap(6).Children(func() {
-							ui.Row(c).FillWidth().Gap(6).Items(ui.Center).Children(func() {
-								ui.TextField(c.Part("shared-path"), &d.sharedPathField, ".lithe/directories.json", "").Grow(1).Disabled(!d.working.SharedConfigEnabled || d.busy)
-								if v := d.sharedPathField.Text(); v != d.working.SharedConfigPath {
-									d.working.SharedConfigPath = v
-									d.dirty = true
-								}
-								if ui.Button(c.Part("open-shared"), i18n.Shared(language, "desktop.directoryMarks.settings.openFile")).Outline().Disabled(!d.working.SharedConfigEnabled || strings.TrimSpace(d.working.SharedConfigPath) == "").Clicked() {
-									if w.ctrl.opts.DirectoryMarks != nil {
-										w.ctrl.opts.DirectoryMarks.OpenFile(strings.TrimSpace(d.working.SharedConfigPath))
-									}
-								}
-							})
-							if ui.Checkbox(c.Part("enable-shared"), &d.working.SharedConfigEnabled, i18n.Shared(language, "desktop.directoryMarks.settings.enableShared")).Disabled(d.busy).Changed() {
+						ui.Row(c).FillWidth().Gap(6).Items(ui.Center).Children(func() {
+							ui.TextField(c.Part("shared-path"), &d.sharedPathField, ".lithe/directories.json", "").Grow(1).Disabled(!d.working.SharedConfigEnabled || d.busy)
+							if v := d.sharedPathField.Text(); v != d.working.SharedConfigPath {
+								d.working.SharedConfigPath = v
 								d.dirty = true
 							}
+							if ui.Button(c.Part("open-shared"), i18n.Shared(language, "desktop.directoryMarks.settings.openFile")).Outline().Disabled(!d.working.SharedConfigEnabled || strings.TrimSpace(d.working.SharedConfigPath) == "").Clicked() {
+								if w.ctrl.opts.DirectoryMarks != nil {
+									w.ctrl.opts.DirectoryMarks.OpenFile(strings.TrimSpace(d.working.SharedConfigPath))
+								}
+							}
 						})
+						if ui.Checkbox(c.Part("enable-shared"), &d.working.SharedConfigEnabled, i18n.Shared(language, "desktop.directoryMarks.settings.enableShared")).Disabled(d.busy).Changed() {
+							d.dirty = true
+						}
 					},
 				)
 
-				w.settingsRow(c,
+				w.directoryMultiRow(c,
 					i18n.Shared(language, "desktop.directoryMarks.settings.displayBehavior"),
 					i18n.Shared(language, "desktop.directoryMarks.settings.displayBehaviorHelp"),
 					func() {
-						ui.Column(c).Gap(6).Children(func() {
-							if ui.Checkbox(c.Part("show-bg"), &d.working.ShowBgTint, i18n.Shared(language, "desktop.directoryMarks.settings.showBgTint")).Disabled(d.busy).Changed() {
-								d.dirty = true
-							}
-							if ui.Checkbox(c.Part("show-tags"), &d.working.ShowTags, i18n.Shared(language, "desktop.directoryMarks.settings.showTags")).Disabled(d.busy).Changed() {
-								d.dirty = true
-							}
-							if ui.Checkbox(c.Part("git-ignore"), &d.working.GitIgnoreEnabled, i18n.Shared(language, "desktop.directoryMarks.settings.gitIgnore")).Disabled(d.busy).Changed() {
-								d.dirty = true
-							}
-						})
+						if ui.Checkbox(c.Part("show-bg"), &d.working.ShowBgTint, i18n.Shared(language, "desktop.directoryMarks.settings.showBgTint")).Disabled(d.busy).Changed() {
+							d.dirty = true
+						}
+						if ui.Checkbox(c.Part("show-tags"), &d.working.ShowTags, i18n.Shared(language, "desktop.directoryMarks.settings.showTags")).Disabled(d.busy).Changed() {
+							d.dirty = true
+						}
+						if ui.Checkbox(c.Part("git-ignore"), &d.working.GitIgnoreEnabled, i18n.Shared(language, "desktop.directoryMarks.settings.gitIgnore")).Disabled(d.busy).Changed() {
+							d.dirty = true
+						}
 					},
 				)
 			},
@@ -409,74 +419,68 @@ func (w *window) directoryMarksPage(c ui.C) {
 						})
 
 						// Scalable searchable icon picker with add/delete custom SVG icons.
-						w.settingsRow(c,
+						w.directoryMultiRow(c,
 							i18n.Shared(language, "desktop.directoryMarks.settings.typeIcon"),
 							i18n.Shared(language, "desktop.directoryMarks.settings.importIconHelp"),
 							func() {
-								ui.Column(c).FillWidth().Gap(8).Children(func() {
-									ui.Row(c).Gap(8).Items(ui.Center).Children(func() {
-										ui.Text(c, d.iconDisplayName(ct.Icon)).FontSize(12).Weight(gfx.WeightMedium)
-										toggleLabel := i18n.Shared(language, "desktop.directoryMarks.settings.chooseIcon")
-										if d.iconPickerOpen {
-											toggleLabel = i18n.Shared(language, "desktop.directoryMarks.settings.closeIconPicker")
-										}
-										if ui.Button(c.Part("toggle-icon-picker"), toggleLabel).Outline().Disabled(d.busy).Clicked() {
-											d.iconPickerOpen = !d.iconPickerOpen
-										}
-										if d.isCustomIcon(ct.Icon) {
-											delID := ct.Icon
-											if ui.Button(c.Part("del-custom-icon"), i18n.Shared(language, "desktop.directoryMarks.settings.deleteIcon")).Outline().Disabled(d.busy).Clicked() {
-												w.startDirectoryMarks(&directoryMarksWork{deleteIcon: delID})
-											}
-										}
-									})
+								ui.Row(c).Gap(8).Items(ui.Center).Children(func() {
+									ui.Text(c, d.iconDisplayName(ct.Icon)).FontSize(12).Weight(gfx.WeightMedium)
+									toggleLabel := i18n.Shared(language, "desktop.directoryMarks.settings.chooseIcon")
 									if d.iconPickerOpen {
-										w.directoryIconPicker(c, d, ct, language)
+										toggleLabel = i18n.Shared(language, "desktop.directoryMarks.settings.closeIconPicker")
+									}
+									if ui.Button(c.Part("toggle-icon-picker"), toggleLabel).Outline().Disabled(d.busy).Clicked() {
+										d.iconPickerOpen = !d.iconPickerOpen
+									}
+									if d.isCustomIcon(ct.Icon) {
+										delID := ct.Icon
+										if ui.Button(c.Part("del-custom-icon"), i18n.Shared(language, "desktop.directoryMarks.settings.deleteIcon")).Outline().Disabled(d.busy).Clicked() {
+											w.startDirectoryMarks(&directoryMarksWork{deleteIcon: delID})
+										}
 									}
 								})
+								if d.iconPickerOpen {
+									w.directoryIconPicker(c, d, ct, language)
+								}
 							},
 						)
 
-						w.settingsRow(c, i18n.Shared(language, "desktop.directoryMarks.settings.typeColor"), "", func() {
-							ui.Column(c).FillWidth().Gap(6).Children(func() {
-								ui.Flow(c).FillWidth().Gap(4).LineGap(4).Children(func() {
-									for _, sw := range settingsDirColorOptions(language) {
-										hex := sw.hex
-										b := ui.Button(c.Key("col-"+hex), sw.label)
-										if !strings.EqualFold(ct.Color, hex) {
-											b = b.Outline()
-										}
-										if b.Disabled(d.busy).Clicked() {
-											ct.Color = hex
-											d.colorField.SetText(hex)
-											d.dirty = true
-										}
+						w.directoryMultiRow(c, i18n.Shared(language, "desktop.directoryMarks.settings.typeColor"), "", func() {
+							ui.Flow(c).FillWidth().Gap(4).LineGap(4).Children(func() {
+								for _, sw := range settingsDirColorOptions(language) {
+									hex := sw.hex
+									b := ui.Button(c.Key("col-"+hex), sw.label)
+									if !strings.EqualFold(ct.Color, hex) {
+										b = b.Outline()
 									}
-								})
-								ui.TextField(c.Part("type-color"), &d.colorField, "#4e8df5", "").Width(120).Disabled(d.busy)
+									if b.Disabled(d.busy).Clicked() {
+										ct.Color = hex
+										d.colorField.SetText(hex)
+										d.dirty = true
+									}
+								}
 							})
+							ui.TextField(c.Part("type-color"), &d.colorField, "#4e8df5", "").Width(120).Disabled(d.busy)
 						})
 						w.settingsRow(c, i18n.Shared(language, "desktop.directoryMarks.settings.typeGlob"), i18n.Shared(language, "desktop.directoryMarks.settings.typeGlobHelp"), func() {
 							ui.TextField(c.Part("type-glob"), &d.globField, "**/fixtures, legacy/**", "").Width(300).Disabled(d.busy)
 						})
-						w.settingsRow(c, i18n.Shared(language, "desktop.directoryMarks.settings.displayBehavior"), "", func() {
-							ui.Column(c).Gap(6).Children(func() {
-								if ui.Checkbox(c.Part("ct-tint-bg"), &ct.TintBg, i18n.Shared(language, "desktop.directoryMarks.settings.tintBg")).Disabled(d.busy).Changed() {
-									d.dirty = true
-								}
-								if ui.Checkbox(c.Part("ct-tint-text"), &ct.TintText, i18n.Shared(language, "desktop.directoryMarks.settings.tintText")).Disabled(d.busy).Changed() {
-									d.dirty = true
-								}
-								if ui.Checkbox(c.Part("ct-inherit-bg"), &ct.InheritBg, i18n.Shared(language, "desktop.directoryMarks.settings.inheritBg")).Disabled(d.busy).Changed() {
-									d.dirty = true
-								}
-								if ui.Checkbox(c.Part("ct-excl"), &ct.ExcludeIndexing, i18n.Shared(language, "desktop.directoryMarks.settings.excludeIndexing")).Disabled(d.busy).Changed() {
-									d.dirty = true
-								}
-								if ui.Checkbox(c.Part("ct-ro"), &ct.ReadOnlyHint, i18n.Shared(language, "desktop.directoryMarks.settings.readOnlyHint")).Disabled(d.busy).Changed() {
-									d.dirty = true
-								}
-							})
+						w.directoryMultiRow(c, i18n.Shared(language, "desktop.directoryMarks.settings.displayBehavior"), "", func() {
+							if ui.Checkbox(c.Part("ct-tint-bg"), &ct.TintBg, i18n.Shared(language, "desktop.directoryMarks.settings.tintBg")).Disabled(d.busy).Changed() {
+								d.dirty = true
+							}
+							if ui.Checkbox(c.Part("ct-tint-text"), &ct.TintText, i18n.Shared(language, "desktop.directoryMarks.settings.tintText")).Disabled(d.busy).Changed() {
+								d.dirty = true
+							}
+							if ui.Checkbox(c.Part("ct-inherit-bg"), &ct.InheritBg, i18n.Shared(language, "desktop.directoryMarks.settings.inheritBg")).Disabled(d.busy).Changed() {
+								d.dirty = true
+							}
+							if ui.Checkbox(c.Part("ct-excl"), &ct.ExcludeIndexing, i18n.Shared(language, "desktop.directoryMarks.settings.excludeIndexing")).Disabled(d.busy).Changed() {
+								d.dirty = true
+							}
+							if ui.Checkbox(c.Part("ct-ro"), &ct.ReadOnlyHint, i18n.Shared(language, "desktop.directoryMarks.settings.readOnlyHint")).Disabled(d.busy).Changed() {
+								d.dirty = true
+							}
 						})
 						d.pullTypeFields()
 					}

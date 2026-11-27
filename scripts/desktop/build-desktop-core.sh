@@ -385,7 +385,10 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # and preserves the selected context and distribution through build, connection and trust.
 # Lithe-core-rust main at c269c411 (#201): built-in rainbow bracket/variable colors,
 # indent guide preferences, and Unicode whole-identifier document highlights.
-PINNED_CORE_REVISION="c269c41153c8da2f2e8d064c68550a8f23260e2c"
+# Lithe-core-rust main at d069224d (#210): extends workspace directory rules with built-in
+# test/generated roles, user-defined custom folder types, custom SVG icons, quick color
+# overrides, and workspace.resolveDirectoryPresentation.
+PINNED_CORE_REVISION="d069224ded5b3845798f264f55913703d7a197c2"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do
