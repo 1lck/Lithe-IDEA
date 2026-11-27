@@ -10,7 +10,7 @@ Viva 客户端的 IDE 连接在 `ideHost.control open` 时就声明它真正实�
 
 Core 的 `lithe-ide-host` 目录定义 16 个工具（环境、Maven、Build、Run、操作），但 Viva 客户端还没有运行配置面板、Maven 专属入口和构建选项编辑页。如果按默认方式 `open`（不传 `toolExposure`），Core 会发布完整目录，MCP 客户端就会看到并调用没有接线的工具；之前的实现用一个“NOT_AVAILABLE”兜底返回，但这仍然把不存在的能力宣传成工具，调用方无法在目录阶段判断。
 
-另一个问题是线程归属：broker 的 poll/claim/dispatch 在后台 goroutine 上运行，而 Build 的实例、选择、输出和有界缓冲是 Viva 页面状态，只能在窗口线程读写。如果直接在 broker goroutine 上读这些字段，会与窗口绘制和用户操作并发。
+请求由后台 goroutine 轮询并分发，而 Build 的实例、选择、输出和有界缓冲是 Viva 页面状态，只能在窗口线程读写。如果直接在后台 goroutine 上读这些字段，会与窗口绘制和用户操作并发。
 
 ## 决策
 
@@ -21,6 +21,8 @@ Core 的 `lithe-ide-host` 目录定义 16 个工具（环境、Maven、Build、R
 - 工具结果里的失败使用共享形状 `{"error":{"code","message"}}`，code 稳定（`INVALID_ARGUMENTS`、`OPERATION_BUSY`、`BUILD_MODEL_NOT_LOADED`、`OPERATION_NOT_RUNNING`、`NO_PROJECT`、`CANCELLED`）。这些是协议数据，不走界面 i18n。
 
 ### 工具调用经窗口线程执行
+
+Core 的 `poll` 在返回完整请求时已原子领取该请求。工作台使用其中的工具名和参数校验、分发，再用原请求 ID 回包。`claim` 供仅收到 ID 的事件订阅者领取请求。轮询后再调用它会得到空值，客户端即使能列出工具，也会在调用时等待 120 秒。窗口处理排队的动作前还要检查调用上下文，避免在连接已撤销或等待窗口已超时后启动操作。
 
 - `ideAPIOnProject` 把工作投递到窗口线程并在调用上下文内等待结果；连接所属项目已关闭或换成另一个根目录时返回 `NO_PROJECT`，绝不操作“当前碰巧打开的项目”。
 - `lithe_build_inspect` 只读：返回插件实例、声明的任务、已解码模型的项目/目标/任务和当前选择；模型未加载或加载失败时如实报告，不触发工具链。
@@ -46,6 +48,7 @@ Core 的 `lithe-ide-host` 目录定义 16 个工具（环境、Maven、Build、R
 
 - `cd desktop && ../scripts/desktop/desktop-go.sh test -race ./internal/workbench/ -run 'TestIDEAPI|TestIDEBuild|TestIDEOperation'` 覆盖工具发布列表、Build inspect 身份、未知实例/忙碌拒绝、输出 cursor/reset 和状态结算。
 - `TestIDEAPIEnableAndDisable` 用真实 Core 打开连接，证明 `toolExposure` 的工具名能通过 Core 目录校验。
+- `TestIDEAPIPolledToolCall` 用设置页的配置启动 stdio helper，连续检查项目、权限拒绝、参数错误和后续调用。只有收到该工作区的真实工具结果才算通过。
 - 全量 `go test ./... -p 4`。
 - 真机验收仍需在开启了 IDE 连接的客户端上，用 MCP 客户端完成一次 inspect → reload → wait loaded → execute → output → stop 流程。
 

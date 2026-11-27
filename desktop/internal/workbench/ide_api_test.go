@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
@@ -77,6 +80,132 @@ func TestIDEAPIEnableRequiresHelper(t *testing.T) {
 	if p.ideAPI.conn != nil {
 		t.Fatal("failed enable left a connection")
 	}
+}
+
+// TestIDEAPIPolledToolCall uses the stdio configuration a user copies from Settings.
+// An actual reply exercises poll ownership in the pinned Core, which discovery alone misses.
+func TestIDEAPIPolledToolCall(t *testing.T) {
+	app, p, _ := newIDEAPIApp(t)
+	helper, err := app.ideAPIHelperPath()
+	if err != nil {
+		t.Fatalf("locate the staged helper (run with desktop-go.sh): %v", err)
+	}
+	configuration, err := app.ideAPIEnable(p, core.IDEPermissions{}, helper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		app.ideAPIDisable(p)
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		if err := app.tasks.running.WaitContext(ctx); err != nil {
+			t.Errorf("closing IDE connection: %v", err)
+		}
+	})
+	var config struct {
+		Servers map[string]struct {
+			Command string   `json:"command"`
+			Args    []string `json:"args"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(configuration, &config); err != nil {
+		t.Fatal(err)
+	}
+	server := config.Servers["lithe"]
+	// Killing the helper on the local deadline also unblocks any pipe read or write.
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, server.Command, server.Args...)
+	cmd.WaitDelay = time.Second
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = stdin.Close()
+		cancel()
+		_ = cmd.Wait()
+	}()
+	in, out := json.NewEncoder(stdin), json.NewDecoder(stdout)
+	id := 0
+	request := func(method string, params any) json.RawMessage {
+		t.Helper()
+		id++
+		if err := in.Encode(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params}); err != nil {
+			t.Fatal(err)
+		}
+		var reply struct {
+			ID     int
+			Result json.RawMessage
+			Error  json.RawMessage
+		}
+		if err := out.Decode(&reply); err != nil {
+			t.Fatalf("%s reply: %v (session: %v)", method, err, ctx.Err())
+		}
+		if reply.ID != id || len(reply.Result) == 0 {
+			t.Fatalf("%s: expected reply %d, got %d, error %s", method, id, reply.ID, reply.Error)
+		}
+		return reply.Result
+	}
+	request("initialize", map[string]any{
+		"protocolVersion": "2025-11-25", "capabilities": map[string]any{},
+		"clientInfo": map[string]string{"name": "workbench-test", "version": "1"},
+	})
+	if err := in.Encode(map[string]string{"jsonrpc": "2.0", "method": "notifications/initialized"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		tool string
+		args map[string]any
+		code string
+	}{
+		{"lithe_project_inspect", map[string]any{}, ""},
+		{"lithe_run_start", map[string]any{"configurationID": "fixture"}, "PERMISSION_DENIED"},
+		{"lithe_build_configure", map[string]any{"instanceID": "i", "optionID": "o", "value": nil}, "PERMISSION_DENIED"},
+		{"lithe_operation_output", map[string]any{}, "INVALID_ARGUMENTS"},
+		{"unknown", map[string]any{}, "NOT_SUPPORTED"},
+		{"lithe_project_inspect", map[string]any{}, ""},
+	} {
+		raw := request("tools/call", map[string]any{"name": tc.tool, "arguments": tc.args})
+		var result struct {
+			IsError           bool
+			StructuredContent struct {
+				WorkspaceKey string
+				Error        core.IDEFailure
+			}
+		}
+		if err := json.Unmarshal(raw, &result); err != nil {
+			t.Fatal(err)
+		}
+		if result.IsError != (tc.code != "") || result.StructuredContent.Error.Code != tc.code ||
+			(tc.code == "" && !winpath.Equal(result.StructuredContent.WorkspaceKey, p.root)) {
+			t.Fatalf("%s returned %s", tc.tool, raw)
+		}
+	}
+}
+
+func TestIDEAPICancelledWindowAction(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		app := &App{project: &project{root: "project"}}
+		ctx, cancel := context.WithTimeout(t.Context(), ideAPICallTimeout)
+		defer cancel()
+		// Hold the window queue until the dispatch deadline passes in virtual time.
+		result := app.ideAPIOnProject(ctx, &ideAPIConnection{workspaceKey: "project"}, func(*project) any {
+			t.Fatal("the window executed a cancelled action")
+			return nil
+		})
+		if code := ideAPIFailureCode(result); code != "TIMEOUT" {
+			t.Fatalf("cancelled dispatch returned %q", code)
+		}
+		app.drain()
+	})
 }
 
 func TestIDEAPIDispatchReportsUnwiredTools(t *testing.T) {

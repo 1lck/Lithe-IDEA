@@ -76,7 +76,6 @@ type Kernel interface {
 	EditBuildIgnoredPaths(ctx context.Context, request core.BuildIgnoredPathsEditRequest) (core.BuildIgnoredPathsEdit, error)
 	IDEHostOpen(ctx context.Context, request core.IDEHostOpenRequest) (core.IDEHostOpenResult, error)
 	IDEHostPoll(ctx context.Context, hostID string) (core.IDEHostPollResult, error)
-	IDEHostClaim(ctx context.Context, hostID, requestID string) (core.IDEHostClaimResult, error)
 	IDEHostRespond(ctx context.Context, hostID, requestID string, result any) (core.IDEHostRespondResult, error)
 	IDEHostClose(ctx context.Context, hostID string) (core.IDEHostCloseResult, error)
 	IDEHostValidate(ctx context.Context, name string, arguments any, permissions core.IDEPermissions, toolExposure []core.IDEToolExposure) (core.IDEHostValidateResult, error)
