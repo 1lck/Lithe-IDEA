@@ -20869,6 +20869,34 @@
       ]
     },
     {
+      "id": "desktop.welcome.allTags",
+      "description": "Desktop welcome: allTags",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.welcome.editTags",
+      "description": "Desktop welcome: editTags",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.welcome.filterTags",
+      "description": "Desktop welcome: filterTags",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.welcome.tagsInput",
+      "description": "Desktop welcome: tagsInput",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.welcome.menuPin",
       "description": "Desktop welcome: MenuPin",
       "platforms": [

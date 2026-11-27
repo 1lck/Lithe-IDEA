@@ -47,7 +47,7 @@ func TestVisualProjectMenuRemove(t *testing.T) {
 				})
 				h.open(current)
 				missing := filepath.Join(root, "MissingProject")
-				h.app.reduceRecent([]core.RecentProject{{Path: recent, LastOpenedAt: 3}, {Path: missing, LastOpenedAt: 2}}, core.NormalizeRecent(), true)
+				h.seedRecent([]core.RecentProject{{Path: recent, LastOpenedAt: 3}, {Path: missing, LastOpenedAt: 2}})
 				h.app.openProjectMenu()
 				h.await("missing recent project", func() bool { return h.app.missing[missing] })
 				h.settle()

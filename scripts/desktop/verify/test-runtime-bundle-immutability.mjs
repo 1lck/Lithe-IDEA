@@ -17,6 +17,7 @@ const installedPackageWorkflows = [
   ["desktop/internal/plugininstall/pending_test.go", "TestStageUpdateLeavesInstalledPackageUnchanged"],
   ["desktop/internal/pluginservice/package_lifecycle_test.go", "TestUninstallWaitsForPackagePublicationInAnotherProcess"],
   ["desktop/internal/workbench/editor_preferences_publication_test.go", "TestEditorPreferencesLeavesInstalledPackageUnchanged"],
+  ["desktop/internal/workbench/welcome_recent_test.go", "TestRecentProjectsLeaveInstalledPackageUnchanged"],
 ];
 
 function workflowTest(name, body = "\tif !installedpackagetest.Run(t) {\n\t\treturn\n\t}\n") {

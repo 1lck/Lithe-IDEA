@@ -169,6 +169,7 @@ func (s *windowSessions) config() app.Config {
 		// An automatic update check that came due while the window was in the background
 		// runs now.
 		if s.active != nil {
+			s.active.refreshRecent()
 			s.active.resumeUpdateCheck()
 			s.active.resumePluginAutoUpdates()
 		}

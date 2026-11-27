@@ -34,6 +34,7 @@ type remoteReopen struct {
 	name         string
 	// folder is the host folder, an absolute POSIX path, or empty to choose a folder.
 	folder string
+	recent *core.RecentRemoteProject
 }
 
 // openRemoteWorktree opens the worktree whose path in the workspace p is local, a path Core named
@@ -75,6 +76,10 @@ func (a *App) openRemoteHostFolder(p *project, folder string) {
 // its folder. A saved connection deleted since the workspace opened is said so on the page the
 // window shows instead.
 func (a *App) connectRemoteReopen(reopen *remoteReopen) {
+	if reopen.recent != nil {
+		a.connectRecentRemote(reopen.recent)
+		return
+	}
 	r := &a.remote
 	switch {
 	case reopen.host.container != nil && (!reopen.host.overSSH() || r.entry(strings.TrimSuffix(reopen.connectionID, "/"+reopen.host.container.Identity())) != nil):

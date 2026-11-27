@@ -42,7 +42,7 @@ func (a *App) collectWelcomeBranches(c ui.C) {
 	}
 	paths := make([]string, 0, len(a.recent))
 	for _, entry := range a.recent {
-		if !a.missing[entry.Path] {
+		if entry.Remote == nil && !a.missing[entry.Path] {
 			paths = append(paths, entry.Path)
 		}
 	}

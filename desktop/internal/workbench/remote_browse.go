@@ -543,6 +543,7 @@ func (a *App) openRemoteWorkspace(target remoteTarget) {
 			a.returnRemoteSession(target.connectionID, target.session)
 		}
 		open.applyProjectTrust(p, target.trusted)
+		open.recordRemoteRecent(target)
 		return
 	}
 	if a.project == nil || a.sessions == nil {

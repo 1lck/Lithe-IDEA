@@ -29,7 +29,7 @@ func TestProjectMenuRemovesRecentRecordWithoutOpeningOrDeleting(t *testing.T) {
 				}
 			}
 			entries := append([]core.RecentProject{{Path: path, LastOpenedAt: 123}}, h.app.recent...)
-			h.app.reduceRecent(entries, core.NormalizeRecent(), true)
+			h.seedRecent(entries)
 			h.app.openProjectMenu()
 			h.settle()
 			hit, ok := h.findPageHit(h.app.text.Welcome.MenuRemove)

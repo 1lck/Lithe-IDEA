@@ -1,6 +1,9 @@
 package workbench
 
 import (
+	"path"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,10 +28,13 @@ type welcomeState struct {
 	// list is the recent project list's selection and scroll.
 	list ui.ListState
 
-	// query is the search text folded for matching and queryText the text it was folded
-	// from, so the fold runs when the text changes and not on every frame.
-	queryText string
-	query     string
+	// The Core projection changes when the list, search text, or filter changes.
+	projection                   core.RecentProjectsResult
+	projectionValid              bool
+	projectionStart              *core.RecentProject
+	projectedQuery, projectedTag string
+	tag                          string
+	tagEdit                      welcomeTagEdit
 
 	// rows holds what a recent project shows, by path. The list repaints on every hover,
 	// and splitting names, shortening paths and folding case for each row each time would
@@ -55,8 +61,6 @@ type welcomeRow struct {
 	// name is the folder's name and path its location, shortened with "~" when it is
 	// under the home folder.
 	name, path string
-	// needle is the full path folded for matching the search text.
-	needle string
 	// identity is the project's badge, derived with the text because it hashes the path.
 	identity projectIdentity
 }
@@ -76,7 +80,6 @@ func (w *welcomeState) row(path string, listed int) welcomeRow {
 	r := welcomeRow{
 		name:     name,
 		path:     welcomeShorten(path, w.home),
-		needle:   strings.ToLower(path),
 		identity: identityOf(path, name),
 	}
 	if w.rows == nil {
@@ -101,14 +104,18 @@ func (w *welcomeState) rowID(path string) int {
 	return id
 }
 
-// needle is the search text folded for matching; empty shows every project.
-func (w *welcomeState) needle() string {
-	text := w.search.Text()
-	if text != w.queryText {
-		w.queryText = text
-		w.query = strings.ToLower(strings.TrimSpace(text))
+// entryRow uses the original host folder for remote history and never displays its
+// synthetic history key or the cache placeholder.
+func (w *welcomeState) entryRow(entry core.RecentProject, listed int) welcomeRow {
+	if entry.Remote == nil {
+		return w.row(entry.Path, listed)
 	}
-	return w.query
+	name := path.Base(entry.Remote.Folder)
+	return welcomeRow{
+		name:     name,
+		path:     entry.Remote.Name + " — " + entry.Remote.Folder,
+		identity: identityOf(entry.Path, name),
+	}
 }
 
 // welcomeShorten writes a path under home as "~" plus the rest. The separator is
