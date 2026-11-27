@@ -637,8 +637,6 @@ func (a *App) paintWorktreeCommit(canvas *gfx.Canvas, rect gfx.Rect, index int) 
 	}
 	h := &a.project.worktrees.history
 	commit := v.shown[index]
-	canvas.Clip(rect)
-	defer canvas.Unclip()
 	start := float32(worktreeHistoryInset)
 	var labels []core.GraphLabel
 	if v.graphed && index < len(h.graph.Rows) && h.graph.Rows[index].CommitHash == commit.Hash {
@@ -646,6 +644,9 @@ func (a *App) paintWorktreeCommit(canvas *gfx.Canvas, rect gfx.Rect, index int) 
 		a.paintGraphRow(canvas, newGraphMetrics(canvas.PixelScale()), rect, row, a.graphColors())
 		start, labels = titleOffset(row), row.Labels
 	}
+	// Keep text in the same row bounds as the graph.
+	canvas.Clip(rect)
+	defer canvas.Unclip()
 	foreground := a.colors.Text
 	if len(commit.ParentHashes) > 1 {
 		foreground = mergeForeground(a.colors.Dark)

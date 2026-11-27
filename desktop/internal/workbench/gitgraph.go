@@ -44,11 +44,10 @@ const (
 	graphTextGap     = 2 * graphScale
 )
 
-// graphMetrics is the graph's grid aligned to device pixels, as the macOS painter
-// aligns it: the centers of rows and lanes and the widths of lines and nodes fall on
-// whole pixels, the ones that must be odd on odd pixels.
+// graphMetrics aligns the graph's grid and stroke widths to device pixels. Node
+// radii remain exactly half their diameters so edges and nodes share a center.
 type graphMetrics struct {
-	rowCenter, laneSpacing, laneCenter, lineWidth, nodeDiameter, nodeRadius float32
+	rowCenter, laneSpacing, laneCenter, lineWidth, nodeRadius float32
 }
 
 func newGraphMetrics(scale float32) graphMetrics {
@@ -62,20 +61,18 @@ func newGraphMetrics(scale float32) graphMetrics {
 		}
 		return px / scale
 	}
-	m := graphMetrics{
-		rowCenter:    align(logRowHeight/2, true),
-		laneSpacing:  align(16*graphScale, true),
-		laneCenter:   align(8*graphScale, false),
-		lineWidth:    max(1/scale, align(1.5*graphScale, true)),
-		nodeDiameter: align(8*graphScale, true),
+	return graphMetrics{
+		rowCenter:   align(logRowHeight/2, true),
+		laneSpacing: align(16*graphScale, true),
+		laneCenter:  align(8*graphScale, false),
+		lineWidth:   max(1/scale, align(1.5*graphScale, true)),
+		nodeRadius:  align(8*graphScale, true) / 2,
 	}
-	m.nodeRadius = align(m.nodeDiameter/2, false)
-	return m
 }
 
 // line is the segment an element draws in its row, in the row's coordinates: from the
-// center of its lane to the row's edge, or to the middle of the way to the lane it
-// meets in the next row.
+// center of its lane to the row boundary. Diagonal half edges meet on the line
+// between adjacent node centers, even when pixel alignment shifts the row center.
 func (m graphMetrics) line(e core.GraphElement) (x0, y0, x1, y1 float32) {
 	x0, y0 = m.laneCenter+float32(e.Position)*m.laneSpacing, m.rowCenter
 	up := e.Direction == "up"
@@ -89,12 +86,13 @@ func (m graphMetrics) line(e core.GraphElement) (x0, y0, x1, y1 float32) {
 			y1 = gap
 		}
 	} else {
-		y1 = m.rowCenter + logRowHeight/2
+		y1 = logRowHeight
 		if up {
-			y1 = m.rowCenter - logRowHeight/2
+			y1 = 0
 		}
 	}
-	x1 = m.laneCenter + float32(e.Position+e.AdjacentPosition)/2*m.laneSpacing
+	fraction := float32(math.Abs(float64(y1-y0))) / logRowHeight
+	x1 = x0 + float32(e.AdjacentPosition-e.Position)*m.laneSpacing*fraction
 	return x0, y0, x1, y1
 }
 
@@ -392,12 +390,13 @@ func (a *App) paintLogRow(canvas *gfx.Canvas, rect gfx.Rect, index int) {
 	color, dateWidth := a.graphColors(), v.dateColumn(canvas)
 	m := newGraphMetrics(canvas.PixelScale())
 	upstream := v.upstreams(l)
-	canvas.Clip(rect)
-	defer canvas.Unclip()
 	row := l.graph.Rows[index]
 	commit, _ := l.commit(row.CommitHash)
 	selected := row.CommitHash == l.selected
 	a.paintGraphRow(canvas, m, rect, row, color)
+	// Graph strokes and text each stay within this row's pixel clip.
+	canvas.Clip(rect)
+	defer canvas.Unclip()
 	if slot, ok := a.project.repositorySlot(a.project.logCommitRepo(row.CommitHash)); ok && a.project.workspaceMode() {
 		// As IDEA marks each commit with the color of its root, the strip at the left edge says which
 		// repository of the folder the commit belongs to, also while the log walks several at once.
@@ -469,35 +468,88 @@ func (v *logView) dateColumn(canvas *gfx.Canvas) float32 {
 	return v.dateWidth
 }
 
-// paintGraphRow strokes the edges of one row and fills its node.
+// paintGraphRow strokes the edges of one row and paints its node. Each row owns
+// its pixel clip; boundary edges extend beyond it to keep their antialiased caps
+// outside the visible line, without blending either row's fringe twice.
+// HEAD has a ring and central dot;
+// clipping crossing edges keeps the gap transparent on any row background.
 func (a *App) paintGraphRow(canvas *gfx.Canvas, m graphMetrics, rect gfx.Rect, row core.GraphRow, color func(int32) gfx.Color) {
 	width := titleOffset(row)
+	overlap := max(m.lineWidth, 1)
 	box := gfx.Rect{X: rect.X, Y: rect.Y, Width: width, Height: logRowHeight}
-	for _, e := range row.PrintElements {
+	canvas.Clip(box)
+	defer canvas.Unclip()
+	head := slices.ContainsFunc(row.Labels, func(label core.GraphLabel) bool { return label.Kind == "head" })
+	center := gfx.Point{X: m.laneCenter + float32(row.Lane)*m.laneSpacing, Y: m.rowCenter}
+	outerRadius := float32(0)
+	if head {
+		outerRadius = m.nodeRadius + m.lineWidth
+	}
+	for i := 0; i < len(row.PrintElements); i++ {
+		e := row.PrintElements[i]
 		x0, y0, x1, y1 := m.line(e)
-		b := canvas.PathBuilder()
-		if e.IsDotted && !e.HasArrow {
-			dashLine(b, x0, y0, x1, y1)
-		} else {
-			b.MoveTo(x0, y0)
-			b.LineTo(x1, y1)
+		originalX1, originalY1 := x1, y1
+		if !e.IsTerminal && (!e.IsDotted || e.HasArrow) {
+			x1, y1 = extendGraphEndpoint(x0, y0, x1, y1, overlap)
 		}
+		// Core emits the up and down halves of a passing lane consecutively.
+		// Join straight halves before stroking so there are no caps to blend at
+		// the center of the row, where this lane has no commit marker.
+		if e.Position != row.Lane && e.Direction == "up" && straightGraphHalf(e) && i+1 < len(row.PrintElements) {
+			next := row.PrintElements[i+1]
+			if next.Position == e.Position && next.ColorID == e.ColorID && next.Direction == "down" && straightGraphHalf(next) {
+				y0, y1 = y1, logRowHeight+overlap
+				i++
+			}
+		}
+		b := canvas.PathBuilder()
+		traceGraphLine(b, gfx.Point{X: x0, Y: y0}, gfx.Point{X: x1, Y: y1}, center, outerRadius, e.IsDotted && !e.HasArrow)
 		if e.HasArrow {
-			length := max(1, float32(math.Hypot(float64(x1-x0), float64(y1-y0))))
-			vx := (x0 - x1) / length * logRowHeight * 0.3
-			vy := (y0 - y1) / length * logRowHeight * 0.3
+			length := max(1, float32(math.Hypot(float64(originalX1-x0), float64(originalY1-y0))))
+			vx := (x0 - originalX1) / length * logRowHeight * 0.3
+			vy := (y0 - originalY1) / length * logRowHeight * 0.3
+			arrowTip := gfx.Point{X: originalX1, Y: originalY1}
 			for _, sign := range [2]float32{-1, 1} {
-				b.MoveTo(x1, y1)
-				b.LineTo(x1+vx*sqrt07-sign*vy*sqrt03, y1+sign*vx*sqrt03+vy*sqrt07)
+				wing := gfx.Point{X: arrowTip.X + vx*sqrt07 - sign*vy*sqrt03, Y: arrowTip.Y + sign*vx*sqrt03 + vy*sqrt07}
+				traceGraphLine(b, arrowTip, wing, center, outerRadius, false)
 			}
 		}
 		canvas.DrawPath(b.Path(width, logRowHeight), box, gfx.PathStyle{
 			Stroke: color(e.ColorID), StrokeWidth: m.lineWidth, Cap: gfx.CapRound, Join: gfx.JoinRound,
 		})
 	}
-	x := rect.X + m.laneCenter + float32(row.Lane)*m.laneSpacing - m.nodeRadius
-	node := gfx.Rect{X: x, Y: rect.Y + m.rowCenter - m.nodeRadius, Width: m.nodeDiameter, Height: m.nodeDiameter}
-	canvas.Rounded(node, m.nodeDiameter/2, color(row.ColorID))
+	radius := m.nodeRadius
+	if head {
+		b := canvas.PathBuilder()
+		b.Arc(center.X, center.Y, outerRadius-m.lineWidth/2, 0, 360)
+		b.Close()
+		canvas.DrawPath(b.Path(width, logRowHeight), box, gfx.PathStyle{
+			Stroke: color(row.ColorID), StrokeWidth: m.lineWidth,
+		})
+		radius /= 2
+	}
+	// Use the same path transform as the edges. Rounded rectangles snap their
+	// bounds again, which moves the node when the list origin is fractional.
+	b := canvas.PathBuilder()
+	b.Arc(center.X, center.Y, radius, 0, 360)
+	b.Close()
+	canvas.DrawPath(b.Path(width, logRowHeight), box, gfx.PathStyle{Fill: color(row.ColorID)})
+}
+
+func straightGraphHalf(e core.GraphElement) bool {
+	return e.Position == e.AdjacentPosition && !e.IsDotted && !e.IsMissing && !e.HasArrow && !e.IsTerminal
+}
+
+// extendGraphEndpoint moves a non-terminal edge's boundary endpoint beyond the
+// row by overlap in Y, along the same line. Even wide diagonals keep their cap
+// outside the row's clip; no pixel is shared with the neighboring row's stroke.
+func extendGraphEndpoint(x0, y0, x1, y1, overlap float32) (float32, float32) {
+	dy := y1 - y0
+	if dy == 0 || (y1 != 0 && y1 != logRowHeight) {
+		return x1, y1
+	}
+	fraction := overlap / float32(math.Abs(float64(dy)))
+	return x1 + (x1-x0)*fraction, y1 + dy*fraction
 }
 
 var (
@@ -505,24 +557,62 @@ var (
 	sqrt03 = float32(math.Sqrt(0.3))
 )
 
+// traceGraphLine excludes the HEAD disk from every edge, including other lanes
+// that cross near it. Each surviving interval retains the full edge's dash phase.
+func traceGraphLine(b *gfx.PathBuilder, from, to, center gfx.Point, radius float32, dotted bool) {
+	if radius == 0 && !dotted {
+		b.MoveTo(from.X, from.Y)
+		b.LineTo(to.X, to.Y)
+		return
+	}
+	length := float32(math.Hypot(float64(to.X-from.X), float64(to.Y-from.Y)))
+	if length <= 0 {
+		return
+	}
+	dx, dy := (to.X-from.X)/length, (to.Y-from.Y)/length
+	trace := func(start, end float32) {
+		if start >= end {
+			return
+		}
+		if dotted {
+			dashLine(b, from.X, from.Y, to.X, to.Y, start, end)
+		} else {
+			b.MoveTo(from.X+dx*start, from.Y+dy*start)
+			b.LineTo(from.X+dx*end, from.Y+dy*end)
+		}
+	}
+	if radius > 0 {
+		cx, cy := center.X-from.X, center.Y-from.Y
+		middle, cross := cx*dx+cy*dy, cx*dy-cy*dx
+		if cross*cross < radius*radius {
+			reach := float32(math.Sqrt(float64(radius*radius - cross*cross)))
+			trace(0, min(length, max(0, middle-reach)))
+			trace(min(length, max(0, middle+reach)), length)
+			return
+		}
+	}
+	trace(0, length)
+}
+
 // dashLine traces a dotted edge as the IntelliJ log dashes it: one dash and one gap
-// fitted into a row, the pattern starting half a dash in.
-func dashLine(b *gfx.PathBuilder, x0, y0, x1, y1 float32) {
+// fitted into a row, the pattern starting half a dash in. start and end clip the
+// visible interval without changing dash lengths or phase outside the HEAD marker.
+func dashLine(b *gfx.PathBuilder, x0, y0, x1, y1, start, end float32) {
 	space := float32(logRowHeight/2 - 2)
 	segment := float32(math.Hypot(float64(x1-x0), float64(y1-y0)))
-	if segment <= 0 {
+	if segment <= 0 || start >= end {
 		return
 	}
 	length := segment * 2
 	dash := length/max(1, float32(math.Floor(float64(length/logRowHeight)))) - space
+	dx, dy := (x1-x0)/segment, (y1-y0)/segment
 	if dash <= 0 {
-		b.MoveTo(x0, y0)
-		b.LineTo(x1, y1)
+		b.MoveTo(x0+dx*start, y0+dy*start)
+		b.LineTo(x0+dx*end, y0+dy*end)
 		return
 	}
-	dx, dy := (x1-x0)/segment, (y1-y0)/segment
-	for pos := -dash / 2; pos < segment; pos += dash + space {
-		from, to := max(pos, 0), min(pos+dash, segment)
+	for pos := -dash / 2; pos < end; pos += dash + space {
+		from, to := max(pos, start), min(pos+dash, end)
 		if to <= from {
 			continue
 		}
