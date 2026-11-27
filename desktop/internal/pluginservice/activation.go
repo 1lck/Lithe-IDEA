@@ -41,8 +41,11 @@ func (s *Service) SyncFunctionRelay(ctx context.Context, entries []pluginmanager
 		return fmt.Errorf("%w: no kernel", ErrAssembly)
 	}
 	snapshot, readErr := s.ReadInstalled(ctx, entries)
-	if ctx.Err() != nil {
-		return readErr
+	if err := ctx.Err(); err != nil {
+		if errors.Is(readErr, err) {
+			return readErr
+		}
+		return errors.Join(readErr, err)
 	}
 	return errors.Join(readErr, s.syncFunctionRelay(ctx, snapshot))
 }
@@ -53,7 +56,11 @@ func (s *Service) syncFunctionRelay(ctx context.Context, snapshot InstalledSnaps
 	for _, installed := range snapshot.manifests {
 		entry, manifest := installed.entry, installed.manifest
 		var declaration relayDeclaration
-		if json.Unmarshal(manifest, &declaration) != nil || declaration.PluginFunctions == nil {
+		if err := json.Unmarshal(manifest, &declaration); err != nil {
+			failures = append(failures, fmt.Errorf("decode relay manifest for %s@%s: %w", entry.Installed.ID, entry.Installed.Version, err))
+			continue
+		}
+		if declaration.PluginFunctions == nil {
 			continue
 		}
 		plugins = append(plugins, core.RelayPlugin{
@@ -68,7 +75,7 @@ func (s *Service) syncFunctionRelay(ctx context.Context, snapshot InstalledSnaps
 		contexts = append(contexts, core.RelayContext{ContextID: workspace.ContextID, Generation: workspace.Generation, Authority: "local"})
 	}
 	if err := s.kernel.ConfigureFunctionRelay(ctx, plugins, contexts); err != nil {
-		failures = append(failures, err)
+		failures = append(failures, fmt.Errorf("configure function relay: %w", err))
 	}
 	return errors.Join(failures...)
 }
@@ -181,18 +188,59 @@ func (s *Service) DetachBackend(pluginID string) func() {
 // relay view. It is the observer of WorkspaceContexts and runs on its own
 // goroutine so a slow backend never blocks opening or closing a project.
 func (s *Service) contextsChanged() {
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		s.contextsNotifyMu.Lock()
-		defer s.contextsNotifyMu.Unlock()
-		if entries, err := s.Manager.Installed(); err == nil {
-			_ = s.SyncFunctionRelay(ctx, entries)
+	go s.refreshWorkspaceContexts(context.Background())
+}
+
+func (s *Service) refreshWorkspaceContexts(ctx context.Context) {
+	err := s.refreshWorkspaceContextsOnce(ctx)
+	// log-exempt: 用户取消：只有取消原因时无需记录，超时和混合故障仍报告。
+	if err != nil && !contextRefreshCanceled(err) && s.ContextIssue != nil {
+		s.ContextIssue(ctx, err)
+	}
+}
+
+// refreshWorkspaceContextsOnce keeps relay replacement and backend delivery
+// ordered with other refreshes. Its caller reports failures after unlocking.
+func (s *Service) refreshWorkspaceContextsOnce(ctx context.Context) error {
+	s.contextsNotifyMu.Lock()
+	defer s.contextsNotifyMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	revision := s.Contexts.Revision()
+	if revision <= s.contextsRefreshRevision {
+		return nil
+	}
+	// Queued observers can converge on the same revision. A later context change
+	// can retry a failure. The deadline starts once this refresh owns the lock.
+	s.contextsRefreshRevision = revision
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	entries, relayErr := s.Manager.Installed()
+	if relayErr != nil {
+		relayErr = fmt.Errorf("list installed plugins for function relay: %w", relayErr)
+	} else {
+		relayErr = s.SyncFunctionRelay(ctx, entries)
+	}
+	notifyErr := s.notifyWorkspaceContextsLocked(ctx, "", s.Contexts.Revision())
+	return errors.Join(relayErr, notifyErr)
+}
+
+// A partial failure can contain both cancellation and a diagnostic failure.
+func contextRefreshCanceled(err error) bool {
+	switch wrapped := err.(type) {
+	case interface{ Unwrap() []error }:
+		for _, cause := range wrapped.Unwrap() {
+			if !contextRefreshCanceled(cause) {
+				return false
+			}
 		}
-		if err := s.notifyWorkspaceContextsLocked(ctx, "", s.Contexts.Revision()); err != nil && s.ContextIssue != nil {
-			s.ContextIssue(ctx, err)
-		}
-	}()
+		return true
+	case interface{ Unwrap() error }:
+		return contextRefreshCanceled(wrapped.Unwrap())
+	default:
+		return errors.Is(err, context.Canceled)
+	}
 }
 
 // notifyWorkspaceContextsLocked sends the newest revision once to each ready backend session.
