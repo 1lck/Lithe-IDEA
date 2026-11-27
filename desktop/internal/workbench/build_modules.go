@@ -1,7 +1,6 @@
 package workbench
 
 import (
-	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -9,28 +8,54 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 )
 
-// refreshTreeModuleRoots updates directory styling only when the loaded build projects
-// change. Core supplies normalized workspace-relative paths, using "." for the workspace root.
-func (p *project) refreshTreeModuleRoots() {
-	roots := make(map[string]struct{})
-	for _, instance := range p.build.instances {
-		if !instance.modelLoaded {
-			continue
-		}
-		for _, project := range instance.Model.Projects {
-			path := project.Path
-			if path == "." {
-				path = ""
-			}
-			roots[path] = struct{}{}
-		}
+// unloadBuildModel removes the instance's contribution to the Project tree before it reloads.
+func (p *project) unloadBuildModel(instance *buildInstance) {
+	if instance.modelLoaded {
+		instance.modelLoaded = false
+		p.tree.changeModuleRoots(instance.Model.Projects, -1)
 	}
-	if !maps.Equal(p.tree.moduleRoots, roots) {
-		p.tree.moduleRoots = roots
-		p.tree.measureDirty = true
-		if p.tree.wake != nil {
-			p.tree.wake()
+}
+
+// changeModuleRoots applies one model's addition or removal. Several models can
+// name the same path. Core uses "." for the workspace root, which the tree calls "".
+func (t *fileTree) changeModuleRoots(projects []core.BuildProject, delta int) {
+	if len(projects) == 0 {
+		return
+	}
+	if t.moduleRoots == nil {
+		t.moduleRoots = make(map[string]int, len(projects))
+	}
+	changed := false
+	for _, project := range projects {
+		path := project.Path
+		if path == "." {
+			path = ""
 		}
+		before := t.moduleRoots[path]
+		after := before + delta
+		if after > 0 {
+			t.moduleRoots[path] = after
+		} else {
+			delete(t.moduleRoots, path)
+		}
+		changed = changed || (before > 0) != (after > 0)
+	}
+	if changed {
+		t.moduleRootsChanged()
+	}
+}
+
+func (t *fileTree) clearModuleRoots() {
+	if len(t.moduleRoots) > 0 {
+		t.moduleRoots = nil
+		t.moduleRootsChanged()
+	}
+}
+
+func (t *fileTree) moduleRootsChanged() {
+	t.measureDirty = true
+	if t.wake != nil {
+		t.wake()
 	}
 }
 

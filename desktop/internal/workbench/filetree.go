@@ -71,8 +71,8 @@ type fileTree struct {
 	rows      []*treeNode
 	rowsDirty bool
 	view      ui.TreeState
-	// moduleRoots indexes the workspace-relative paths of loaded build projects.
-	moduleRoots map[string]struct{}
+	// moduleRoots counts how many loaded build projects claim each relative path.
+	moduleRoots map[string]int
 	// area is where the tree was laid out in the last paint, read by its draw hook.
 	area     gfx.Rect
 	areaDraw func(*ui.DrawContext)

@@ -1115,7 +1115,6 @@ func TestProjectTreeStylesLoadedBuildModuleRoots(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	p := h.openTree(t, root)
 	h.click(center(h.treeRowHit("common").Bounds))
-	awaitDocumentState(t, h, func() bool { return p.tree.find("common/src") != nil })
 
 	checkRow := func(name string, weight float32, wantBadge bool) {
 		t.Helper()
@@ -1153,18 +1152,29 @@ func TestProjectTreeStylesLoadedBuildModuleRoots(t *testing.T) {
 	checkRow("ModuleWorkspace", gfx.WeightSemibold, false)
 	checkRow("common", gfx.WeightRegular, false)
 	a := h.app
+	const pluginID = "dev.lithe.test.module-roots"
+	// The second model is in flight. Deliver its result separately below.
 	a.finishBuildDetection(p, p.build.generation, []buildInstance{
 		{BuildInstance: core.BuildInstance{ID: "first"}, Model: model(".", "common"), modelLoaded: true},
-		{BuildInstance: core.BuildInstance{ID: "second"}, modelLoaded: true},
+		{BuildInstance: core.BuildInstance{ID: "second", ModelSource: "command"}, PluginID: pluginID, modelLoading: true},
 	}, nil)
-	a.finishBuildModel(p, "second", model("module-a"), nil)
 	h.settle()
 	checkRow("ModuleWorkspace", gfx.WeightBold, true)
 	checkRow("common", gfx.WeightBold, true)
+	checkRow("module-a", gfx.WeightRegular, false)
+
+	a.finishBuildModel(p, "second", model("common", "module-a"), nil)
+	h.settle()
 	checkRow("module-a", gfx.WeightBold, true)
 	checkRow("module-b", gfx.WeightRegular, false)
 	checkRow("docs", gfx.WeightRegular, false)
 	checkRow("src", gfx.WeightRegular, false)
+
+	// Settings invalidate this unselected instance without loading a replacement yet.
+	a.reloadPluginBuildModels(p, pluginID)
+	h.settle()
+	checkRow("common", gfx.WeightBold, true)
+	checkRow("module-a", gfx.WeightRegular, false)
 
 	a.finishBuildModel(p, "second", model("module-b"), nil)
 	h.settle()

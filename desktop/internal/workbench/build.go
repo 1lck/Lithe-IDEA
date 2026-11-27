@@ -888,7 +888,12 @@ func (a *App) finishBuildDetection(p *project, generation uint64, instances []bu
 	}
 	p.build.loaded = true
 	p.build.instances = instances
-	p.refreshTreeModuleRoots()
+	p.tree.clearModuleRoots()
+	for _, instance := range instances {
+		if instance.modelLoaded {
+			p.tree.changeModuleRoots(instance.Model.Projects, 1)
+		}
+	}
 	a.publishWorkspaceBuildOptions(p)
 	p.revokeAllBuildTests()
 	if p.build.selected >= len(instances) {
@@ -975,8 +980,8 @@ func (a *App) reloadBuildModel(p *project, index int) {
 	if instance.ModelSource == "" {
 		return
 	}
-	instance.modelLoaded, instance.modelError, instance.modelStopped = false, "", false
-	p.refreshTreeModuleRoots()
+	p.unloadBuildModel(instance)
+	instance.modelError, instance.modelStopped = "", false
 	a.loadBuildModelWith(p, index, true)
 }
 
@@ -1238,7 +1243,7 @@ func (a *App) finishBuildModel(p *project, id string, model core.BuildModel, err
 		}
 		if instance.modelReloadPending {
 			instance.modelReloadPending = false
-			instance.modelLoaded = false
+			p.unloadBuildModel(instance)
 			if err != nil {
 				a.backgroundFailed("plugin_model_superseded", err)
 			}
@@ -1255,10 +1260,11 @@ func (a *App) finishBuildModel(p *project, id string, model core.BuildModel, err
 			a.settleTitleAction(p)
 			return
 		}
-		p.build.instances[index].Model = model
-		p.build.instances[index].modelLoaded = true
-		p.build.instances[index].modelVersion++
-		p.refreshTreeModuleRoots()
+		p.unloadBuildModel(instance)
+		instance.Model = model
+		instance.modelLoaded = true
+		instance.modelVersion++
+		p.tree.changeModuleRoots(model.Projects, 1)
 		p.build.status = ""
 		// The runs the model offers become run configurations.
 		a.refreshRunConfigurations(p)
@@ -2467,7 +2473,7 @@ func (a *App) invalidateBuild(p *project) {
 	// land its stale instances or run configurations afterward.
 	runs, view, sessions, generation := p.build.runs, p.build.view, p.build.sessions, p.build.generation+1
 	p.build = buildState{runs: runs, view: view, sessions: sessions, generation: generation}
-	p.refreshTreeModuleRoots()
+	p.tree.clearModuleRoots()
 }
 
 // streamBuildOutput decodes text op wrote, on the goroutine that read it, and posts the decoded
