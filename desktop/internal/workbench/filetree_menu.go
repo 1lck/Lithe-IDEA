@@ -10,6 +10,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/wslpath"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
@@ -532,83 +533,99 @@ func treeErrorReason(err error) string {
 }
 
 // directoryMarkMenu declares the "Mark Directory as ▸" submenu on a project folder,
-// grouping built-in roles, custom folder modes, quick colors, clear/restore automatic and
-// the settings link under one clean second-level menu.
+// grouping built-in roles, custom folder modes, inline quick-color swatches, clear/restore
+// automatic and the settings link under one clean second-level menu.
 func (a *App) directoryMarkMenu(c ui.C, p *project, n *treeNode, menu *ui.MenuItems, language i18n.Language) {
 	entry, hasMeta := p.indexing.presentation[n.path]
 	rulesState := core.ParseDirectoryRules(p.indexing.rules)
 	excluded := p.directoryExcluded(n.path)
 
 	menu.Sub(i18n.Shared(language, "desktop.directoryMarks.menuTitle"), func(sub *ui.MenuItems) {
+		sub.Label(i18n.Shared(language, "desktop.directoryMarks.settings.groupBuiltin"))
 		builtinRoles := []struct {
 			role  string
+			icon  string
 			label string
 		}{
-			{"sources", i18n.Shared(language, "desktop.directoryMarks.role.sources")},
-			{"tests", i18n.Shared(language, "desktop.directoryMarks.role.tests")},
-			{"resources", i18n.Shared(language, "desktop.directoryMarks.role.resources")},
-			{"testResources", i18n.Shared(language, "desktop.directoryMarks.role.testResources")},
-			{"generated", i18n.Shared(language, "desktop.directoryMarks.role.generated")},
+			{"sources", "sources", i18n.Shared(language, "desktop.directoryMarks.role.sources")},
+			{"tests", "tests", i18n.Shared(language, "desktop.directoryMarks.role.tests")},
+			{"resources", "resources", i18n.Shared(language, "desktop.directoryMarks.role.resources")},
+			{"testResources", "resources", i18n.Shared(language, "desktop.directoryMarks.role.testResources")},
+			{"generated", "generated", i18n.Shared(language, "desktop.directoryMarks.role.generated")},
 		}
 		for _, item := range builtinRoles {
 			role := item.role
 			checked := hasMeta && entry.Role == role
-			if sub.Item(item.label).Checked(checked).Clicked() {
+			if sub.Item(item.label).Icon(directoryIcon(item.icon, a.colors.Dark)).Checked(checked).Clicked() {
 				c.After(func() { a.setDirectoryRole(p, n.path, role) })
 			}
 		}
 		if excluded {
-			if sub.Item(i18n.Shared(language, "indexing.cancelExclusion")).Checked(true).Clicked() {
+			if sub.Item(i18n.Shared(language, "indexing.cancelExclusion")).Icon(directoryIcon("excluded", a.colors.Dark)).Checked(true).Clicked() {
 				c.After(func() { a.excludeFromSearch(p, n.path, true) })
 			}
 		} else {
-			if sub.Item(i18n.Shared(language, "desktop.directoryMarks.role.excluded")).Clicked() {
+			if sub.Item(i18n.Shared(language, "desktop.directoryMarks.role.excluded")).Icon(directoryIcon("excluded", a.colors.Dark)).Clicked() {
 				c.After(func() { a.excludeFromSearch(p, n.path, false) })
 			}
 		}
 
 		if len(rulesState.CustomTypes) > 0 {
 			sub.Separator()
+			sub.Label(i18n.Shared(language, "desktop.directoryMarks.settings.groupCustom"))
 			for _, ct := range rulesState.CustomTypes {
 				customID := ct.ID
 				checked := hasMeta && entry.Role == customID
-				if sub.Item(ct.Name).Checked(checked).Clicked() {
+				if sub.Item(ct.Name).Icon(a.directoryIconFor(p, ct.Icon)).Checked(checked).Clicked() {
 					c.After(func() { a.setDirectoryRole(p, n.path, customID) })
 				}
 			}
 		}
 
 		sub.Separator()
-		sub.Sub(i18n.Shared(language, "desktop.directoryMarks.quickColor"), func(colors *ui.MenuItems) {
-			for _, sw := range directoryColorSwatchesFor(language) {
-				hex := sw.hex
-				checked := hasMeta && entry.Color == hex
-				if colors.Item(sw.label).Checked(checked).Clicked() {
-					c.After(func() { a.setDirectoryColor(p, n.path, hex) })
+		sub.Label(i18n.Shared(language, "desktop.directoryMarks.quickColor"))
+		sub.ContentPage(30, func(mc ui.C, _ ui.Rect) {
+			ui.Row(mc).Fill().PadX(10).Gap(7).Items(ui.Center).Children(func() {
+				for _, sw := range directoryColorSwatchesFor(language) {
+					hex := sw.hex
+					col, ok := parseHexColor(hex, 0xff)
+					if !ok {
+						continue
+					}
+					btn := ui.ButtonBase(mc.Key("ctx-sw-"+hex), sw.label).Size(18, 18).Radius(9).Background(col)
+					if hasMeta && strings.EqualFold(entry.Color, hex) {
+						btn = btn.Stroke(2, a.colors.Text)
+					}
+					if btn.Clicked() {
+						c.After(func() { a.setDirectoryColor(p, n.path, hex) })
+					}
 				}
-			}
-			if _, hasOverride := rulesState.Colors[n.path]; hasOverride {
-				colors.Separator()
-				if colors.Item(i18n.Shared(language, "desktop.directoryMarks.clearColor")).Clicked() {
-					c.After(func() { a.setDirectoryColor(p, n.path, "") })
+				if _, hasOverride := rulesState.Colors[n.path]; hasOverride {
+					clearBtn := ui.ButtonBase(mc.Part("ctx-sw-clear"), i18n.Shared(language, "desktop.directoryMarks.clearColor")).Size(18, 18).Radius(9).Center().Stroke(1, a.colors.Line)
+					if clearBtn.Clicked() {
+						c.After(func() { a.setDirectoryColor(p, n.path, "") })
+					}
+					clearBtn.Children(func() {
+						ui.Icon(mc, icons.X).Size(11, 11).Color(a.colors.Subtle)
+					})
 				}
-			}
+			})
 		})
 
 		sub.Separator()
 		if hasMeta && entry.Source == "user" {
 			if entry.AutoFallbackRole != "" {
 				fallbackLabel := directoryRoleDisplayName(language, entry.AutoFallbackRole, rulesState.CustomTypes)
-				if sub.Item(i18n.SharedFormat(language, "desktop.directoryMarks.restoreAuto", map[string]string{"value": fallbackLabel})).Clicked() {
+				if sub.Item(i18n.SharedFormat(language, "desktop.directoryMarks.restoreAuto", map[string]string{"value": fallbackLabel})).Icon(icons.RotateCcw).Clicked() {
 					c.After(func() { a.clearDirectoryMark(p, n.path) })
 				}
 			} else {
-				if sub.Item(i18n.Shared(language, "desktop.directoryMarks.clearMark")).Clicked() {
+				if sub.Item(i18n.Shared(language, "desktop.directoryMarks.clearMark")).Icon(icons.X).Clicked() {
 					c.After(func() { a.clearDirectoryMark(p, n.path) })
 				}
 			}
 		}
-		if sub.Item(i18n.Shared(language, "desktop.directoryMarks.openSettings")).Clicked() {
+		if sub.Item(i18n.Shared(language, "desktop.directoryMarks.openSettings")).Icon(icons.Settings).Clicked() {
 			c.After(func() { a.openDirectoryMarksSettings() })
 		}
 	})

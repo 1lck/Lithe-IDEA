@@ -12,6 +12,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -891,8 +892,12 @@ func (w *window) directoryIconPicker(c ui.C, d *directoryMarksDraft, ct *core.Cu
 
 		ui.Row(c).FillWidth().Gap(6).Items(ui.Center).Children(func() {
 			ui.TextField(c.Part("icon-import-path"), &d.iconImportField, i18n.Shared(language, "desktop.directoryMarks.settings.importIconPath"), "").Grow(1).Disabled(d.busy)
-			if ui.Button(c.Part("icon-import-btn"), i18n.Shared(language, "desktop.directoryMarks.settings.importIcon")).Outline().Disabled(d.busy || strings.TrimSpace(d.iconImportField.Text()) == "").Clicked() {
-				w.startDirectoryMarks(&directoryMarksWork{importPath: strings.TrimSpace(d.iconImportField.Text())})
+			if ui.Button(c.Part("icon-import-btn"), i18n.Shared(language, "desktop.directoryMarks.settings.importIcon")).Outline().Disabled(d.busy).Clicked() {
+				if p := strings.TrimSpace(d.iconImportField.Text()); p != "" {
+					w.startDirectoryMarks(&directoryMarksWork{importPath: p})
+				} else {
+					c.After(w.pickDirectoryIconSVG)
+				}
 			}
 			if d.isCustomIcon(ct.Icon) {
 				delID := ct.Icon
@@ -902,4 +907,24 @@ func (w *window) directoryIconPicker(c ui.C, d *directoryMarksDraft, ct *core.Cu
 			}
 		})
 	})
+}
+
+// pickDirectoryIconSVG opens the native file dialog filtered to .svg files and imports the chosen icon.
+func (w *window) pickDirectoryIconSVG() {
+	paths, err := app.OpenFiles(app.OpenFileOptions{
+		Title:   i18n.Shared(w.marketLanguage(), "desktop.directoryMarks.settings.importIcon"),
+		Filters: []app.FileFilter{{Name: "SVG", Pattern: "*.svg"}},
+	})
+	// log-exempt: user canceled native SVG file picker
+	if errors.Is(err, app.ErrCanceled) || len(paths) == 0 {
+		return
+	}
+	if err != nil {
+		w.dirMarksDraft.failure = i18n.Shared(w.marketLanguage(), "desktop.directoryMarks.settings.failed")
+		w.reportEssentialsFailure("directory_icon_pick", err)
+		w.inv.Invalidate()
+		return
+	}
+	w.dirMarksDraft.iconImportField.SetText(paths[0])
+	w.startDirectoryMarks(&directoryMarksWork{importPath: paths[0]})
 }

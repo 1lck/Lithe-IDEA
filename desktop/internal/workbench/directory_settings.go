@@ -203,6 +203,7 @@ func (s appDirectoryMarks) Save(ctx context.Context, next settingswindow.Directo
 		SharedConfigPath:    sharedPath,
 		HideBgTint:          !next.ShowBgTint,
 		HideTags:            !next.ShowTags,
+		CustomTypesSeeded:   true,
 	}); err != nil {
 		return settingswindow.DirectoryMarksSnapshot{}, err
 	}
@@ -308,6 +309,7 @@ func (s appDirectoryMarks) mutateRulesIcon(ctx context.Context, reduce func(json
 				SharedConfigPath:    p.indexing.sharedConfigPath,
 				HideBgTint:          p.indexing.hideBgTint,
 				HideTags:            p.indexing.hideTags,
+				CustomTypesSeeded:   true,
 			},
 		}
 	})

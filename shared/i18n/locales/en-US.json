@@ -11783,7 +11783,8 @@
     "desktop.directoryMarks.settings.localStoredBadge": "Local",
     "desktop.directoryMarks.settings.livePreview": "Live Preview",
     "desktop.directoryMarks.settings.visualSemantics": "Visual & Semantics",
-    "desktop.directoryMarks.settings.enabledShort": "Enabled"
+    "desktop.directoryMarks.settings.enabledShort": "Enabled",
+    "desktop.directoryMarks.preset.archiveName": "Archive & Read-Only"
   },
   "overrides": {
     "windows": {
