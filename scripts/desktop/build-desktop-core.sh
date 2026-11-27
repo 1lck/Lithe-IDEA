@@ -389,7 +389,10 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # Lithe-core-rust main at 6a644acd (#209): polled MCP requests carry their remaining
 # enqueue budget so the workbench can enforce the deadline for each window action.
 # Lithe-core-rust main at ed924028 (#205): recent project pin order, tags, remote identities and filtering.
-PINNED_CORE_REVISION="ed924028fcd681b84791b7d6e3593282b08a2582"
+# Lithe-core-rust main at d069224d (#210): extends workspace directory rules with built-in
+# test/generated roles, user-defined custom folder types, custom SVG icons, quick color
+# overrides, and workspace.resolveDirectoryPresentation.
+PINNED_CORE_REVISION="d069224ded5b3845798f264f55913703d7a197c2"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

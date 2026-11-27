@@ -26,16 +26,18 @@ type IndexingStatus struct {
 
 // IndexingPolicyOf derives the policy of a root from its persisted directory rules (the
 // state workspace.reduceDirectoryAction returns): the folders whose role is "excluded"
-// and the include exceptions.
+// (or a custom type with excludeIndexing enabled) and the include exceptions.
 func IndexingPolicyOf(rules json.RawMessage, gitIgnore bool) IndexingPolicy {
-	var state struct {
-		Marks               map[string]string `json:"marks"`
-		IncludedDirectories []string          `json:"includedDirectories"`
+	state := ParseDirectoryRules(rules)
+	excludedTypes := map[string]bool{"excluded": true}
+	for _, ct := range state.CustomTypes {
+		if ct.ExcludeIndexing {
+			excludedTypes[ct.ID] = true
+		}
 	}
-	_ = json.Unmarshal(rules, &state)
 	policy := IndexingPolicy{ManualExcludedDirectories: []string{}, IncludedDirectories: []string{}, GitIgnoreEnabled: gitIgnore}
 	for path, role := range state.Marks {
-		if role == "excluded" {
+		if excludedTypes[role] {
 			policy.ManualExcludedDirectories = append(policy.ManualExcludedDirectories, path)
 		}
 	}

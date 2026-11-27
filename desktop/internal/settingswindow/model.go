@@ -24,6 +24,7 @@ const (
 	pageGeneral
 	pageNetwork
 	pageEditor
+	pageDirectoryMarks
 	pageFonts
 	pageKeymap
 	pageProcessTermination
@@ -72,6 +73,7 @@ var parents = [pageCount]pageID{
 	pageGeneral:            pageAppearance,
 	pageNetwork:            pageAppearance,
 	pageEditor:             pageAppearance,
+	pageDirectoryMarks:     pageAppearance,
 	pageFonts:              pageAppearance,
 	pageKeymap:             pageAppearance,
 	pageProcessTermination: pageAppearance,
@@ -135,6 +137,8 @@ func titleOf(messages *i18n.SettingsMessages, id pageID) string {
 		return messages.Network
 	case pageEditor:
 		return messages.Editor
+	case pageDirectoryMarks:
+		return messages.DirectoryMarks
 	case pageFonts:
 		return messages.Fonts
 	case pageKeymap:
