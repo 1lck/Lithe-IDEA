@@ -174,7 +174,7 @@ jobs:
 
       - name: Restore staged release Core
         id: core-stage
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: .artifacts/desktop/lithe-core/x86_64-unknown-linux-gnu/release
           key: desktop-core-staged-x86_64-unknown-linux-gnu-${{ steps.rust.outputs.cachekey }}-release-${{ steps.core-pin.outputs.revision }}
@@ -197,6 +197,16 @@ jobs:
 
       - name: Stage release Core
         run: ./scripts/desktop/desktop-go.sh --print-core-stage > /dev/null
+
+      # Save the staged Core as soon as it is built: a plain actions/cache saves only when the whole
+      # job succeeds, and a failing test must not throw away the Core that Desktop Release and
+      # AutoBuild restore for the pinned revision.
+      - name: Save staged release Core
+        if: steps.core-stage.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: .artifacts/desktop/lithe-core/x86_64-unknown-linux-gnu/release
+          key: ${{ steps.core-stage.outputs.cache-primary-key }}
 
       - name: Verify Core cgo cache invalidation
         run: |
@@ -418,7 +428,7 @@ jobs:
 
       - name: Restore staged release Core
         id: core-stage
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: .artifacts/desktop/lithe-core/aarch64-apple-darwin/release
           key: desktop-core-staged-aarch64-apple-darwin-${{ steps.rust.outputs.cachekey }}-release-${{ steps.core-pin.outputs.revision }}
@@ -441,6 +451,16 @@ jobs:
 
       - name: Stage release Core
         run: ./scripts/desktop/desktop-go.sh --print-core-stage > /dev/null
+
+      # Save the staged Core as soon as it is built: a plain actions/cache saves only when the whole
+      # job succeeds, and a failing test must not throw away the Core that Desktop Release and
+      # AutoBuild restore for the pinned revision.
+      - name: Save staged release Core
+        if: steps.core-stage.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: .artifacts/desktop/lithe-core/aarch64-apple-darwin/release
+          key: ${{ steps.core-stage.outputs.cache-primary-key }}
 
       - name: Verify Core cgo cache invalidation
         run: |
@@ -532,7 +552,7 @@ jobs:
 
       - name: Restore staged release Core
         id: core-stage
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: .artifacts/desktop/lithe-core/x86_64-pc-windows-gnu/release
           key: desktop-core-staged-x86_64-pc-windows-gnu-${{ steps.rust.outputs.cachekey }}-release-${{ steps.core-pin.outputs.revision }}
@@ -555,6 +575,17 @@ jobs:
 
       - name: Stage release Core
         run: ./scripts/desktop/desktop-go.sh --print-core-stage > /dev/null
+
+      # Save the staged Core as soon as it is built: a plain actions/cache saves only when the whole
+      # job succeeds, and a failing test must not throw away the Core that later Windows runs restore
+      # for the pinned revision. Caches saved on Windows are Windows-only, so Desktop Release and
+      # AutoBuild, which cross-build this target on Linux, do not read this one.
+      - name: Save staged release Core
+        if: steps.core-stage.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: .artifacts/desktop/lithe-core/x86_64-pc-windows-gnu/release
+          key: ${{ steps.core-stage.outputs.cache-primary-key }}
 
       - name: Verify Core cgo cache invalidation
         run: |
