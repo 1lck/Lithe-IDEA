@@ -1715,6 +1715,8 @@
     "desktop.welcome.editTags": "Edit project tags…",
     "desktop.welcome.filterTags": "Filter by project tag",
     "desktop.welcome.recoveredRecentHistory": "Started a new recent project list. The earlier list could not be read and its file was kept.",
+    "desktop.welcome.recentSSHTargetChanged": "This project's saved SSH target cannot be confirmed. Open the project again from Remote Development.",
+    "desktop.welcome.tagsChanged": "This project or its tags changed in another window. Close this editor and reopen Edit Tags to see the latest tags.",
     "desktop.welcome.tagsInput": "Tags, separated by commas",
     "desktop.welcome.menuPin": "Pin to Top",
     "desktop.welcome.menuReveal": "Show in Finder",

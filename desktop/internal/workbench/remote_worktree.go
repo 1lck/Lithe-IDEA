@@ -57,7 +57,7 @@ func (a *App) openRemoteHostFolder(p *project, folder string) {
 	r := p.remote
 	// The workspace's root is anchor/<key>/<name> (remoteplaceholder.Root).
 	anchor := filepath.Dir(filepath.Dir(p.root))
-	if open := a.sessions.showing(remoteplaceholder.Root(anchor, r.connectionID, folder)); open != nil {
+	if open := a.sessions.showing(remoteplaceholder.Root(anchor, r.host.workspaceIdentity(r.connectionID), folder)); open != nil {
 		if or := open.project.remote; or != nil && !or.closed && or.session != "" {
 			a.sessions.activate(open)
 			return
@@ -81,6 +81,16 @@ func (a *App) connectRemoteReopen(reopen *remoteReopen) {
 		return
 	}
 	r := &a.remote
+	if reopen.folder != "" && reopen.host.overSSH() {
+		saved := r.entry(savedSSHID(reopen.connectionID, reopen.host.container))
+		if saved != nil {
+			if !matchesSavedTarget(saved, reopen.host.sshTargetFingerprint) {
+				a.rejectChangedRecentSSH(saved.ID)
+				return
+			}
+			reopen.host.ssh = saved.Connection
+		}
+	}
 	switch {
 	case reopen.host.container != nil && (!reopen.host.overSSH() || r.entry(strings.TrimSuffix(reopen.connectionID, "/"+reopen.host.container.Identity())) != nil):
 		a.connectRemoteTo(core.SavedRemoteConnection{ID: reopen.connectionID, Name: reopen.name}, reopen.host, reopen.folder)

@@ -2,6 +2,8 @@ package workbench
 
 import (
 	"context"
+	"errors"
+	"slices"
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -10,9 +12,11 @@ import (
 )
 
 type welcomeTagEdit struct {
-	path   string
-	field  ui.Field
-	saving bool
+	path     string
+	original []string
+	field    ui.Field
+	saving   bool
+	conflict bool
 }
 
 func (a *App) welcomeProjection() core.RecentProjectsResult {
@@ -65,7 +69,7 @@ func (a *App) welcomeTagFilter(c ui.C, tags []string) {
 func (a *App) editWelcomeTags(path string) {
 	for _, entry := range a.recent {
 		if entry.Path == path {
-			a.welcome.tagEdit = welcomeTagEdit{path: path}
+			a.welcome.tagEdit = welcomeTagEdit{path: path, original: slices.Clone(entry.Tags)}
 			a.welcome.tagEdit.field.SetText(strings.Join(entry.Tags, ", "))
 			return
 		}
@@ -74,15 +78,18 @@ func (a *App) editWelcomeTags(path string) {
 
 func (a *App) saveWelcomeTags() {
 	edit := &a.welcome.tagEdit
-	if edit.path == "" || edit.saving {
+	if edit.path == "" || edit.saving || edit.conflict {
 		return
 	}
 	edit.saving = true
-	a.changeRecent(core.SetRecentTags(edit.path, strings.FieldsFunc(edit.field.Text(), func(r rune) bool { return r == ',' || r == '，' })), func(_ core.RecentProjectsResult, err error) {
+	tags := strings.FieldsFunc(edit.field.Text(), func(r rune) bool { return r == ',' || r == '，' })
+	a.changeRecent(core.SetRecentTagsFrom(edit.path, tags, edit.original), func(_ core.RecentProjectsResult, err error) {
 		if err == nil {
 			*edit = welcomeTagEdit{}
 		} else {
 			edit.saving = false
+			var coreErr *core.Error
+			edit.conflict = errors.As(err, &coreErr) && coreErr.Code == core.CodeRecentProjectTagsChanged
 		}
 	})
 }
@@ -99,12 +106,15 @@ func (a *App) welcomeTagsDialog(c ui.C) {
 		ui.Column(c).FillWidth().Gap(6).Children(func() {
 			ui.Text(c, label).Muted()
 			submitted = ui.TextField(c, &edit.field, label, "").AutoFocus().FillWidth().Disabled(edit.saving).Submitted()
+			if edit.conflict {
+				ui.Wrap(c, i18n.Shared(lang, "desktop.welcome.tagsChanged")).FillWidth().Color(a.colors.Warning)
+			}
 		})
 	}, func() {
 		if ui.Button(c, i18n.Shared(lang, "desktop.git.cancel")).Outline().Disabled(edit.saving).Clicked() {
 			c.After(func() { *edit = welcomeTagEdit{} })
 		}
-		if ui.Button(c, i18n.Shared(lang, "ui.save")).Disabled(edit.saving).Clicked() {
+		if ui.Button(c, i18n.Shared(lang, "ui.save")).Disabled(edit.saving || edit.conflict).Clicked() {
 			c.After(a.saveWelcomeTags)
 		}
 	})

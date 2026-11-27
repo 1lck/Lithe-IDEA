@@ -13,6 +13,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/filelock"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/installedpackagetest"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteconn"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 )
 
@@ -140,6 +141,40 @@ func TestWelcomeProjectTagsCanBeEditedAndFiltered(t *testing.T) {
 	}
 }
 
+func TestWelcomeStaleTagEditorKeepsOtherWindowsSavedTags(t *testing.T) {
+	first := newHarness(t, &testKernel{Client: core.NewClient()})
+	project := t.TempDir()
+	first.seedRecent([]core.RecentProject{{Path: project}})
+	first.resizeWelcome()
+	second := newHarnessWithOptions(t, Options{
+		Kernel: &testKernel{Client: core.NewClient()}, Store: store.At(first.store.Dir()), Languages: []string{"en-US"},
+	})
+	second.resizeWelcome()
+	lang := second.app.language()
+
+	for _, h := range []*harness{first, second} {
+		h.rightClickRow(project)
+		h.clickNamed(i18n.Shared(h.app.language(), "desktop.welcome.editTags"))
+	}
+	first.app.welcome.tagEdit.field.SetText("Saved by first window")
+	first.app.saveWelcomeTags()
+	first.settle()
+	second.app.welcome.tagEdit.field.SetText("Second draft")
+	second.app.saveWelcomeTags()
+	second.settle()
+	edit := &second.app.welcome.tagEdit
+	if !edit.conflict || edit.path != project || edit.field.Text() != "Second draft" {
+		t.Fatal("the stale editor closed or lost its draft after the conflict")
+	}
+	if !second.showsWrapped(i18n.Shared(lang, "desktop.welcome.tagsChanged")) {
+		t.Fatal("the stale editor did not display the conflict")
+	}
+	var saved []core.RecentProject
+	if _, err := first.store.Load(recentFile, &saved); err != nil || len(saved) != 1 || strings.Join(saved[0].Tags, ",") != "Saved by first window" {
+		t.Fatalf("saved project tags = %v, error = %v", saved, err)
+	}
+}
+
 func TestWelcomeRemoteProjectCanBeReopenedFromHistory(t *testing.T) {
 	h, _, _, _ := remoteWorkspaceHarness(t)
 	p := h.openRemoteTestProject(t)
@@ -262,6 +297,72 @@ func TestWelcomeActivatingBeforePinCommitStillReceivesThePin(t *testing.T) {
 	second.await("the committed pin in the already active window", func() bool {
 		return len(second.app.recent) == 1 && second.app.recent[0].Pinned
 	})
+}
+
+func TestWelcomeSSHHistoryRejectsUnboundAndReassignedTargets(t *testing.T) {
+	h, k, _, logger := remoteWorkspaceHarness(t)
+	t.Cleanup(h.disposeTabs)
+	t.Cleanup(h.app.closeRemote)
+	first := h.openRemoteTestProject(t)
+	h.settle()
+	old := h.app.recent[0]
+	if old.Remote == nil || old.Remote.SSHTargetFingerprint == "" {
+		t.Fatal("SSH history omitted the saved target")
+	}
+	connected := func(k *remoteHostKernel) int { return k.connects }
+	before := k.count(connected)
+	assertRejected := func() {
+		t.Helper()
+		h.await("saved SSH target rejection", func() bool { return !h.app.remote.loading })
+		if got := h.app.remote.err; got != i18n.Shared(h.app.language(), "desktop.welcome.recentSSHTargetChanged") {
+			t.Fatalf("target refusal = %q", got)
+		}
+		if k.count(connected) != before || h.app.remote.browser != nil || h.app.project != first {
+			t.Fatal("history reached SSH or replaced the live workspace")
+		}
+	}
+	legacy := *old.Remote
+	legacy.SSHTargetFingerprint = ""
+	h.app.openRecentRemote(&legacy)
+	assertRejected()
+	h.app.closeRemote()
+
+	ctx, cancel := context.WithTimeout(context.Background(), remoteReadTimeout)
+	defer cancel()
+	source, err := remoteconn.Read(ctx, k, h.app.globalToolchainRoot())
+	if err != nil || len(source.Connections) != 1 {
+		t.Fatalf("read saved connection: %v, count = %d", err, len(source.Connections))
+	}
+	oldConnection := source.Connections[0]
+	newConnection := oldConnection.Connection
+	newConnection.Host = "different.example"
+	_, _, _, err = source.Edit(ctx, k, core.RemoteConnectionEdit{Save: &core.RemoteConnectionSave{
+		ID: oldConnection.ID, Name: "Different host", Connection: newConnection,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	k.set(func(k *remoteHostKernel) { k.sshHost = newConnection.Host })
+	h.app.openRecent(old.Path)
+	assertRejected()
+	if event := loggedAny(t, logger, remoteTestHost, newConnection.Host, old.Remote.Folder, old.Remote.SSHTargetFingerprint); event != "" {
+		t.Fatalf("SSH history details leaked in %s", event)
+	}
+
+	h.openRemoteTestProject(t)
+	h.await("the new target's tab", func() bool {
+		active := h.app.sessions.active
+		return active != h.app && active.project != nil && active.project.remote != nil
+	})
+	h.settleTabs()
+	active := h.app.sessions.active
+	second := active.project
+	if second.root == first.root || second.remote.connectionID != first.remote.connectionID {
+		t.Fatal("opening the same path on the new target reused the previous workspace")
+	}
+	if len(active.recent) != 2 || active.recent[0].Path == old.Path || active.recent[1].Path != old.Path {
+		t.Fatalf("the two targets did not keep separate history: %v", active.recent)
+	}
 }
 
 func TestWelcomeDoesNotOpenMissingRemoteRecent(t *testing.T) {

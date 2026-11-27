@@ -26,12 +26,13 @@ type RecentProject struct {
 // RecentRemoteProject identifies an opened remote folder without copying the SSH
 // connection settings or any credentials into recent project storage.
 type RecentRemoteProject struct {
-	ConnectionID    string               `json:"connectionId"`
-	Name            string               `json:"name"`
-	Folder          string               `json:"folder"`
-	SSHConnectionID string               `json:"sshConnectionId,omitempty"`
-	WSL             *WSLConnection       `json:"wsl,omitempty"`
-	Container       *ContainerConnection `json:"container,omitempty"`
+	ConnectionID         string               `json:"connectionId"`
+	Name                 string               `json:"name"`
+	Folder               string               `json:"folder"`
+	SSHConnectionID      string               `json:"sshConnectionId,omitempty"`
+	SSHTargetFingerprint string               `json:"sshTargetFingerprint,omitempty"`
+	WSL                  *WSLConnection       `json:"wsl,omitempty"`
+	Container            *ContainerConnection `json:"container,omitempty"`
 }
 
 // recentKind names the variants of a RecentAction. The values are the "kind" tags of the Rust
@@ -61,6 +62,14 @@ func SetRecentTags(path string, tags []string) RecentAction {
 	return RecentAction{kind: recentSetTags, path: path, tags: slices.Clone(tags)}
 }
 
+// SetRecentTagsFrom replaces the labels only if they still match the editor's snapshot.
+func SetRecentTagsFrom(path string, tags, expected []string) RecentAction {
+	action := SetRecentTags(path, tags)
+	snapshot := nonNil(slices.Clone(expected))
+	action.expectedTags = &snapshot
+	return action
+}
+
 // FilterRecent returns row offsets and available labels without changing history.
 func FilterRecent(query, tag string) RecentAction {
 	return RecentAction{kind: recentFilter, query: query, tag: tag}
@@ -73,16 +82,17 @@ func ImportRecentEntries(entries []RecentProject) RecentAction {
 
 // RecentAction is a history mutation or a filter request. Use a constructor to build it.
 type RecentAction struct {
-	kind     recentKind
-	path     string
-	paths    []string
-	openedAt int64
-	remote   *RecentRemoteProject
-	tags     []string
-	query    string
-	tag      string
-	imported []RecentProject
-	pinned   bool
+	kind         recentKind
+	path         string
+	paths        []string
+	openedAt     int64
+	remote       *RecentRemoteProject
+	tags         []string
+	expectedTags *[]string
+	query        string
+	tag          string
+	imported     []RecentProject
+	pinned       bool
 }
 
 // RecordRecent updates the open time for one local project and retains its metadata.
@@ -173,10 +183,11 @@ func (a RecentAction) MarshalJSON() ([]byte, error) {
 		}{a.kind, a.remote, a.openedAt})
 	case recentSetTags:
 		return json.Marshal(struct {
-			Kind recentKind `json:"kind"`
-			Path string     `json:"path"`
-			Tags []string   `json:"tags"`
-		}{a.kind, a.path, nonNil(a.tags)})
+			Kind         recentKind `json:"kind"`
+			Path         string     `json:"path"`
+			Tags         []string   `json:"tags"`
+			ExpectedTags *[]string  `json:"expectedTags,omitempty"`
+		}{a.kind, a.path, nonNil(a.tags), a.expectedTags})
 	case recentFilter:
 		return json.Marshal(struct {
 			Kind  recentKind `json:"kind"`

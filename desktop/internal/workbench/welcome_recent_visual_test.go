@@ -3,12 +3,15 @@
 package workbench
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteconn"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/headless"
@@ -40,11 +43,25 @@ func TestVisualWelcomeRecentProjects(t *testing.T) {
 			})
 			base := t.TempDir()
 			h.app.welcome.home, h.app.welcome.homeRead = base, true
+			ctx, cancel := context.WithTimeout(context.Background(), remoteReadTimeout)
+			defer cancel()
+			source, err := remoteconn.Read(ctx, h.app.kernel, h.app.globalToolchainRoot())
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, savedID, _, err := source.Edit(ctx, h.app.kernel, core.RemoteConnectionEdit{Save: &core.RemoteConnectionSave{
+				Name: "West Lab", Connection: core.SSHConnection{Host: "west.example"},
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			legacyKey := fmt.Sprintf("remote:%d:%s/projects/Beacon", len(savedID), savedID)
+			atlas := welcomeRecentDir(t, base, "Atlas")
 			h.seedRecent([]core.RecentProject{
-				{Path: welcomeRecentDir(t, base, "Atlas"), LastOpenedAt: 2, Pinned: true, Tags: []string{"Research", "Work"}},
+				{Path: atlas, LastOpenedAt: 2, Pinned: true, Tags: []string{"Research", "Work"}},
 				{Path: welcomeRecentDir(t, base, "Notebook"), LastOpenedAt: 3, Tags: []string{"Personal"}},
-				{Path: "remote:4:west/projects/Beacon", LastOpenedAt: 4, Tags: []string{"Work"}, Remote: &core.RecentRemoteProject{
-					ConnectionID: "west", Name: "West Lab", Folder: "/projects/Beacon", SSHConnectionID: "west",
+				{Path: legacyKey, LastOpenedAt: 4, Tags: []string{"Work"}, Remote: &core.RecentRemoteProject{
+					ConnectionID: savedID, Name: "West Lab", Folder: "/projects/Beacon", SSHConnectionID: savedID,
 				}},
 			})
 			if err := h.driver.Resize(1000, 640); err != nil {
@@ -64,6 +81,26 @@ func TestVisualWelcomeRecentProjects(t *testing.T) {
 			h.rightClickRow(h.app.recent[0].Path)
 			h.clickNamed(i18n.Shared(h.app.language(), "desktop.welcome.editTags"))
 			save("tag-editor")
+			lang := h.app.language()
+			h.app.changeRecent(core.SetRecentTags(atlas, []string{"Updated", "Work"}), nil)
+			h.settle()
+			h.app.welcome.tagEdit.field.SetText("Research, Draft")
+			h.redraw()
+			h.clickNamed(i18n.Shared(lang, "ui.save"))
+			h.settle()
+			if !h.app.welcome.tagEdit.conflict {
+				t.Fatal("the saved tags did not trigger a conflict")
+			}
+			save("tag-conflict")
+			h.clickNamed(i18n.Shared(lang, "desktop.git.cancel"))
+
+			h.clickNamed("Beacon")
+			h.await("SSH history rejection", func() bool { return h.app.remote.err != "" })
+			h.settle()
+			if h.app.remote.err != i18n.Shared(lang, "desktop.welcome.recentSSHTargetChanged") {
+				t.Fatalf("unexpected SSH history refusal: %s", h.app.remote.err)
+			}
+			save("ssh-history-rejected")
 		})
 	}
 }

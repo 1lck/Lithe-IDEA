@@ -202,6 +202,12 @@ func reduceStoredRecent(ctx context.Context, prefs *store.Store, kernel Kernel, 
 
 func (a *App) finishRecent(view recentSnapshot, stage string, err error) {
 	if err != nil {
+		var coreErr *core.Error
+		if errors.As(err, &coreErr) && coreErr.Code == core.CodeRecentProjectTagsChanged {
+			a.operationRejected("workspace_recent_reduce", "tags_changed")
+			a.refreshRecent()
+			return
+		}
 		switch stage {
 		case "recent_projects":
 			a.storedStateFailed(stage, err)

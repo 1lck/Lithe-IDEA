@@ -103,7 +103,7 @@ func (r *remoteState) connectTarget() (core.SavedRemoteConnection, remoteHost) {
 		return core.SavedRemoteConnection{ID: identity, Name: container.Container}, host
 	}
 	entry := *r.entry(r.selected)
-	return entry, remoteHost{ssh: entry.Connection}
+	return entry, remoteHost{ssh: entry.Connection, sshTargetFingerprint: entry.TargetFingerprint}
 }
 
 // connectRemote connects to the host the page shows, showing each step and the questions OpenSSH
@@ -474,6 +474,7 @@ func (a *App) openRemoteFolderNow(dir string, trusted bool) {
 	}
 	b.opening, b.err = true, ""
 	entryID, remember := b.entryID, b.host.saved()
+	targetFingerprint := b.host.sshTargetFingerprint
 	generation, kernel, toolRoot := r.generation, a.kernel, a.globalToolchainRoot()
 	a.background(nil, remoteReadTimeout, func(ctx context.Context) func(*App) {
 		anchor, err := a.remotePlaceholderAnchor()
@@ -486,12 +487,17 @@ func (a *App) openRemoteFolderNow(dir string, trusted bool) {
 			// remembers a project it opened.
 			var source remoteconn.Source
 			source, rememberErr = remoteconn.Read(ctx, kernel, toolRoot)
-			if rememberErr == nil {
-				source, _, _, rememberErr = source.Edit(ctx, kernel, core.RemoteConnectionEdit{RememberFolder: &core.RemoteConnectionFolder{ID: entryID, Path: dir}})
+			stillSavedTarget := func(source remoteconn.Source) bool {
+				return slices.ContainsFunc(source.Connections, func(saved core.SavedRemoteConnection) bool {
+					return saved.ID == entryID && matchesSavedTarget(&saved, targetFingerprint)
+				})
 			}
-			if rememberErr == nil {
-				// One edit after the other: each is made over the document the last one wrote.
-				_, _, _, rememberErr = source.Edit(ctx, kernel, core.RemoteConnectionEdit{MarkConnected: &core.RemoteConnectionID{ID: entryID}})
+			if rememberErr == nil && stillSavedTarget(source) {
+				source, _, _, rememberErr = source.Edit(ctx, kernel, core.RemoteConnectionEdit{RememberFolder: &core.RemoteConnectionFolder{ID: entryID, Path: dir}})
+				// Edit rereads the file, which may already point to a different target.
+				if rememberErr == nil && stillSavedTarget(source) {
+					_, _, _, rememberErr = source.Edit(ctx, kernel, core.RemoteConnectionEdit{MarkConnected: &core.RemoteConnectionID{ID: entryID}})
+				}
 			}
 		}
 		return func(a *App) {
@@ -516,7 +522,7 @@ func (a *App) openRemoteFolderNow(dir string, trusted bool) {
 			}
 			target := remoteTarget{
 				connectionID: b.entryID, name: b.name, host: b.host, session: b.session,
-				remoteRoot: dir, root: remoteplaceholder.Root(anchor, b.entryID, dir), trusted: trusted,
+				remoteRoot: dir, root: remoteplaceholder.Root(anchor, b.host.workspaceIdentity(b.entryID), dir), trusted: trusted,
 			}
 			// The session is the workspace's from here on.
 			r.browser = nil

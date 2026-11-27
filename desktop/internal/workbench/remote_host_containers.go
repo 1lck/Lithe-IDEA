@@ -132,7 +132,8 @@ func (a *App) hideRemoteHostContainers() {
 // an identity no saved connection, WSL distribution or container of this computer has.
 func remoteHostContainerTarget(language i18n.Language, b *remoteBrowser, container remoteListedContainer) (core.SavedRemoteConnection, remoteHost) {
 	connection := core.ContainerConnection{Engine: container.engine, Container: container.Name, User: b.containers.user.Text()}
-	host := remoteHost{ssh: b.host.ssh, wsl: b.host.wsl, container: &connection}
+	host := b.host
+	host.container = &connection
 	name := i18n.SharedFormat(language, "desktop.remote.hostContainers.name", map[string]string{"container": container.Name, "host": b.name})
 	return core.SavedRemoteConnection{ID: b.entryID + "/" + connection.Identity(), Name: name}, host
 }

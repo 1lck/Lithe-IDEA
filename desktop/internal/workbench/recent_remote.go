@@ -13,10 +13,8 @@ func (a *App) recordRemoteRecent(target remoteTarget) {
 		WSL: target.host.wsl, Container: target.host.container,
 	}
 	if target.host.overSSH() {
-		remote.SSHConnectionID = target.connectionID
-		if target.host.container != nil {
-			remote.SSHConnectionID = strings.TrimSuffix(target.connectionID, "/"+target.host.container.Identity())
-		}
+		remote.SSHConnectionID = savedSSHID(target.connectionID, target.host.container)
+		remote.SSHTargetFingerprint = target.host.sshTargetFingerprint
 	}
 	a.changeRecent(core.RecordRemoteRecent(remote, a.now()), nil)
 }
@@ -32,15 +30,9 @@ func (a *App) openRecent(path string) {
 }
 
 func (a *App) openRecentRemote(remote *core.RecentRemoteProject) {
-	// A live workspace is already the requested connection. Use its own anchor,
-	// since the history records only the transport and remote folder.
-	for _, tab := range a.sessions.list {
-		p := tab.project
-		if p != nil && p.remote != nil && p.remote.connectionID == remote.ConnectionID &&
-			p.remote.binding.RemoteRoot() == remote.Folder && !p.remote.closed && p.remote.session != "" {
-			a.sessions.activate(tab)
-			return
-		}
+	// Saved SSH routes are revalidated against disk before reusing even a live tab.
+	if remote.SSHConnectionID == "" && a.activateLiveRecentRemote(remote) {
+		return
 	}
 	if a.remote.open {
 		return
@@ -62,7 +54,15 @@ func (a *App) connectRecentRemote(remote *core.RecentRemoteProject) {
 			}
 			return
 		}
-		host.ssh = saved.Connection
+		if !matchesSavedTarget(saved, remote.SSHTargetFingerprint) {
+			a.rejectChangedRecentSSH(saved.ID)
+			return
+		}
+		if a.activateLiveRecentRemote(remote) {
+			a.closeRemote()
+			return
+		}
+		host.ssh, host.sshTargetFingerprint = saved.Connection, saved.TargetFingerprint
 		if host.container == nil {
 			a.remote.selectEntry(saved.ID)
 			entry = *saved
@@ -74,14 +74,45 @@ func (a *App) connectRecentRemote(remote *core.RecentRemoteProject) {
 	a.connectRemoteTo(entry, host, remote.Folder)
 }
 
+func savedSSHID(connectionID string, container *core.ContainerConnection) string {
+	if container != nil {
+		return strings.TrimSuffix(connectionID, "/"+container.Identity())
+	}
+	return connectionID
+}
+
+func matchesSavedTarget(saved *core.SavedRemoteConnection, fingerprint string) bool {
+	return fingerprint != "" && saved.TargetFingerprint == fingerprint
+}
+
+func (a *App) rejectChangedRecentSSH(id string) {
+	a.remote.selectEntry(id)
+	a.operationRejected("remote_connect", "saved_target_changed")
+	a.remote.err = i18n.Shared(a.language(), "desktop.welcome.recentSSHTargetChanged")
+}
+
+func (a *App) activateLiveRecentRemote(remote *core.RecentRemoteProject) bool {
+	for _, tab := range a.sessions.list {
+		p := tab.project
+		if p != nil && recentRemoteMatchesProject(remote, p) && !p.remote.closed && p.remote.session != "" {
+			a.sessions.activate(tab)
+			return true
+		}
+	}
+	return false
+}
+
 // recentIsOpen compares the transport and remote folder for remote workspaces.
 func recentIsOpen(entry core.RecentProject, project *project) bool {
 	if entry.Remote == nil {
 		return entry.Path == project.root
 	}
-	r := entry.Remote
-	if project.remote == nil || project.remote.connectionID != r.ConnectionID {
-		return false
-	}
-	return project.remote.binding.RemoteRoot() == r.Folder
+	return recentRemoteMatchesProject(entry.Remote, project)
+}
+
+func recentRemoteMatchesProject(recent *core.RecentRemoteProject, project *project) bool {
+	r := project.remote
+	return r != nil && r.connectionID == recent.ConnectionID &&
+		r.binding.RemoteRoot() == recent.Folder &&
+		(recent.SSHConnectionID == "" || (recent.SSHTargetFingerprint != "" && recent.SSHTargetFingerprint == r.host.sshTargetFingerprint))
 }
