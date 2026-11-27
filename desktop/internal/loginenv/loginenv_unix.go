@@ -11,6 +11,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/atomicfile"
 )
 
 const (
@@ -22,8 +24,8 @@ const (
 )
 
 // Activate applies the login shell's PATH to this process. Call it at startup, before Core starts
-// threads that read the environment. It returns the background read to start afterwards, or nil.
-func Activate() func() {
+// threads that read the environment. It returns the cache update to run afterwards, or nil.
+func Activate() func() error {
 	mu.Lock()
 	activated = true
 	mu.Unlock()
@@ -39,12 +41,13 @@ func Activate() func() {
 	}
 	if cached != "" {
 		_ = os.Setenv("PATH", mergedPath(cached, os.Getenv("PATH")))
-		return func() {
+		return func() error {
 			// This process keeps the PATH it started with; the next launch takes the new one.
 			if values := captureLoginEnvironment(refreshTimeout); values != nil {
 				remember(values)
-				writeCache(cache, values["PATH"])
+				return writeCache(cache, values["PATH"])
 			}
+			return nil
 		}
 	}
 	values := captureLoginEnvironment(coldStartTimeout)
@@ -53,8 +56,8 @@ func Activate() func() {
 	}
 	remember(values)
 	if path := values["PATH"]; path != "" {
-		writeCache(cache, path)
 		_ = os.Setenv("PATH", mergedPath(path, os.Getenv("PATH")))
+		return func() error { return writeCache(cache, path) }
 	}
 	return nil
 }
@@ -94,18 +97,9 @@ func cachePath() string {
 }
 
 // writeCache replaces the cached PATH through a temporary file, so a reader never sees half of it.
-func writeCache(path, value string) {
+func writeCache(path, value string) error {
 	if path == "" || value == "" {
-		return
+		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return
-	}
-	temp := path + ".tmp"
-	if err := os.WriteFile(temp, []byte(value+"\n"), 0o600); err != nil {
-		return
-	}
-	if err := os.Rename(temp, path); err != nil {
-		_ = os.Remove(temp)
-	}
+	return atomicfile.Write(path, []byte(value+"\n"), 0o600)
 }

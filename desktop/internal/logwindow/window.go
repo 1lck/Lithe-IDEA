@@ -519,6 +519,9 @@ func (w *window) status(c ui.C) {
 			w.mono(c, label, 11.5, w.pal.white)
 		})
 		w.mono(c, w.text.Logs.VisibleCount(groupNumber(len(m.displayRows())), groupNumber(m.totalRecords()), strconv.Itoa(m.selectedLine())), 11.5, w.pal.white)
+		if m.partialResults {
+			w.mono(c, w.text.Logs.PartialResults, 11.5, w.pal.white)
+		}
 		ui.Spacer(c)
 		w.mono(c, w.text.Logs.Dropped(m.discarded+m.dropped), 11.5, w.pal.white)
 		w.mono(c, w.text.Logs.WriteFailures(m.writeFailures), 11.5, w.pal.white)
