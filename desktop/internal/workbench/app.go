@@ -1160,7 +1160,7 @@ func (a *App) openPlugins(options Options) {
 	}
 	service.RuntimeIssue = a.recordPluginRuntimeIssue
 	service.ContextIssue = func(ctx context.Context, err error) {
-		a.backgroundFailedIn(ctx, "plugin_workspace_context_notification", err)
+		a.backgroundFailedIn(ctx, "plugin_workspace_context_refresh", err)
 	}
 	service.SetRuntimeLanguage(a.language().Code())
 	if err := service.AttachWorkbench(pluginWorkbench{app: a}); err != nil {

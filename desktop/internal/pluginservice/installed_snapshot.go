@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
@@ -46,12 +45,22 @@ func (s *Service) readInstalled(ctx context.Context, entries []pluginmanager.Ent
 		if err := ctx.Err(); err != nil {
 			return InstalledSnapshot{}, errors.Join(append(failures, err)...)
 		}
-		manifest, err := readBounded(filepath.Join(entry.Installed.Path, pluginpkg.ManifestFile), MaxManifestBytes)
+		manifest, err := ReadInstalledManifest(entry.Installed)
 		if err != nil {
-			failures = append(failures, fmt.Errorf("%s: %w", entry.Installed.ID, err))
+			failures = append(failures, err)
 			continue
 		}
 		snapshot.manifests = append(snapshot.manifests, installedManifest{entry: entry, manifest: manifest})
 	}
 	return snapshot, errors.Join(failures...)
+}
+
+// ReadInstalledManifest reads the manifest of a version already selected by
+// the caller. Inventory can use it for disabled plugins too.
+func ReadInstalledManifest(installed pluginpkg.Installed) (json.RawMessage, error) {
+	manifest, err := pluginpkg.ReadFile(installed.Path, []string{pluginpkg.ManifestFile}, MaxManifestBytes)
+	if err != nil {
+		return nil, fmt.Errorf("read installed manifest for %s@%s: %w: %w", installed.ID, installed.Version, ErrPackageRead, err)
+	}
+	return manifest, nil
 }

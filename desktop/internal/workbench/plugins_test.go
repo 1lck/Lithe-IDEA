@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -29,6 +30,50 @@ import (
 type pluginArchiveTransport func(*http.Request) (*http.Response, error)
 
 func (f pluginArchiveTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestRefreshPluginStateKeepsInstalledFactsAndReportsMetadataFailures(t *testing.T) {
+	const id, version = "dev.lithe.test.broken-facts", "1.0.0"
+	preferences := newPluginSnapshotStore(t)
+	root := t.TempDir()
+	staging, err := pluginpkg.NewStaging(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(staging, pluginpkg.ManifestFile), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	installed, err := pluginpkg.Install(root, id, version, staging)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(preferences.Dir(), "plugin-approvals.json"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	kernel := &testKernel{Client: core.NewClient()}
+	logger := &treeRecordingLog{}
+	h := newHarnessWithOptions(t, Options{Kernel: kernel, PluginKernel: kernel, PluginRoot: root, Store: preferences, Logs: logger, LogKernel: kernel})
+	h.settle()
+	h.app.refreshPluginState()
+	h.settle()
+
+	facts := h.app.pluginFacts.Load()
+	if facts == nil || len(*facts) != 1 {
+		t.Fatalf("installed facts = %v, want one degraded row", facts)
+	}
+	if item := (*facts)[0]; item.ID != id || item.Version != version || item.Path != installed.Path || item.Name != "" || item.Source != "" {
+		t.Fatalf("installed row = %+v, want basic package facts", item)
+	}
+	var diagnostics []string
+	for _, event := range loggedEvents(logger, backgroundFailedEvent) {
+		if event.Fields["operation"] == "plugin_list" {
+			diagnostics = append(diagnostics, event.Fields["error"].(string))
+		}
+	}
+	if len(diagnostics) != 1 || !strings.Contains(diagnostics[0], "approval") ||
+		!strings.Contains(diagnostics[0], "decode installed manifest") || !strings.Contains(diagnostics[0], id) {
+		t.Fatalf("inventory diagnostics = %v, want one event with both causes", diagnostics)
+	}
+}
 
 func TestMarketplaceRetryReusesBytesAndStillRejectsTampering(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})

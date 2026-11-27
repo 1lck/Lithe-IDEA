@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -33,10 +34,11 @@ func (a *App) describeDisplacement(ctx context.Context, enabledID string, displa
 		return d
 	}
 	entries, err := a.plugins.CurrentInstalled(ctx)
-	d.err = err
+	facts, factsErr := installedPluginFacts(entries, nil)
+	d.err = errors.Join(err, factsErr)
 	d.plugins = make(map[string]string, len(entries))
 	d.languages = make(map[string]string)
-	for _, item := range installedPluginFacts(entries, nil) {
+	for _, item := range facts {
 		d.plugins[item.ID] = item.Name
 		for _, capability := range item.Capabilities {
 			if capability.Kind == settingswindow.CapabilityLanguageServer && capability.Title != "" {
