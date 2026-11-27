@@ -89,14 +89,14 @@ func (s *runConfigState) configuration(id string) *core.RunConfiguration {
 // providerRuns is the providerRuns snapshot of the instances whose model has loaded:
 // each target a provider run declaration applies to, plus each model run entry targeting
 // a declared runConfigurationType, under its workspace-relative project path.
-// ok is false while no model has loaded, so a refresh does not withdraw every detected
-// run before the models answer.
+// ok is false while no declared model has loaded, so an instance with only tasks cannot
+// withdraw existing runs before the models answer.
 func providerRuns(instances []buildInstance) ([]core.RunProviderRun, bool) {
 	runs := []core.RunProviderRun{}
 	loaded := false
 	for index := range instances {
 		instance := &instances[index]
-		if !instance.modelLoaded {
+		if !instance.modelLoaded || instance.ModelSource == "" {
 			continue
 		}
 		loaded = true
@@ -390,6 +390,7 @@ func (a *App) startRunConfigurationWith(p *project, id string, debug *connection
 		}
 		a.runConfiguration(p, id)
 	})
+	setRunGroupFromInstance(p, op.session, &p.build.instances[index])
 	op.debug = debug
 	// The run starts a process on the files on disk, so unsaved documents are saved first,
 	// as a rerun does; a failed save keeps the run from starting. The save reports its own

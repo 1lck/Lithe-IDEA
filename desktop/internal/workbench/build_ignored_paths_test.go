@@ -34,7 +34,7 @@ const ignoredPathsManifest = `{
     "detection": {"markers": ["fixture.build"]},
     "invocation": {"executables": [{"kind": "command", "command": "fixture-build"}]},
     "options": [{"id": "release", "displayName": "Release Profile", "kind": "boolean", "arguments": ["--release"]}],
-    "tasks": [{"id": "build", "displayName": "Build", "group": "build", "scopes": ["project"], "arguments": ["build"]}]
+    "tasks": [{"id": "build", "displayName": "Fixture Task", "group": "build", "scopes": ["workspace", "project"], "arguments": ["build"]}]
   }]
 }`
 
@@ -96,17 +96,19 @@ func openIgnoredPathsProject(t *testing.T, team string, kernel Kernel) (*harness
 	return h, p
 }
 
-// settleUntil settles the window until condition holds, a step at a time: each settle waits for the
-// background work queued so far and paints its results, so a chain of steps ends within a few.
+// settleUntil observes the requested state, without waiting for unrelated work or
+// imposing a fixed number of background turns on a valid chain.
 func (h *harness) settleUntil(what string, condition func() bool) {
 	h.t.Helper()
-	for range 12 {
-		h.settle()
-		if condition() {
-			return
-		}
+	if err := h.driver.Pump(); err != nil {
+		h.t.Fatal(err)
 	}
-	h.t.Fatalf("%s did not happen", what)
+	h.await(what, condition)
+	// A result can satisfy the model predicate in an after-frame callback. Paint
+	// its invalidation before the caller sends input to the newly enabled view.
+	if err := h.driver.Pump(); err != nil {
+		h.t.Fatal(err)
+	}
 }
 
 // awaitBuildDetection waits until the Build tool window has detected the instances of p.
@@ -145,12 +147,14 @@ func (h *harness) storedIgnoredPaths(p *project) core.BuildIgnoredPaths {
 	return storage.IgnoredPaths
 }
 
-// awaitIgnoredPathsLoaded waits until the open Build options dialog shows the ignored paths Core picked.
+// awaitIgnoredPathsLoaded waits until the dialog has resolved its values and
+// runtime rows, so later input uses the final control positions.
 func (h *harness) awaitIgnoredPathsLoaded(p *project) {
 	h.t.Helper()
 	h.settleUntil("the ignored paths", func() bool {
 		e := &p.build.options
-		return e.open && e.ignored.loaded && !e.ignored.restoring
+		return e.open && !e.loading && e.ignored.loaded && !e.ignored.restoring &&
+			(e.instance == "" || e.runtimesLoaded)
 	})
 }
 
@@ -174,7 +178,7 @@ func TestBuildOptionsIgnoredPathsAreSavedOnThisMachineAndRestored(t *testing.T) 
 		t.Fatalf("by default the build systems are at %q, want the dot-named folder skipped", got)
 	}
 
-	h.clickNamed(h.shared("desktop.build.optionsTitle"))
+	h.clickNamed(h.shared("desktop.build.ignoredPaths"))
 	h.awaitIgnoredPathsLoaded(p)
 	e := &p.build.options
 	if e.instance != "" || len(e.fields) != 0 {
@@ -198,7 +202,7 @@ func TestBuildOptionsIgnoredPathsAreSavedOnThisMachineAndRestored(t *testing.T) 
 		t.Fatalf("the project stores %+v, want the typed list on this machine", got)
 	}
 
-	h.clickNamed(h.shared("desktop.build.optionsTitle"))
+	h.clickNamed(h.shared("desktop.build.ignoredPaths"))
 	h.awaitIgnoredPathsLoaded(p)
 	if !h.showsWrapped(h.shared("desktop.build.ignoredPathsLocal")) {
 		t.Fatal("the dialog does not say the list is the one saved on this machine")
@@ -326,4 +330,27 @@ func TestBuildOptionsWaitForResolutionBeforeEditAndSave(t *testing.T) {
 	if got := string(instance.Options["release"]); got != "true" {
 		t.Fatalf("release option after saving and reloading = %q, want true", got)
 	}
+}
+
+func TestWorkspaceBuildSettingsLinkOpensDetectedInstanceWithoutResettingDraft(t *testing.T) {
+	h, p := openIgnoredPathsProject(t, "", nil)
+	targets := h.app.workspaceBuildOptions(p)["fixture-ignored"]
+	for _, target := range targets {
+		if target.Root != "tools" {
+			continue
+		}
+		target.Open()
+		h.settleUntil("nested options loaded", func() bool {
+			e := &p.build.options
+			return e.open && !e.loading && e.instance == target.InstanceID && e.root == "tools" && len(e.fields) > 0
+		})
+		session := p.build.options.session
+		target.Open()
+		h.settle()
+		if p.build.options.session != session {
+			t.Fatal("clicking the settings link replaced the active options editor")
+		}
+		return
+	}
+	t.Fatal("no workspace settings link for the detected tools project")
 }

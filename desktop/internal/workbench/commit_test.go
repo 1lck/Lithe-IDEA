@@ -103,12 +103,8 @@ const gitChainSteps = 6
 // chained. Each settle waits for the running work, so the count is a bound, not a timer.
 func (h *harness) click(point gfx.Point) {
 	h.t.Helper()
-	if err := h.driver.Click(point.X, point.Y); err != nil {
-		h.t.Fatal(err)
-	}
-	for range gitChainSteps {
-		h.settle()
-	}
+	h.sendClick(point)
+	h.settleChain()
 }
 
 // topHit is the smallest rectangle the hit id was laid out in: a dialog's scrim shares its
@@ -337,6 +333,7 @@ func TestCommitOptionsEditTheGenerationInstructions(t *testing.T) {
 	if got := h.app.aiCommitOptions().CustomInstructions; got != "Avoid long bodies" {
 		t.Fatalf("generation instructions = %q, want them trimmed", got)
 	}
+	h.settle()
 	var saved settings
 	if found, err := h.store.Load(settingsFile, &saved); err != nil || !found || saved.AIGeneration.CustomInstructions != " Avoid long bodies " {
 		t.Fatalf("saved instructions = %q (found %v, err %v)", saved.AIGeneration.CustomInstructions, found, err)

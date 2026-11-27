@@ -2,10 +2,12 @@ package workbench
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/vivaui/viva/ui"
 )
 
 func symbolsResult(t *testing.T, symbols ...core.DocumentSymbol) json.RawMessage {
@@ -64,6 +66,39 @@ func TestOutlineAsksOnceAndFollowsCaret(t *testing.T) {
 	if got := f.kernel.requestCount(); got != 1 {
 		t.Fatalf("requests = %d, want 1", got)
 	}
+}
+
+// The Structure tree shares Viva's virtualized List implementation. A single
+// ScrollTo request must paint a distant symbol row without another pointer
+// event or a second redraw (#1820).
+func TestOutlineScrollToOffscreenSymbolPaintsOnTheFirstFrame(t *testing.T) {
+	f := newSemanticFixture(t)
+	f.server.features = map[string]bool{featureDocumentSymbols: true}
+	f.h.app.reduceChrome(core.SetChromeOpen(itemStructure, true))
+	f.h.settle()
+	f.waitForRequests(t, 1)
+	outline := &f.h.app.editor.outline
+	// Freeze automatic caret-follow so the test owns the exact scroll request.
+	outline.still = true
+	symbols := make([]core.DocumentSymbol, 100)
+	for i := range symbols {
+		symbols[i] = symbolAt(fmt.Sprintf("entry-%03d", i), 5, 0, 1)
+	}
+	f.deliver(t, "op-1", pluginMethodDocumentSymbols, symbolsResult(t, symbols...))
+	if len(outline.rows) != len(symbols) {
+		t.Fatalf("outline has %d rows, want %d", len(outline.rows), len(symbols))
+	}
+	outline.view.ScrollTo(95, ui.ListCenter)
+	f.h.app.invalidator.Invalidate()
+	if err := f.h.driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	for _, hit := range f.h.driver.Snapshot().Hits {
+		if hit.Label == "entry-095" && hit.Bounds.Height > 0 {
+			return
+		}
+	}
+	t.Fatal("ScrollTo did not paint the distant symbol on its requested frame")
 }
 
 func TestOutlineRowsSortAndFold(t *testing.T) {

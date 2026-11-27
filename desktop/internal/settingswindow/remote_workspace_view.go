@@ -104,7 +104,8 @@ func (w *window) remoteProgramRow(c ui.C, language i18n.Language, r *remotePrefe
 				}
 			}
 			if w.button(c.Part("choose"), buttonSmall, i18n.Shared(language, "desktop.remoteSettings.chooseProgram"), busy) {
-				w.pickRemoteProgram(language, r)
+				// The native picker runs a modal message loop on Windows, so it must run after paint.
+				c.After(func() { w.pickRemoteProgram(language, r) })
 			}
 		})
 	})
@@ -324,9 +325,12 @@ func (w *window) remotePreferencesNotices(c ui.C, language i18n.Language, r *rem
 	})
 }
 
+var openRemoteProgramFiles = app.OpenFiles
+
 // pickRemoteProgram asks for the SSH program and drafts it; Core checks it when Apply writes it.
 func (w *window) pickRemoteProgram(language i18n.Language, r *remotePreferencesState) {
-	paths, err := app.OpenFiles(app.OpenFileOptions{Title: i18n.Shared(language, "desktop.remoteSettings.chooseProgramTitle")})
+	defer w.inv.Invalidate()
+	paths, err := openRemoteProgramFiles(app.OpenFileOptions{Title: i18n.Shared(language, "desktop.remoteSettings.chooseProgramTitle")})
 	// log-exempt: 用户取消：关闭文件选择器不修改 SSH 程序草稿。
 	if errors.Is(err, app.ErrCanceled) || (err == nil && len(paths) == 0) {
 		return

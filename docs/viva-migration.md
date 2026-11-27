@@ -407,7 +407,7 @@
 | `plugin-debug-start-and-adapter-features` | 插件后端发起调试并声明适配器行为 | 必须迁移 | 实现/缺 | 部分 | C01,C02 无 desktop/ 证据 |
 | `viva-debug-session` | Viva 调试面板使用插件声明的 stdio 调试适配器 | 必须迁移 | 本分支新增 | 部分 | C02,C12 |
 | `process-termination-policy` | 退出前逐个确认仍在运行程序的终端和 Agent 后台任务（Agent… | 必须迁移 | 部分/缺 | 部分 | C07 `workbench/process_exit.go`、`workbench/startup_sweep.go`、`settingswindow/process_termination_view.go` |
-| `run-processes-end-with-ide` | 退出 IDE 时结束它启动的全部运行、终端、服务、测试、语言服务器和… | 必须迁移 | 实现/部分 | 部分 | `workbench/startup_sweep.go`、`processledger/processledger.go`（启动清扫仅 macOS） |
+| `run-processes-end-with-ide` | 退出 IDE 时结束它启动的全部运行、终端、服务、测试、语言服务器和… | 必须迁移 | 实现/部分 | 部分 | `workbench/startup_sweep.go`、`processledger/processledger.go`（两端都做启动清扫，崩溃当下不清理） |
 | `run-output-snapshot` | 运行输出快照 | 必须迁移 | 缺/实现 | 完成 | `workbench/runs.go` |
 | `login-shell-environment` | 从 Finder / Dock 启动时继承登录 shell 的环境 | 平台专属 | 实现/专属 | 完成 | `loginenv/loginenv_unix.go`、`cmd/lithe/main.go` |
 | `run-discovery` | 入口点与运行配置发现 | 必须迁移 | 实现/实现 | 部分 | `core/run_discovery.go` |
@@ -455,6 +455,8 @@
 MCP 管理随 Agent 对话失去消费者后，本轮整块删除，后续重新设计。Rust Core 删除 `mcp` 模块与 `mcp.parseConfiguration`、`mcp.parseRegistry`、`mcp.featuredRegistry`、`mcp.planWrite`、`mcp.toolPolicy`、`mcp.commandLine`、`mcp.librarySnapshot`、`mcp.validateDraft`、`mcp.batchPlan` 九个命令，以及 `rust/fixtures/mcp` 与 `rust/contracts/mcp-registry-page.json`。本仓库删除 `shared/fixtures/mcp`、`shared/contracts/mcp-registry-page.json`、67 条仅旧客户端使用的 MCP 词条与两个能力记录（`mcp-registry-discovery`、`mcp-server-library`），服务器库 Note 移入 `.agents/notes/archived/`。
 
 保留 `ide-mcp-connection`：Lithe 对外提供的 IDE API MCP 服务端（`lithe-mcp`、`Lithe-core-rust/rust/fixtures/ide-api/mcp-protocol.json`）不依赖被删的配置管理能力。
+
+在独立的 Lithe-core-rust 检出中，选择测试修订 `c875bc6f8ad77f3e589044bd7d4b32bf11202ff4` 或包含该测试的后续版本，然后在 Core 根目录运行 `cargo test --locked --manifest-path rust/Cargo.toml -p lithe-ide-host --features mcp --test mcp_protocol`。三个 stdio 会话分别验证旧版初始化、新版直接发现及新版初始化后发现，按连接公开的工具清单核对 `tools/list`，并检查 `ttlMs` 和 `cacheScope`。[Core 协议回归测试](https://github.com/Lithe-IDEA/Lithe-core-rust/blob/c875bc6f8ad77f3e589044bd7d4b32bf11202ff4/rust/crates/ide-host/tests/mcp_protocol.rs)
 
 ## 不做：社区论坛（2026-11-13 用户决定）
 

@@ -213,7 +213,7 @@ func (w *window) scrollbackCard(c ui.C) {
 			if ui.Button(c.Part("less"), i18n.Shared(language, "desktop.settings.terminal.scrollbackLess")).Icon(icons.Minus).IconOnly().Ghost().Small().Disabled(value <= MinScrollback).Clicked() {
 				w.setTerminalScrollback(value-scrollbackStep, false)
 			}
-			box := ui.TextFieldID(c, scrollbackFieldID, field, title, "").Width(90)
+			box := ui.TextField(c, field, title, "", ui.WithID(scrollbackFieldID)).Width(90)
 			box.OnKey(func(event gfx.KeyEvent) gfx.EventResult {
 				if event.Key == gfx.KeyEnter && !event.Release {
 					w.commitScrollback()

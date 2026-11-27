@@ -302,7 +302,7 @@ func (a *App) updateDialog(c ui.C) {
 		}
 	}
 	open := true
-	if ui.ModalWith(c, &open, title, ui.ModalSpec{Description: description, Width: width}, body, footer) {
+	if ui.Modal(c, &open, title, ui.ModalSpec{Description: description, Width: width}, body, footer) {
 		action = "later"
 	}
 	switch action {
@@ -425,7 +425,7 @@ func (a *App) layoutUpdateNotes(canvas *gfx.Canvas, page *updateNotesPage, width
 	page.style.LineHeight = float32(math.Round(float64(size) * 1.5))
 	page.style.MonoFace = key.face
 	page.height = page.view.Layout(canvas, page.style, &page.doc, max(width, 1))
-	page.label = page.view.SelectedText(components.MarkdownSelection{Focus: page.view.TextLen()})
+	page.label = page.view.SelectedText(ui.TextRange{Focus: page.view.TextLen()})
 }
 
 // clamp keeps a scroll of the notes inside them.

@@ -42,6 +42,7 @@ func TestLogEventsMatchCatalog(t *testing.T) {
 		{core.LevelWarn, "editor.document.watch_failed", map[string]any{"stage": "create"}},
 		{core.LevelWarn, "app.notification.operation_rejected", map[string]any{"operation": "document_external_change", "reason": "disk_conflict"}},
 		{documentFailedLevel, documentEventSaveFailed, documentSaveFields(12, 41, failure)},
+		{core.LevelInfo, "app.action.performed", map[string]any{"action": "document.discardDeleted", "surface": surfaceButton}},
 		{operationFailedLevel, operationFailedEvent, operationFailedFields("project_tree_list", failure)},
 		{backgroundFailedLevel, backgroundFailedEvent, operationFailedFields("project_tree_list", failure)},
 		{core.LevelWarn, "app.settings.decode_failed", storedStateFields("settings", failure)},

@@ -401,7 +401,7 @@ func (w *window) localHistoryCard(c ui.C) {
 		})
 	})
 	if d.confirmClear {
-		ui.Modal(c, &d.confirmClear, i18n.Shared(language, "native.clearThisProjectSLocalHistory"), func() {
+		ui.Modal(c, &d.confirmClear, i18n.Shared(language, "native.clearThisProjectSLocalHistory"), ui.ModalSpec{}, func() {
 			ui.Wrap(c, i18n.Shared(language, "native.everySavedVersionOfThisProjectSFilesIsDeletedOpenFilesAreNotChanged")).FontSize(12).Color(w.pal.text)
 		}, func() {
 			if ui.Button(c, i18n.Shared(language, "desktop.pluginSettings.actionCancel")).Outline().Clicked() {

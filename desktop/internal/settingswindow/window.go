@@ -78,15 +78,18 @@ const (
 // window is one open settings window and the model of its Page. Everything in it runs on
 // its window thread, but for the fields that say so.
 type window struct {
-	cli              cliRegistration
-	associations     associationRegistration
-	searchDraft      searchPreferencesDraft
-	editorDelay      ui.Field
-	editorDelayReady bool
-	editorPrefsError string
-	scheme           schemeDraft
-	ctrl             *Controller
-	sess             *session
+	cli                      cliRegistration
+	associations             associationRegistration
+	searchDraft              searchPreferencesDraft
+	editorDelay              ui.Field
+	editorDelayReady         bool
+	editorPrefsError         string
+	editorPreferencesChanged atomic.Pointer[editorPreferencesUpdate]
+	rainbowLight             rainbowPaletteEditor
+	rainbowDark              rainbowPaletteEditor
+	scheme                   schemeDraft
+	ctrl                     *Controller
+	sess                     *session
 
 	// win, stopWatch and gone are guarded by ctrl.mu: Controller.Open fills them in from the
 	// thread that opened the window, and the window's own thread reads and clears them.
@@ -324,7 +327,12 @@ func newWindow(c *Controller, current Values) *window {
 
 // config is the native window's configuration: the Page paints it and routes its input.
 func (w *window) config() app.Config {
-	w.page = ui.NewPage(ui.PageConfig{View: w.view, Theme: &w.theme, Background: &w.background, Invalidator: &w.inv, BarStyle: uistyle.Bars})
+	w.page = ui.NewPage(ui.PageConfig{
+		View: w.view, Theme: &w.theme, Background: &w.background, Invalidator: &w.inv, BarStyle: uistyle.Bars,
+		// Paths, values and sidebar entries cut short with an ellipsis show their whole value
+		// when the pointer rests on them.
+		EllipsisTooltips: true,
+	})
 	config := ui.Configure(w.page, app.Config{
 		Title:          w.ctrl.text().Settings.Title,
 		Icon:           appicon.Window(),
@@ -384,6 +392,7 @@ func (w *window) takeQuery() (string, bool) {
 // wake runs on the window thread right before each repaint an Invalidate requested. It
 // takes a page request and what the plugin registry and the settings sources changed.
 func (w *window) wake() {
+	w.takeEditorPreferences()
 	if q, ok := w.takeQuery(); ok {
 		// A search the workbench asks for is a search of the marketplace.
 		w.marketQuery = q

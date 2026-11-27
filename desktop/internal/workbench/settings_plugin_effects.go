@@ -94,10 +94,10 @@ func (a *App) applyLivePluginSettings(p *project, id, version string) {
 func (a *App) reloadPluginBuildModels(p *project, id string) {
 	for index := range p.build.instances {
 		instance := &p.build.instances[index]
-		if instance.PluginID != id {
+		if instance.PluginID != id || instance.ModelSource == "" {
 			continue
 		}
-		instance.modelLoaded = false
+		p.unloadBuildModel(instance)
 		instance.modelError, instance.modelStopped = "", false
 		if instance.modelLoading {
 			instance.modelReloadPending = true

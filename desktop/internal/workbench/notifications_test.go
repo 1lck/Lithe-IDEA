@@ -212,6 +212,13 @@ func TestFailureNoticeOpensTheLogsOfTheActionThatFailed(t *testing.T) {
 		t.Fatalf("%d toasts offer %s, want only the failure's", n, viewLogs)
 	}
 
+	// The failure's toast sits behind the newest one in the collapsed stack; the pointer
+	// resting on the stack spreads it out, as a user's does, before the press.
+	collapsed := center(h.pageHit(viewLogs).Bounds)
+	if err := h.driver.Move(collapsed.X, collapsed.Y); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
 	h.clickNamed(viewLogs)
 	h.settle()
 	if len(opened) != 1 || opened[0] != failed {

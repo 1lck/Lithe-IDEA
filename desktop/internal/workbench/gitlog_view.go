@@ -199,7 +199,7 @@ func (a *App) drawLogReferences(c ui.C, p *project) ui.Box {
 	v.refSel = l.refSelected
 	return ui.Column(c).FillHeight().Background(a.colors.Panel).Clip().Children(func() {
 		ui.Row(c).Height(logToolbarHeight).Shrink(0).Items(ui.Center).PadX(6).Children(func() {
-			ui.TextFieldID(c, logRefSearchID, &v.refSearch, g.BranchSearch, g.BranchSearch).Grow(1)
+			ui.TextField(c, &v.refSearch, g.BranchSearch, g.BranchSearch, ui.WithID(logRefSearchID)).Grow(1)
 		})
 		ui.Divider(c)
 		// A level starts an icon and a gap right of its parent, so a row's arrow or icon is under
@@ -565,7 +565,7 @@ func (a *App) drawLogToolbar(c ui.C, p *project) {
 		searchMin = logSearchWidth(v.barWidth, v.filtersWidth)
 	}
 	ui.Row(c).Height(logToolbarHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(logBarGap).PadX(logBarPad).Draw(v.barDraw).Children(func() {
-		ui.TextFieldID(c, logSearchID, &v.search, g.TextOrHash, g.TextOrHash).MinWidth(searchMin).Grow(1).MaxWidth(320)
+		ui.TextField(c, &v.search, g.TextOrHash, g.TextOrHash, ui.WithID(logSearchID)).MinWidth(searchMin).Grow(1).MaxWidth(320)
 		ui.Row(c).Shrink(1).MinWidth(0).Clip().Items(ui.Center).Children(func() {
 			ui.Row(c).Shrink(0).Items(ui.Center).Gap(logBarGap).Draw(v.filtersDraw).Children(func() {
 				a.drawLogFilters(c, p)

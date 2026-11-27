@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -74,7 +75,7 @@ func TestVisualSettings(t *testing.T) {
 					},
 					PluginState: func(string) PluginState { return PluginState{Installed: true, Enabled: true, Version: "1.0.0"} }, SystemDark: func() bool { return theme == "dark" },
 					SetNetwork: func(NetworkSettings, *string) {}, SetLocalHistory: func(LocalHistorySettings) {},
-					StopTime: func() (StopTime, bool) { return StopTime{Default: 5, Min: 1, Max: 30}, true }, SweepsLeftovers: true,
+					StopTime: func() (StopTime, bool) { return StopTime{Default: 5, Min: 1, Max: 30}, true },
 					TerminalShells: func() ([]localshell.Choice, string) {
 						return []localshell.Choice{{Name: "zsh", Path: "/bin/zsh", Default: true}, {Name: "bash", Path: "/bin/bash"}}, "/bin/zsh"
 					},
@@ -305,6 +306,98 @@ func TestVisualSettings(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestVisualToolchainEllipsis(t *testing.T) {
+	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
+	if out == "" {
+		t.Skip("set LITHE_VISUAL_OUTPUT_DIR")
+	}
+	if err := os.MkdirAll(out, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, language := range []i18n.Language{i18n.Chinese, i18n.English} {
+		for _, theme := range []string{"dark", "light"} {
+			t.Run(theme+"-"+language.Code(), func(t *testing.T) {
+				snapshot := fixtureSnapshot()
+				home := "/toolchains/" + strings.Repeat("long-installation-directory/", 4) + "compiler"
+				tool := &snapshot.Tools[0]
+				tool.AutomaticHome, tool.Automatic.Home, tool.Installations[0].Home = home, &home, home
+				w := newWindow(NewController(Options{
+					Text: func() *i18n.Messages { return i18n.For(language) }, Language: func() i18n.Language { return language },
+					Toolchains: &fakeToolchainLoader{snapshot: snapshot},
+				}), Values{Theme: theme, Language: language.Code()})
+				w.sess.page = pageToolchains
+				session, err := headless.Open(w.config(), nil, headless.Options{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(session.Close)
+				d := &windowDriver{t: t, w: w, driver: session.Driver()}
+				d.until("the toolchain list", func() bool { return w.toolchains.current().loaded && w.toolchains.view.ready })
+				d.pump()
+				shot := func(scene string) {
+					t.Helper()
+					if err := session.Screenshot(filepath.Join(out, "ellipsis-toolchain-"+scene+"-"+theme+"-"+language.Code()+".png")); err != nil {
+						t.Fatal(err)
+					}
+				}
+				shot("before-hover")
+				found := false
+				for _, label := range d.driver.Snapshot().Labels {
+					if strings.HasPrefix(label.Value, "/toolchains/") && strings.HasSuffix(label.Value, "…") {
+						if err := d.driver.Move(label.Bounds.X+2, label.Bounds.Y+label.Bounds.Height/2); err != nil {
+							t.Fatal(err)
+						}
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Fatal("the installation did not show its shortened path")
+				}
+				if err := session.Advance(time.Second); err != nil {
+					t.Fatal(err)
+				}
+				shot("path-hover")
+			})
+		}
+	}
+}
+
+// TestVisualSidebarEllipsis captures a page name the sidebar cuts short with its full name shown
+// to its right. Only the English sidebar cuts a built-in page name short, so it is captured in
+// English alone.
+func TestVisualSidebarEllipsis(t *testing.T) {
+	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
+	if out == "" {
+		t.Skip("set LITHE_VISUAL_OUTPUT_DIR")
+	}
+	if err := os.MkdirAll(out, 0755); err != nil {
+		t.Fatal(err)
+	}
+	language := i18n.English
+	for _, theme := range []string{"dark", "light"} {
+		t.Run(theme+"-"+language.Code(), func(t *testing.T) {
+			w := newWindow(NewController(Options{
+				Text: func() *i18n.Messages { return i18n.For(language) }, Language: func() i18n.Language { return language },
+			}), Values{Theme: theme, Language: language.Code()})
+			session, err := headless.Open(w.config(), nil, headless.Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(session.Close)
+			d := &windowDriver{t: t, w: w, driver: session.Driver()}
+			d.pump()
+			full := titleOf(&w.text.Settings, pageBuild)
+			if got, _ := d.restForTip(d.cutSidebarEntry(full), session.Advance); got != full {
+				t.Fatalf("sidebar tooltip %q, want %q", got, full)
+			}
+			if err := session.Screenshot(filepath.Join(out, "ellipsis-settings-sidebar-hover-"+theme+"-"+language.Code()+".png")); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 

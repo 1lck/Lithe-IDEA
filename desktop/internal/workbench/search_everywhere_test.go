@@ -13,6 +13,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/gfx"
+	"github.com/vivaui/viva/ui"
 )
 
 func TestEverywhereFindsPagesAndOpensSelectedFile(t *testing.T) {
@@ -51,6 +52,29 @@ func TestEverywhereFindsPagesAndOpensSelectedFile(t *testing.T) {
 	awaitDocumentState(t, h, func() bool { return !p.everywhere.loading && len(p.everywhere.matches) == 60 })
 	if p.everywhere.cursor != nil {
 		t.Fatal("last page unexpectedly has a continuation")
+	}
+	// The first result is out of the virtualized viewport after loading the
+	// second page. Resetting the list must paint it immediately, not on a
+	// later mouse movement or a second Pump.
+	firstLabel := searchMatchLabel(p.everywhere.matches[0])
+	firstVisible := func() bool {
+		for _, hit := range h.driver.Snapshot().Hits {
+			if hit.Role == gfx.RoleOption && hit.Label == firstLabel && hit.Bounds.Height > 0 {
+				return true
+			}
+		}
+		return false
+	}
+	if firstVisible() {
+		t.Fatal("the initial global-search result remained visible at the end")
+	}
+	h.app.everywhereView.list.ScrollTo(0, ui.ListStart)
+	h.app.invalidator.Invalidate()
+	if err := h.driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	if !firstVisible() {
+		t.Fatal("Search Everywhere ScrollTo did not paint the first result in its request frame")
 	}
 	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)

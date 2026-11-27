@@ -7,11 +7,13 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginruntime"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
+	"github.com/vivaui/viva/ui"
 )
 
 type fakeToolchainLoader struct {
@@ -21,6 +23,47 @@ type fakeToolchainLoader struct {
 	inspectErr error
 	// loads counts the reads; the window reads on an effect goroutine.
 	loads atomic.Int32
+}
+
+// Manual middle truncation must retain the actual home and the radio row's action.
+func TestToolchainEllipsisKeepsFullHomeAndSelection(t *testing.T) {
+	snapshot := fixtureSnapshot()
+	home := "/toolchains/" + strings.Repeat("long-directory/", 6) + "compiler"
+	tool := &snapshot.Tools[0]
+	tool.AutomaticHome = home
+	tool.Automatic.Home = &home
+	tool.Installations[0].Home = home
+	w, d := toolchainWindow(t, &fakeToolchainLoader{snapshot: snapshot})
+	found := false
+	for _, label := range d.driver.Snapshot().Labels {
+		if strings.HasPrefix(label.Value, "/toolchains/") && strings.HasSuffix(label.Value, "…") {
+			if err := d.driver.Move(label.Bounds.X+2, label.Bounds.Y+label.Bounds.Height/2); err != nil {
+				t.Fatal(err)
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("the installation did not show its shortened path")
+	}
+	if err := d.driver.Advance(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	var full strings.Builder
+	for _, label := range d.driver.Snapshot().Labels {
+		if label.Layer == ui.TooltipLayer {
+			full.WriteString(label.Value)
+		}
+	}
+	if full.String() != home {
+		t.Fatalf("home tooltip %q, want %q", full.String(), home)
+	}
+	d.chooseToolchain(home)
+	toolID := w.toolchains.current().snapshot.Tools[0].ID
+	if draft, ok := w.toolchains.current().draft[toolID]; !ok || draft != home {
+		t.Fatalf("the installation's click did not preserve its full home: %+v", draft)
+	}
 }
 
 func (f *fakeToolchainLoader) Inspect(_ context.Context, _ toolchain.Snapshot, _ string, home string) (core.ToolchainSelection, error) {
@@ -113,6 +156,36 @@ func (d *windowDriver) applyBuild() {
 	d.click(en("desktop.buildSettings.apply"))
 	d.until("the apply to end", func() bool { return !d.w.apply.active() && !d.w.toolchains.saving })
 	d.pump()
+}
+
+// An unreadable enabled plugin must not make the remaining valid tools look
+// like a complete catalog. The same warning is visible in both scopes.
+func TestToolchainsShowPartialDiscoveryWarningInBothScopes(t *testing.T) {
+	for _, scope := range []string{scopeGlobal, scopeProject} {
+		t.Run(scope, func(t *testing.T) {
+			fixture := fixtureSnapshot()
+			fixture.DiscoveryIncomplete = true
+			loader := &scopedToolchainLoader{fakeToolchainLoader{snapshot: fixture}}
+			w, d := toolchainWindow(t, loader)
+			if scope == scopeProject {
+				w.toolchains.setScope(scopeProject)
+				w.inv.Invalidate()
+				d.until("the project scope", func() bool {
+					return w.toolchains.current().loaded && w.toolchains.scope == scopeProject
+				})
+				d.pump()
+			}
+			if !d.text(en("desktop.toolchains.discoveryIncomplete")) {
+				t.Fatal("partial tool discovery is not visible to the user")
+			}
+			if !d.text("Compiler") {
+				t.Fatal("the readable tool was hidden by another plugin's missing manifest")
+			}
+			if !d.has(en("desktop.toolchains.reload")) {
+				t.Fatal("no way to reload after repairing the unreadable plugin")
+			}
+		})
+	}
 }
 
 // The chosen tool lists what it falls back to, each installation once and the link that opens

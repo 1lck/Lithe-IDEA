@@ -1328,6 +1328,50 @@ var LayoutGrid = gfx.Icon{
 	},
 }
 
+// link-2 is a compiled vector icon.
+var Link2 = gfx.Icon{
+	ViewBox: 24.0,
+	Stroke:  2.0,
+	Cap:     gfx.CapRound,
+	Join:    gfx.JoinRound,
+	Commands: []gfx.PathCommand{
+		gfx.MoveTo(9.0, 17.0),
+		gfx.LineTo(7.0, 17.0),
+		gfx.CubicTo(4.23858, 17.0, 2.0, 14.7614, 2.0, 12.0),
+		gfx.CubicTo(2.0, 9.23858, 4.23858, 7.0, 7.0, 7.0),
+		gfx.LineTo(9.0, 7.0),
+		gfx.MoveTo(15.0, 7.0),
+		gfx.LineTo(17.0, 7.0),
+		gfx.CubicTo(19.7614, 7.0, 22.0, 9.23858, 22.0, 12.0),
+		gfx.CubicTo(22.0, 14.7614, 19.7614, 17.0, 17.0, 17.0),
+		gfx.LineTo(15.0, 17.0),
+		gfx.MoveTo(8.0, 12.0),
+		gfx.LineTo(16.0, 12.0),
+	},
+}
+
+// link-2-off is a compiled vector icon.
+var Link2Off = gfx.Icon{
+	ViewBox: 24.0,
+	Stroke:  2.0,
+	Cap:     gfx.CapRound,
+	Join:    gfx.JoinRound,
+	Commands: []gfx.PathCommand{
+		gfx.MoveTo(9.0, 17.0),
+		gfx.LineTo(7.0, 17.0),
+		gfx.CubicTo(4.23858, 17.0, 2.0, 14.7614, 2.0, 12.0),
+		gfx.CubicTo(2.0, 9.23858, 4.23858, 7.0, 7.0, 7.0),
+		gfx.MoveTo(15.0, 7.0),
+		gfx.LineTo(17.0, 7.0),
+		gfx.CubicTo(18.8939, 7.0, 20.6252, 8.07001, 21.4721, 9.76393),
+		gfx.CubicTo(22.3191, 11.4579, 22.1363, 13.4849, 21.0, 15.0),
+		gfx.MoveTo(8.0, 12.0),
+		gfx.LineTo(12.0, 12.0),
+		gfx.MoveTo(2.0, 2.0),
+		gfx.LineTo(22.0, 22.0),
+	},
+}
+
 // list-tree is a compiled vector icon.
 var ListTree = gfx.Icon{
 	ViewBox: 24.0,

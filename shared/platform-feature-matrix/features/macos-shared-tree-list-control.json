@@ -10,7 +10,8 @@
       "desktop/internal/treelist/treelist.go",
       "desktop/internal/treelist/treelist_test.go",
       "desktop/internal/workbench/filetree.go",
-      "desktop/internal/workbench/gitlog_view.go"
+      "desktop/internal/workbench/gitlog_view.go",
+      "desktop/internal/workbench/filetree_actions_test.go"
     ]
   },
   "windows": {
@@ -20,11 +21,12 @@
       "desktop/internal/treelist/treelist.go",
       "desktop/internal/treelist/treelist_test.go",
       "desktop/internal/workbench/filetree.go",
-      "desktop/internal/workbench/gitlog_view.go"
+      "desktop/internal/workbench/gitlog_view.go",
+      "desktop/internal/workbench/filetree_actions_test.go"
     ]
   },
   "owner": "Workbench UI",
-  "verification": "运行 LitheTreeListTests、LitheTreeRowStyleTests、PluginNativeUITests、ProjectTreeSelectionTests、GitChangeSelectionTests、原生 Git 文件树和 Worktree 及焦点回归；实机验证 Sample Explorer 与 Project/Commit/构建/设置列表的两侧留白、焦点边框、选择、悬停、方向键、范围选择、双击名称展开/收起、箭头一致性、回车与嵌入输入；深浅色及窗口失焦分别验收。组件验证不代替全部页面实机验收；Windows 后续独立同步。 #1423审查回归：表A保留单元格草稿/新增行/删除行时，右键表B再Escape不改变活动表且三类草稿不丢；明确打开B仍可导航。单选/多选节点空菜单时运行/依赖内嵌菜单可打开并执行；无障碍默认按下打开对应结果文档，行内按钮保持独立。 运行 externalSelectionRetargetsMountedKeyboardAndPreservesShiftAnchor 和 problemsKeyboardCrossesFileHeaderAndOpensTheNextDiagnostic，验证 Return、连续 Shift 扩缩选和 Problems 跨文件后实际打开目标行列。",
+  "verification": "运行 LitheTreeListTests、LitheTreeRowStyleTests、PluginNativeUITests、ProjectTreeSelectionTests、GitChangeSelectionTests、原生 Git 文件树和 Worktree 及焦点回归；实机验证 Sample Explorer 与 Project/Commit/构建/设置列表的两侧留白、焦点边框、选择、悬停、方向键、范围选择、双击名称展开/收起、箭头一致性、回车与嵌入输入；深浅色及窗口失焦分别验收。组件验证不代替全部页面实机验收；Windows 后续独立同步。 #1423审查回归：表A保留单元格草稿/新增行/删除行时，右键表B再Escape不改变活动表且三类草稿不丢；明确打开B仍可导航。单选/多选节点空菜单时运行/依赖内嵌菜单可打开并执行；无障碍默认按下打开对应结果文档，行内按钮保持独立。 运行 externalSelectionRetargetsMountedKeyboardAndPreservesShiftAnchor 和 problemsKeyboardCrossesFileHeaderAndOpensTheNextDiagnostic，验证 Return、连续 Shift 扩缩选和 Problems 跨文件后实际打开目标行列。 #1820：建立96行项目树，打开最后一项，单击“定位当前文件”，检查该次点击后的最后一次无头绘制包含 file-095.go 行且列表选中项正确；不另加鼠标移动、延时或第二次绘制（TestProjectTreeLocatePaintsAnOffscreenFileAfterOneClick）。macOS/Windows 原生显示待回归。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
@@ -47,5 +49,5 @@
       ]
     }
   },
-  "notes": "Viva 的公共树列表 desktop/internal/treelist 由项目树和 Git Log 改动文件共用：两侧留白、悬停、键盘焦点与失焦两种选择色、展开箭头、方向键/Home/End/翻页导航、双击展开及 Enter 激活，只声明可见行。尚未支持范围多选、拖放、行内编辑、右键选择分离和插件树；Git Log 分支面板仍是独立实现，迁移跟踪 #1815。legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva 的公共树列表 desktop/internal/treelist 由项目树和 Git Log 改动文件共用：两侧留白、悬停、键盘焦点与失焦两种选择色、展开箭头、方向键/Home/End/翻页导航、双击展开及 Enter 激活，只声明可见行。尚未支持范围多选、拖放、行内编辑、右键选择分离和插件树；Git Log 分支面板仍是独立实现，迁移跟踪 #1815。legacy 是迁移前基线，不代表当前实现。 #1820 针对 Viva List ScrollTo 曾显示一帧旧偏移的问题，项目树新增单次点击即呈现屏外文件行的回归，保持既有代码及 ScrollTo 行为不变；本单其它滚动入口仍待核对。"
 }

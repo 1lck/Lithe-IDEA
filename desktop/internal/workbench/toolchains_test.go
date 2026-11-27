@@ -190,3 +190,35 @@ func TestBuildRuntimeRefusesAnInvalidPinBeforeFallback(t *testing.T) {
 		t.Fatalf("invalid pin fell through to another installation: %v", err)
 	}
 }
+
+func TestPartialToolchainCatalogRejectsCancellationAndKeepsValidPlugins(t *testing.T) {
+	valid := []json.RawMessage{json.RawMessage(`{"id":"dev.example.valid"}`)}
+	broken := errors.New("another enabled plugin manifest is unreadable")
+	for _, tc := range []struct {
+		name           string
+		manifests      []json.RawMessage
+		err            error
+		cancel         bool
+		wantCount      int
+		wantIncomplete bool
+		wantErr        error
+	}{
+		{name: "complete", manifests: valid, wantCount: 1},
+		{name: "partial", manifests: valid, err: broken, wantCount: 1, wantIncomplete: true},
+		{name: "all missing", err: broken, wantErr: broken},
+		{name: "canceled partial", manifests: valid, err: broken, cancel: true, wantErr: context.Canceled},
+		{name: "canceled complete", manifests: valid, cancel: true, wantErr: context.Canceled},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if tc.cancel {
+				cancel()
+			}
+			manifests, incomplete, err := partialToolchainCatalog(ctx, tc.manifests, tc.err)
+			if len(manifests) != tc.wantCount || incomplete != tc.wantIncomplete || !errors.Is(err, tc.wantErr) {
+				t.Fatalf("manifests=%d incomplete=%v err=%v, want %d %v %v", len(manifests), incomplete, err, tc.wantCount, tc.wantIncomplete, tc.wantErr)
+			}
+		})
+	}
+}

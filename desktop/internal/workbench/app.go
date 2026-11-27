@@ -76,7 +76,6 @@ type Kernel interface {
 	EditBuildIgnoredPaths(ctx context.Context, request core.BuildIgnoredPathsEditRequest) (core.BuildIgnoredPathsEdit, error)
 	IDEHostOpen(ctx context.Context, request core.IDEHostOpenRequest) (core.IDEHostOpenResult, error)
 	IDEHostPoll(ctx context.Context, hostID string) (core.IDEHostPollResult, error)
-	IDEHostClaim(ctx context.Context, hostID, requestID string) (core.IDEHostClaimResult, error)
 	IDEHostRespond(ctx context.Context, hostID, requestID string, result any) (core.IDEHostRespondResult, error)
 	IDEHostClose(ctx context.Context, hostID string) (core.IDEHostCloseResult, error)
 	IDEHostValidate(ctx context.Context, name string, arguments any, permissions core.IDEPermissions, toolExposure []core.IDEToolExposure) (core.IDEHostValidateResult, error)
@@ -222,6 +221,10 @@ type Kernel interface {
 	RemoteProbe(ctx context.Context, connection core.SSHConnection, preferences *string) (core.RemoteProbeResult, error)
 	RemoteListWSLDistributions(ctx context.Context) (core.RemoteWSLDistributions, error)
 	RemoteListContainers(ctx context.Context, engine, sessionID string) (core.RemoteContainers, error)
+	RemoteContainerRuntimes(ctx context.Context) (core.ContainerRuntimes, error)
+	RemoteDevcontainerPrepare(ctx context.Context, form core.DevcontainerForm) (core.PreparedDevcontainer, error)
+	RemoteDevcontainerRuntimeConfigs(ctx context.Context, folder string, runtime *core.ContainerRuntimeTarget) (core.DevcontainerFolder, error)
+	RemoteRuntimeContainers(ctx context.Context, runtime core.ContainerRuntimeTarget) (core.RemoteContainers, error)
 	RemoteDevcontainerConfigs(ctx context.Context, folder string) ([]core.DevcontainerConfig, error)
 	RemoteDevcontainerUp(ctx context.Context, request core.DevcontainerUpRequest, output func(core.DevcontainerOutput)) (core.DevcontainerUp, error)
 	RemoteAuthRespond(ctx context.Context, requestID string, answer *string) (bool, error)
@@ -235,6 +238,10 @@ type Kernel interface {
 	RemoteReadFile(ctx context.Context, sessionID, path string) ([]byte, core.RemoteFileVersion, error)
 	RemoteWriteFile(ctx context.Context, sessionID, path string, data []byte, expected *core.RemoteFileVersion, root ...string) (core.RemoteFileVersion, bool, error)
 	RemoteCreateDirectory(ctx context.Context, sessionID, path string) error
+	RemoteMakeDirectory(ctx context.Context, sessionID, path string) error
+	RemoteRename(ctx context.Context, sessionID, from, to string, overwrite bool) error
+	RemoteCopy(ctx context.Context, sessionID, from, to string, recursive, overwrite bool) error
+	RemoteTrash(ctx context.Context, sessionID, path string) error
 	RemoteServerState(ctx context.Context, sessionID string) error
 	SearchRemoteConnections(ctx context.Context, document *string, query string) (core.RemoteConnectionsState, error)
 	RemoteParseAddress(ctx context.Context, text string) (core.RemoteAddress, error)
@@ -401,6 +408,12 @@ type settings struct {
 	Language         string      `json:"language,omitempty"`
 	Theme            themeChoice `json:"theme,omitempty"`
 	MarketplaceWidth float32     `json:"marketplaceWidth,omitempty"`
+	// WindowWidth, WindowHeight and WindowMaximized are the size and maximized state the user
+	// last gave the workbench window, which the next one opens at; zero width or height opens
+	// at the default size.
+	WindowWidth     int  `json:"windowWidth,omitempty"`
+	WindowHeight    int  `json:"windowHeight,omitempty"`
+	WindowMaximized bool `json:"windowMaximized,omitempty"`
 	// SettingsWindowWidth and SettingsWindowHeight are the size the user last gave the settings
 	// window, which the next one opens at; zero opens it at its default size.
 	SettingsWindowWidth  int `json:"settingsWindowWidth,omitempty"`
@@ -657,14 +670,12 @@ type App struct {
 	pullRequests pullRequestState
 	// prCreate is the create-pull-request dialog (github_create.go).
 	prCreate prCreateState
-	// savedBackground is the window background last stored (window_background.go).
+	// savedBackground is the window background last offered to the store (window_background.go).
 	savedBackground gfx.Color
 	focus           focusTarget
-	// debugHostedPort, debugInitializeWindow, and debugInitializeTrigger replace,
-	// in tests, asking the language server for a debug port and Core's initialize
-	// deadline. Production leaves all three zero.
+	// Tests can supply a hosted port and trigger the initialize deadline.
+	// Production leaves both nil.
 	debugHostedPort        func(ctx context.Context, p *project, adapter debugAdapter) (int, error)
-	debugInitializeWindow  time.Duration
 	debugInitializeTrigger <-chan struct{}
 	kernel                 Kernel
 	store                  *store.Store
@@ -751,6 +762,8 @@ type App struct {
 	consoleEncodings atomic.Pointer[settingswindow.ConsoleEncodings]
 
 	settingsSubscription *settingsSubscription
+	settingsPublication  *editorPreferencesPublication
+	settingsDiskWriter   func(*store.Store, settings) (string, error)
 	// plugins is the plugin stack, nil when the window was built without a plugin
 	// kernel or without a writable plugin root.
 	plugins *pluginservice.Service
@@ -994,10 +1007,22 @@ func New(options Options) *App {
 	if options.first == nil {
 		_, restoreErr = restorePendingSettings(a.store, buildinfo.InstalledChannel(), options.Version)
 	}
-	_, settingsErr := a.store.Load(settingsFile, &a.settings)
+	var settingsErr error
+	var queued *settings
+	var queuedGeometry settingsGeometry
+	if options.first != nil {
+		a.settingsPublication = options.first.settingsPublication
+		queued, queuedGeometry = a.settingsPublication.queuedSettings()
+	}
+	if queued != nil {
+		a.settings = queued.clone()
+	} else {
+		_, settingsErr = a.store.Load(settingsFile, &a.settings)
+	}
 	if settingsErr != nil {
 		a.settings = settings{}
 	}
+	queuedGeometry.apply(&a.settings)
 	consoleEncoding := a.settings.ConsoleEncoding
 	a.consoleEncoding.Store(&consoleEncoding)
 	// A value of a shape this version cannot take leaves only its own setting on the default;
@@ -1148,7 +1173,7 @@ func (a *App) openPlugins(options Options) {
 	}
 	service.RuntimeIssue = a.recordPluginRuntimeIssue
 	service.ContextIssue = func(ctx context.Context, err error) {
-		a.backgroundFailedIn(ctx, "plugin_workspace_context_notification", err)
+		a.backgroundFailedIn(ctx, "plugin_workspace_context_refresh", err)
 	}
 	service.SetRuntimeLanguage(a.language().Code())
 	if err := service.AttachWorkbench(pluginWorkbench{app: a}); err != nil {
@@ -1555,16 +1580,11 @@ func (a *App) setTheme(choice themeChoice) {
 	a.saveSettings()
 }
 
-func (a *App) saveSettings() {
-	// The background is the window's, which another tab may have changed since this one loaded.
-	a.settings.WorkbenchBackground = a.savedBackgroundState()
-	a.updates.store(&a.settings)
-	backup, err := a.store.SaveWithBackup(settingsFile, a.settings)
+func (a *App) reportSettingsSave(backup string, err error) {
 	if backup != "" {
 		a.noticeSettingsBackup(backup)
 	}
 	if err != nil {
-		a.operationFailed("settings_save", documentLogError(err))
 		a.notifyError(a.text.Errors.SaveFailed(err.Error()))
 	}
 }
@@ -1812,7 +1832,13 @@ func (a *App) requestCloseProject(after func()) {
 		}
 		a.confirmProcessExit(p, lifecycle, func() {
 			// A remote workspace then decides the programs its host runs (remote_close.go).
-			a.confirmRemoteClose(p, func() { a.finishCloseProject(p, after) })
+			a.confirmRemoteClose(p, func() {
+				p.tree.afterTreeRemovals(func() {
+					if a.project == p {
+						a.finishCloseProject(p, after)
+					}
+				})
+			})
 		})
 	})
 }
@@ -1880,13 +1906,15 @@ func (a *App) disposeProject(p *project) {
 	a.clearAllPluginDiagnostics()
 	a.problems.reset()
 	a.toolchainRoot.Store(nil)
+	a.publishWorkspaceBuildOptions(nil)
 	a.project = nil
 	a.chrome.setRemote(false)
 	a.ideAPISetProject(nil)
 	a.focus = focusTarget{}
 	a.dnd.tool.Cancel()
 	a.dnd.tab.Cancel()
-	a.drag, a.term.drag = dragState{}, tabDrag{}
+	a.dnd.run.Cancel()
+	a.drag, a.term.drag, a.dnd.runDrag = dragState{}, tabDrag{}, runDragState{}
 	a.title = titleState{}
 	a.branch.branchSession = branchSession{}
 }

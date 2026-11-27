@@ -3,20 +3,175 @@ package workbench
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginsettings"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginstate"
 )
+
+const debugConfiguredAdapterManifest = `{
+  "schemaVersion": 0,
+  "id": "dev.lithe.test.debug-configured",
+  "displayName": "Configured Debugger Fixture",
+  "version": "1.0.0",
+  "pluginAPIVersion": 0,
+  "requires": {"debugAdapters": 0, "settings": 0},
+  "vendor": {"id": "dev.lithe.test", "displayName": "Test", "signatureRequirement": "publisherPackage"},
+  "permissions": ["debug.launch"],
+  "activationEvents": ["onDebug:fixture"],
+  "settings": [{"id":"adapterPath", "type":"file", "title":"Adapter path", "default":"", "effect":"nextRun"}],
+  "debugAdapters": [{
+    "id":"fixture", "displayName":"Fixture DAP",
+    "launch": {
+      "executableSetting":"adapterPath",
+      "process":{"launch":{"kind":"systemCommand", "commands":["lithe-test-configured-adapter-missing"]}},
+      "transport":"stdio"
+    }
+  }]
+}`
+
+func debugConfiguredAdapterOptions(t *testing.T, theme, language string) Options {
+	t.Helper()
+	options := debugPluginOptions(t, "dev.lithe.test.debug-configured", debugConfiguredAdapterManifest, false, &testKernel{Client: core.NewClient()}, theme)
+	options.Languages = []string{language}
+	return options
+}
+
+func setDebugAdapterPath(t *testing.T, h *harness, p *project, path string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	settings := pluginsettings.New(h.app.kernel, h.store.Dir())
+	snapshot, err := settings.Load(ctx, p.debug.adapters[0].Manifest, p.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := json.Marshal(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := settings.Save(ctx, snapshot, "global", []core.PluginSettingEdit{{ID: "adapterPath", Value: value}}, nil)
+	if err != nil || !saved.Committed {
+		t.Fatalf("save adapter path: %+v, %v", saved, err)
+	}
+}
+
+func debugAdapterPathForAnotherOS() string {
+	if buildPlatform() == "windows" {
+		return "/usr/local/private-fixture/adapter"
+	}
+	return `C:\private-fixture\adapter.exe`
+}
+
+func TestDebugStartExplainsUnavailableConfiguredAdapterPath(t *testing.T) {
+	const configuredMessage = "The configured debugger executable cannot run on this computer. Choose a valid local executable in the plugin settings."
+	invalid := filepath.Join(t.TempDir(), "private-invalid.exe")
+	if err := os.WriteFile(invalid, []byte("invalid program"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, path, want string }{
+		{"foreign path", debugAdapterPathForAnotherOS(), configuredMessage},
+		{"missing file", filepath.Join(t.TempDir(), "private-missing.exe"), configuredMessage},
+		{"invalid executable", invalid, configuredMessage},
+		{"automatic lookup", "", "lithe-test-configured-adapter-missing not found. Install it in Settings > Plugins, or add it to PATH."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarnessWithOptions(t, debugConfiguredAdapterOptions(t, "dark", "en-US"))
+			p := openHostedPanel(t, h, t.TempDir())
+			if tc.path != "" {
+				setDebugAdapterPath(t, h, p, tc.path)
+			}
+			h.app.startDebug(p)
+			awaitStateWithin(t, h, 5*time.Second, "the debug failure message", func() bool {
+				return p.debug.activeSession() == nil && p.debug.failure != ""
+			})
+			if p.debug.failure != tc.want {
+				t.Fatalf("debug failure = %q; want %q", p.debug.failure, tc.want)
+			}
+		})
+	}
+}
+
+func TestConfiguredDebugAdapterLogKeepsNativeCauseWithoutPath(t *testing.T) {
+	const privatePath = "/private-fixture/adapter"
+	pathError := &os.PathError{Op: "fork/exec", Path: privatePath, Err: syscall.EACCES}
+	for _, cause := range []error{
+		&exec.Error{Name: privatePath, Err: pathError},
+		fmt.Errorf("start %s: %w", privatePath, pathError),
+	} {
+		fields := operationFailedFields("debug", adapterUnresolved(&debugAdapterExecutableError{cause: cause}))
+		if fields["error"] != syscall.EACCES.Error() || fields["error_code"] != int(syscall.EACCES) || fields["error_domain"] != "posix" {
+			t.Fatalf("debug log fields = %v, want only the native reason and code", fields)
+		}
+	}
+}
 
 // countedDebugCreate observes whether native preparation reached the engine.
 type countedDebugCreate struct {
 	Kernel
 	creates atomic.Int32
+}
+
+func TestDebugAdapterExecutableOverride(t *testing.T) {
+	directory := t.TempDir()
+	command := "example-dap"
+	suffix := ""
+	if buildPlatform() == "windows" {
+		suffix = ".exe"
+		t.Setenv("PATHEXT", ".EXE")
+	}
+	onPath := filepath.Join(directory, command+suffix)
+	configured := filepath.Join(t.TempDir(), "custom adapter"+suffix)
+	missing := filepath.Join(t.TempDir(), "missing adapter"+suffix)
+	neighbor := filepath.Join(t.TempDir(), "adjacent adapter")
+	for _, path := range []string{onPath, configured, neighbor + ".exe"} {
+		if err := os.WriteFile(path, nil, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", directory)
+	a := &App{}
+	for _, tc := range []struct {
+		name, path, want string
+	}{
+		{"default", "", onPath},
+		{"override", configured, configured},
+		{"missing", missing, ""},
+		{"no extension substitution", neighbor, ""},
+		{"relative", command, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := json.Marshal(map[string]any{
+				"launch": map[string]any{
+					"kind": "systemCommand", "commands": []string{command}, "configuredExecutable": tc.path,
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var plan core.PluginBackendPlan
+			if err := json.Unmarshal(data, &plan); err != nil {
+				t.Fatal(err)
+			}
+			got, _, _, err := a.resolveAdapterProcess(context.Background(), debugAdapter{Directory: directory}, plan, directory, directory)
+			if got != tc.want || (err != nil) != (tc.want == "") {
+				t.Fatalf("adapter lookup = %q, %v; want %q", got, err, tc.want)
+			}
+		})
+	}
 }
 
 func (k *countedDebugCreate) CreateDebugSession(ctx context.Context, request core.DebugCreateSessionRequest) (core.DebugUpdate, error) {
@@ -55,6 +210,21 @@ func TestDebugMissingTargetIsRejectedBeforeStartingTheAdapter(t *testing.T) {
 }
 
 func TestDebugRuntimeArgumentsComeFromTheToolDefinition(t *testing.T) {
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeName := "jre/bin/vm"
+	if filepath.Ext(debugFixtureProgramName()) == ".exe" {
+		runtimeName += ".exe"
+	}
+	executable := filepath.Join(home, runtimeName)
+	if err := os.MkdirAll(filepath.Dir(executable), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	copyTestBinary(t, executable)
+	t.Setenv("FICTIONAL_VM_HOME", home)
+	t.Setenv(syntheticWorkbenchInterpMarkerEnv, filepath.Join(home, "probe-marker"))
 	h := debugHarness(t)
 	p := openDebugPanel(t, h, t.TempDir())
 	adapter := p.debug.adapters[0]
@@ -73,14 +243,20 @@ func TestDebugRuntimeArgumentsComeFromTheToolDefinition(t *testing.T) {
 	definition := toolManifest["toolDefinitions"].([]any)[0].(map[string]any)
 	toolID := adapter.PluginID + ":vm"
 	definition["id"] = toolID
-	definition["launch"] = []string{"${executable}", "${runtimeArguments}", "${entry}", "${arguments}"}
+	definition["launch"] = []string{"${executable}", "${runtimeArguments}", "${arguments}", "${entry}"}
+	definition["executableLayouts"].([]any)[0].(map[string]any)["path"] = runtimeName
+	definition["executables"].([]any)[0].(map[string]any)["path"] = runtimeName
+	definition["version"] = map[string]any{"arguments": []string{"--version"}, "pattern": "SyntheticInterp ([0-9.]+)"}
 	manifest["toolDefinitions"] = []any{definition}
 	manifest["requiresTools"] = []string{toolID}
+	manifest["permissions"] = []string{"debug.launch", "run.start", "backend.launch"}
+	manifest["activationEvents"] = []string{"onDebug:fixture", "onWorkspaceOpen"}
+	manifest["backend"] = map[string]any{"launch": map[string]string{"kind": "packaged", "path": debugFixtureProgramName()}}
 	requires := manifest["requires"].(map[string]any)
-	requires["toolDefinitions"], requires["debugAdapters"] = 0, 0
+	requires["toolDefinitions"], requires["backend"] = 0, 0
 	declared := manifest["debugAdapters"].([]any)[0].(map[string]any)
 	declared["configurations"].(map[string]any)["launch"].(map[string]any)["targetBindings"] = map[string]any{"args": "target.arguments", "env": "target.environment"}
-	declared["launch"].(map[string]any)["process"].(map[string]any)["launch"] = map[string]any{"kind": "runtime", "tool": toolID, "entry": "adapter-entry", "runtimeArguments": []string{"--runtime"}}
+	declared["launch"].(map[string]any)["process"].(map[string]any)["launch"] = map[string]any{"kind": "runtime", "tool": toolID, "entry": "adapter-entry", "runtimeArguments": []string{"-test.count=1"}}
 	adapter.Manifest, err = json.Marshal(manifest)
 	if err != nil {
 		t.Fatal(err)
@@ -92,24 +268,88 @@ func TestDebugRuntimeArgumentsComeFromTheToolDefinition(t *testing.T) {
 	if err := os.WriteFile(entry, []byte("fixture entry"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	runtime := filepath.Join(adapter.Directory, debugFixtureProgramName())
-	home := adapter.Directory
-	h.app.toolchainResolve = func(_ context.Context, root, directory, tool, minimum string) (core.ToolchainSelection, error) {
-		if root != p.root || directory != "." || tool != toolID {
-			t.Fatalf("wrong runtime selection: %s %s %s", root, directory, tool)
-		}
-		return core.ToolchainSelection{Executable: runtime, Home: &home, Environment: map[string]string{"VM_HOME": home}}, nil
+	// An incomplete installation has a version directory but no readable manifest.
+	const brokenID = "dev.lithe.test.unreadable"
+	broken := filepath.Join(filepath.Dir(filepath.Dir(adapter.Directory)), brokenID, "1.0.0")
+	if err := os.MkdirAll(broken, 0o700); err != nil {
+		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := pluginstate.New(h.app.store).SetEnabled(brokenID, true); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	plan, err := h.app.prepareDebugLaunch(ctx, debugStart{adapter: adapter, request: "launch"}, filepath.Join(t.TempDir(), "state"), p, "", 1, "unavailable")
 	if err != nil {
+		var r *core.MarketplaceRejection
+		if errors.As(err, &r) {
+			t.Fatalf("prepare: %s: %v", r.Field, err)
+		}
 		t.Fatal(err)
 	}
-	expected := []string{"--runtime", entry, "-test.run=^TestDebugAdapterRunner$"}
-	if plan.Executable != runtime || !reflect.DeepEqual(plan.Arguments, expected) || plan.Environment["VM_HOME"] != home {
-		t.Fatalf("tool definition launch = %+v, arguments want %v", plan, expected)
+	expected := []string{"-test.count=1", "-test.run=^TestDebugAdapterRunner$", entry}
+	// Core may return slash-separated paths on Windows as well.
+	if filepath.Clean(plan.Executable) != filepath.Clean(executable) {
+		t.Fatalf("executable = %q, want %q", plan.Executable, executable)
 	}
+	if !reflect.DeepEqual(plan.Arguments, expected) {
+		t.Fatalf("arguments = %q, want %q", plan.Arguments, expected)
+	}
+	if got := plan.Environment["FICTIONAL_VM_HOME"]; filepath.Clean(got) != filepath.Clean(home) {
+		t.Fatalf("FICTIONAL_VM_HOME = %q, want %q", got, home)
+	}
+	manifests, discoveryErr := h.app.toolchainManifests(ctx)
+	if len(manifests) == 0 || discoveryErr == nil {
+		t.Fatalf("expected a partially readable catalog, got %d manifests and %v", len(manifests), discoveryErr)
+	}
+	verifyPartialCatalogRun(t, h, p, ctx, adapter, toolID, entry)
+	if err := os.WriteFile(filepath.Join(p.root, "debug.marker"), []byte("debug"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p.debug.adapters[0] = adapter
+	h.app.startDebug(p)
+	awaitStateWithin(t, h, 30*time.Second, "runtime adapter frames", func() bool {
+		if p.debug.failure != "" {
+			t.Fatalf("runtime adapter: %s", p.debug.failure)
+		}
+		return p.debug.state == "paused" && len(p.debug.frames) == 2
+	})
+	h.app.stopDebug(p)
+	awaitStateWithin(t, h, 20*time.Second, "runtime adapter stopped", func() bool { return p.debug.activeSession() == nil })
+}
+
+// verifyPartialCatalogRun exercises the runtime entry planner and run/start with the real installed registry.
+func verifyPartialCatalogRun(t *testing.T, h *harness, p *project, ctx context.Context, adapter debugAdapter, toolID, entry string) {
+	t.Helper()
+	run, err := h.app.resolveBackendToolEntry(ctx, adapter.PluginID, p.root, pluginbackend.ToolEntryLaunch{Tool: toolID, Entry: entry, Arguments: []string{"-test.list=^TestDebugAdapterRunner$"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, ok := h.app.plugins.Contexts.ByPath(p.root)
+	if !ok {
+		t.Fatal("workspace context not open")
+	}
+	params, err := json.Marshal(map[string]any{
+		"context": workspace.ContextRef, "label": "Partial catalog runtime", "process": map[string]any{
+			"executable": map[string]string{"kind": "tool", "tool": toolID}, "arguments": run.Arguments, "workingDirectory": ".", "environment": map[string]string{},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	caller := pluginhost.WithCaller(ctx, pluginhost.Caller{PluginID: adapter.PluginID, SessionID: "fixture-session"})
+	reply, failure := h.app.plugins.HostServices.Respond(caller, pluginhost.MethodPrefix+"run/start", params)
+	if failure != nil {
+		t.Fatalf("run/start: %+v", failure)
+	}
+	var result struct{ RunID string }
+	if err := json.Unmarshal(reply, &result); err != nil || result.RunID == "" {
+		t.Fatalf("run/start response: %s, %v", reply, err)
+	}
+	awaitStateWithin(t, h, 15*time.Second, "run process output", func() bool {
+		session := p.runEntry(result.RunID)
+		return session != nil && !session.running && strings.Contains(session.output.all(), "TestDebugAdapterRunner")
+	})
 }
 
 func debugAdapterWithProgramSetting(t *testing.T, adapter debugAdapter, candidates []string) debugAdapter {

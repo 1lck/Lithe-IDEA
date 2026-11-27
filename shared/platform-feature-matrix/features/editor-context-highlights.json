@@ -1,0 +1,31 @@
+{
+  "id": "editor-context-highlights",
+  "area": "编辑器",
+  "group": "文本编辑",
+  "capability": "光标靠近括号时高亮配对端，选择变量、方法等符号时高亮当前文件里的引用",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/color_decorations.go",
+      "desktop/internal/workbench/symbol_highlights.go",
+      "desktop/internal/editorview/context_highlights.go",
+      "desktop/internal/workbench/context_highlights_visual_test.go",
+      "desktop/internal/workbench/symbol_highlights_lifecycle_test.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/color_decorations.go",
+      "desktop/internal/workbench/symbol_highlights.go",
+      "desktop/internal/editorview/context_highlights.go",
+      "desktop/internal/workbench/context_highlights_visual_test.go",
+      "desktop/internal/workbench/symbol_highlights_lifecycle_test.go"
+    ]
+  },
+  "owner": "Editor",
+  "notes": "括号配对依据文本语法和 Core 的配对结果。符号引用优先由语言服务器识别，缺少文档高亮能力时完整的标识符选区按整词匹配。两种高亮都使用与语法前景色分开的背景。单个语言服务退出只撤销所属高亮请求；所属服务恢复同步后重新查询当前选区，文档和项目关闭仍彻底释放恢复目标。",
+  "verification": "在深浅主题中打开含嵌套括号的源码，关闭彩虹括号后点击开、闭括号分别检查跨行另一端，移动光标后确认旧标记清除。选中或点击局部变量和方法，检查有语言服务时仅同一符号的引用高亮，单文件模式下选中完整标识符高亮同词。编辑、切换文件及关闭分栏后检查旧结果失效。 保留完整标识符选区，切到其他文件再切回，检查引用高亮恢复；在分栏间切换焦点后检查高亮归属，重复激活和重绘不得重复请求。"
+}

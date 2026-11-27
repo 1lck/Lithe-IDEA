@@ -46,7 +46,7 @@ func remoteHead(t *testing.T, remote string) string {
 func (h *harness) awaitWorkspacePush(p *project) *workspacePushState {
 	h.t.Helper()
 	s := &p.review.workspacePush
-	h.await("the Push Commits review", func() bool { return s.open && s.reviewed && !s.loading && !s.busy })
+	h.awaitWithin(reviewTimeout, "the Push Commits review", func() bool { return s.open && s.reviewed && !s.loading && !s.busy })
 	return s
 }
 
@@ -67,7 +67,7 @@ func TestCommitAndPushCommitsThenOpensThePushCommitsDialog(t *testing.T) {
 	h.settle()
 	before := remoteHead(t, remote)
 
-	h.clickNamed(h.app.text.Commit.CommitAndPush)
+	h.sendNamed(h.app.text.Commit.CommitAndPush)
 	s := h.awaitWorkspacePush(p)
 	if got := gitRun(t, dir, "log", "-1", "--format=%s"); got != "Publish the change" {
 		t.Fatalf("last commit = %q, want the commit to run before the push is asked", got)
@@ -89,8 +89,8 @@ func TestCommitAndPushCommitsThenOpensThePushCommitsDialog(t *testing.T) {
 		t.Fatal("the Push Commits dialog does not list the selected commit's file")
 	}
 
-	h.clickNamed(i18n.Shared(lang, "desktop.git.pushAll.push"))
-	h.await("the push", func() bool { return !s.busy && !s.open })
+	h.sendNamed(i18n.Shared(lang, "desktop.git.pushAll.push"))
+	h.awaitWithin(reviewTimeout, "the push", func() bool { return !s.busy && !s.open })
 	if got, want := remoteHead(t, remote), gitRun(t, dir, "rev-parse", "HEAD"); got != want {
 		t.Fatalf("remote main = %s, want the pushed %s", got, want)
 	}
@@ -146,8 +146,8 @@ func TestPushCommitsDialogPushesInOrderAndSkipsWhatAFailedSubmoduleBlocks(t *tes
 	if err := os.Rename(childRemote, moved); err != nil {
 		t.Fatal(err)
 	}
-	h.clickNamed(i18n.Shared(lang, "desktop.git.pushAll.push"))
-	h.await("the failed push", func() bool { return len(s.outcomes) == 2 && !s.busy })
+	h.sendNamed(i18n.Shared(lang, "desktop.git.pushAll.push"))
+	h.awaitWithin(reviewTimeout, "the failed push", func() bool { return len(s.outcomes) == 2 && !s.busy })
 	if outcome := s.outcomes["child"]; outcome.pushed || outcome.err == "" {
 		t.Fatalf("child outcome = %+v, want its push to fail", outcome)
 	}
@@ -165,8 +165,8 @@ func TestPushCommitsDialogPushesInOrderAndSkipsWhatAFailedSubmoduleBlocks(t *tes
 		t.Fatal(err)
 	}
 	s = h.awaitWorkspacePush(p)
-	h.clickNamed(i18n.Shared(lang, "desktop.git.pushAll.push"))
-	h.await("the push", func() bool { return !s.busy && !s.open })
+	h.sendNamed(i18n.Shared(lang, "desktop.git.pushAll.push"))
+	h.awaitWithin(reviewTimeout, "the push", func() bool { return !s.busy && !s.open })
 	if remoteHead(t, childRemote) == childBefore || remoteHead(t, parentRemote) == parentBefore {
 		t.Fatal("the second push did not send both repositories")
 	}

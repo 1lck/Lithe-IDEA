@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"errors"
 	"os"
 	"runtime"
 	"strconv"
@@ -146,7 +147,9 @@ func (a *App) readMemoryNames() {
 	}
 	a.background(nil, pluginStateTimeout, func(ctx context.Context) func(*App) {
 		entries, err := a.plugins.CurrentInstalled(ctx)
-		names := memoryNamesOf(installedPluginFacts(entries, nil))
+		facts, factsErr := installedPluginFacts(entries, nil)
+		err = errors.Join(err, factsErr)
+		names := memoryNamesOf(facts)
 		return func(a *App) {
 			if err != nil {
 				a.backgroundFailed("memory_plugin_names", err)
@@ -433,7 +436,7 @@ func (a *App) memoryDetails(c ui.C, anchor ui.Box) {
 	c.Canvas().RequestFrameIn(memoryDetailInterval)
 	language := a.language()
 	spec := ui.PopoverSpec{Side: components.PopoverTop, Align: ui.End, Offset: chromeMenuOffset, Width: memoryPanelWidth, ConsumeOutsidePress: true}
-	ui.PopoverWith(c.Key("memoryDetails"), anchor, &m.open, spec, func() {
+	ui.Popover(c.Key("memoryDetails"), anchor, &m.open, spec, func() {
 		ui.Column(c).FillWidth().Gap(memorySectionGap).Children(func() {
 			a.memoryHeader(c, language)
 			switch {

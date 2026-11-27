@@ -8,6 +8,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/uistyle"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -21,8 +22,9 @@ type Host struct {
 	Icon func(name string) (gfx.Icon, bool)
 	// Images reads the PNGs of the plugin's package a canvas draws; nil draws none.
 	Images *Images
-	// Info draws the host's ⓘ for an info text.
-	Info func(c ui.C, text string)
+	// Info draws the host's ⓘ for an info text. It is a callback the renderer calls with
+	// the paint's own c, as Viva's PageConfig.View is; it keeps no context.
+	Info func(c ui.C, text string) // viva:ignore kept-context
 	// Settings is the settings page of a region; nil in a tool window.
 	Settings SettingsHost
 }
@@ -96,7 +98,7 @@ func Draw(c ui.C, s *Session, host *Host, fill bool) {
 			canvas.RequestFrameIn(wait)
 		}
 	}
-	r := &renderer{c: c, s: s, host: host}
+	r := &renderer{s: s, host: host}
 	// The paint measures the width the nodes are laid out in: the view's, less the body's
 	// padding in a tool window. It sends open, and later resize; the scroll bars of the
 	// body float over it, so they take none of the width.
@@ -155,7 +157,6 @@ func hasTree(nodes []Node) bool {
 
 // renderer declares the nodes of one view in one paint.
 type renderer struct {
-	c    ui.C
 	s    *Session
 	host *Host
 	// fillTree says a tree declared now is a top-level node of a view that fills its
@@ -233,6 +234,13 @@ func (r *renderer) node(c ui.C, n *Node, key NodeKey) {
 	}
 	switch n.Type {
 	case "row":
+		if r.host.Settings != nil && len(n.Children) == 2 {
+			field, action := n.Children[0], n.Children[1]
+			if _, fill := field.characters(); fill && field.Type == "textField" && !field.enabled() && field.Setting == "" && field.Label != "" && action.Type == "button" {
+				r.readOnlySettingRow(key.Apply(c), field, action)
+				return
+			}
+		}
 		ui.Flow(key.Apply(c)).FillWidth().Items(ui.Center).Gap(8).LineGap(6).Children(func() { r.nodes(c, n.Children) })
 	case "section":
 		ui.Column(key.Apply(c)).FillWidth().Gap(6).Children(func() {
@@ -253,7 +261,7 @@ func (r *renderer) node(c ui.C, n *Node, key NodeKey) {
 	case "toggle":
 		r.toggle(c, n, key)
 	case "button":
-		r.button(key.Apply(c), n)
+		r.button(key.Apply(c), n, false)
 	case "keyValue":
 		r.keyValue(key.Apply(c), n)
 	case "table":
@@ -531,14 +539,39 @@ func (r *renderer) toggle(c ui.C, n *Node, key NodeKey) {
 	})
 }
 
+// readOnlySettingRow follows the settings form's two-column layout, including its
+// narrow-window wrap. Use the same field, help button and small action as editable rows.
+func (r *renderer) readOnlySettingRow(c ui.C, field, action Node) {
+	width := float32(r.s.Width())
+	uistyle.SettingsRow(c).Children(func() {
+		uistyle.SettingsLine(c).Children(func() {
+			uistyle.SettingsTitle(c).MinWidth(min(120, width)).Children(func() {
+				ui.Text(c, field.Label).FontSize(12).Weight(gfx.WeightSemibold).Color(r.host.Palette.Text).Shrink(1).MinWidth(0).Ellipsis()
+				r.info(c, field.Info)
+			})
+			ui.Flow(c.Part("value")).Basis(0).Grow(3).Shrink(1).MinWidth(min(260, width)).Items(ui.Center).Gap(8).LineGap(6).Children(func() {
+				value := field.stringValue()
+				input := ui.TextField(c.Key(field.ID), &value, field.Label, field.Placeholder).ReadOnly(true).Grow(1).MinWidth(min(80, width)).Height(30)
+				if field.Mono {
+					input.Mono()
+				}
+				r.button(c.Key(action.ID), &action, true)
+			})
+		})
+	})
+}
+
 // button declares a button: the primary tone is filled, the others outlined. With an
 // action it runs that setting action through the page's flow instead of sending click.
-func (r *renderer) button(c ui.C, n *Node) {
+func (r *renderer) button(c ui.C, n *Node, small bool) {
 	enabled := n.enabled()
 	if n.Action != "" {
 		enabled = enabled && r.host.Settings != nil && r.host.Settings.ActionEnabled(n.Action)
 	}
 	button := ui.Button(c, n.Text)
+	if small {
+		button = button.Small()
+	}
 	if n.Tone != "primary" {
 		button = button.Outline()
 	}

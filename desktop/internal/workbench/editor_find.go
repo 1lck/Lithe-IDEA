@@ -264,7 +264,7 @@ func (a *App) editorFindBar(c ui.C, p *project, d *document) {
 				c.Canvas().RequestFocus(queryID)
 				f.focus = false
 			}
-			ui.TextFieldID(c, queryID, &f.query, i18n.Shared(a.language(), "desktop.editorFind.find"), i18n.Shared(a.language(), "desktop.editorFind.find")).Icon(icons.Search).Grow(1).MinWidth(70).OnKey(func(event gfx.KeyEvent) gfx.EventResult {
+			ui.TextField(c, &f.query, i18n.Shared(a.language(), "desktop.editorFind.find"), i18n.Shared(a.language(), "desktop.editorFind.find"), ui.WithID(queryID)).Icon(icons.Search).Grow(1).MinWidth(70).OnKey(func(event gfx.KeyEvent) gfx.EventResult {
 				if event.Release {
 					return gfx.EventResult{}
 				}

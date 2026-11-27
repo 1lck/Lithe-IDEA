@@ -9,14 +9,15 @@ import (
 
 func TestReadFileEnforcesTheLimit(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "big.bin"), make([]byte, 33), 0o644); err != nil {
+	const manifest = `{"displayName":"Fixture"}`
+	if err := os.WriteFile(filepath.Join(dir, ManifestFile), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ReadFile(dir, []string{"big.bin"}, 32); !errors.Is(err, ErrReadTooLarge) {
+	if _, err := ReadFile(dir, []string{ManifestFile}, int64(len(manifest)-1)); !errors.Is(err, ErrReadTooLarge) {
 		t.Fatalf("a file over the limit was read: %v", err)
 	}
-	if data, err := ReadFile(dir, []string{"big.bin"}, 33); err != nil || len(data) != 33 {
-		t.Fatalf("read = %d %v", len(data), err)
+	if data, err := ReadFile(dir, []string{ManifestFile}, int64(len(manifest))); err != nil || string(data) != manifest {
+		t.Fatalf("read = %q %v", data, err)
 	}
 }
 

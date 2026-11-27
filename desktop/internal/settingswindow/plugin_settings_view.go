@@ -3,12 +3,12 @@ package settingswindow
 import (
 	"errors"
 	"strconv"
-	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/configfile"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/uistyle"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
@@ -197,29 +197,6 @@ func (w *window) pluginSettingsFormRow(c ui.C, item pluginSettingLayout, hasSour
 	}
 }
 
-// readOnlyField shows value as a field that cannot be edited. Box.Disabled does not apply to
-// a TextField in pinned Viva, so the field is the text it holds inside a frame, which
-// assistive technology and the platform see as a read-only text field that takes no input.
-func (w *window) readOnlyField(c ui.C, label, value string) {
-	ui.Row(c).Grow(1).MinWidth(0).Height(30).PadX(10).Border(1, w.pal.line).Radius(6).Items(ui.Center).
-		HitWith(ui.ID(c), label, gfx.HitOptions{Role: gfx.RoleTextField, Value: value, ReadOnly: true, Disabled: true}).
-		Children(func() {
-			ui.Text(c, value).FontSize(13).Color(w.pal.muted).Ellipsis()
-		})
-}
-
-// readOnlyList shows a list value that cannot be edited one item per line, as the TextArea
-// shows it while it can be, so a read-only list is not cut down to its first item.
-func (w *window) readOnlyList(c ui.C, label, value string) {
-	ui.Column(c).FillWidth().MinWidth(0).PadX(10).PadY(6).Gap(2).Border(1, w.pal.line).Radius(6).
-		HitWith(ui.ID(c), label, gfx.HitOptions{Role: gfx.RoleTextField, Value: value, ReadOnly: true, Disabled: true}).
-		Children(func() {
-			for _, line := range strings.Split(value, "\n") {
-				ui.Text(c, line).FontSize(13).Color(w.pal.muted).FillWidth().Ellipsis()
-			}
-		})
-}
-
 // pluginSettingRow declares one setting on one line: its title on the leading side, and on
 // the trailing side the control for its kind and Reset, so the controls of a page line up
 // down its trailing edge. A text, path or list takes most of the line, and moves under the
@@ -238,13 +215,13 @@ func (w *window) pluginSettingRow(c ui.C, index int, hasSource bool) {
 	control := &p.controls[p.scope][index]
 	disabled := p.running || !p.loaded || !editor.Editable || !hasSource
 	text := declaration.Kind != "boolean" && declaration.Kind != "enum" && declaration.Kind != "multiSelect"
-	ui.Column(c).FillWidth().Shrink(0).Gap(4).PadY(6).Children(func() {
+	uistyle.SettingsRow(c).Children(func() {
 		// The title starts the line, and the value with its buttons ends it. A value typed in
 		// or chosen from a list shares the line with the title two to three, and moves under
 		// it, buttons and all, when the pane has no room for both at their minimum widths; a
 		// switch leaves the title the rest of the line.
-		ui.Flow(c).FillWidth().MinHeight(30).Items(ui.Center).Gap(8).LineGap(6).Children(func() {
-			ui.Row(c.Part("title")).Basis(0).Grow(2).Shrink(1).MinWidth(120).Items(ui.Center).Gap(8).Children(func() {
+		uistyle.SettingsLine(c).Children(func() {
+			uistyle.SettingsTitle(c).Children(func() {
 				ui.Text(c, declaration.Title).FontSize(12).Weight(gfx.WeightSemibold).Color(w.pal.text).Shrink(1).MinWidth(0).Ellipsis()
 				if declaration.Description != "" {
 					w.infoButton(c, declaration.Description)
@@ -277,11 +254,7 @@ func (w *window) pluginSettingRow(c ui.C, index int, hasSource bool) {
 				case "multiSelect":
 					// Its options are listed under the line.
 				default:
-					if disabled {
-						w.readOnlyField(c, declaration.Title, control.text)
-					} else {
-						ui.TextField(c, &control.text, declaration.Title, declaration.Placeholder).Grow(1).MinWidth(0).Height(30)
-					}
+					ui.TextField(c, &control.text, declaration.Title, declaration.Placeholder).ReadOnly(disabled).Grow(1).MinWidth(0).Height(30)
 					if declaration.Kind == "file" || declaration.Kind == "directory" {
 						if ui.Button(c, i18n.Shared(language, "desktop.pluginSettings.browse")).Outline().Small().Shrink(0).Disabled(disabled).Clicked() {
 							// The native picker blocks, so it runs after the paint.

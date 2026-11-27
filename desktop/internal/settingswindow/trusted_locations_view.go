@@ -201,7 +201,8 @@ func (w *window) trustedLocationsList(c ui.C, language i18n.Language, l *trusted
 	ui.Row(c).FillWidth().Height(1).Shrink(0).Background(p.line)
 	ui.Row(c).FillWidth().PadTop(6).PadBottom(2).Items(ui.Center).Children(func() {
 		if w.button(c.Part("add"), buttonSmall, i18n.Shared(language, "desktop.trustedLocations.add"), busy) {
-			w.pickTrustedLocation(language)
+			// The native picker runs a modal message loop on Windows, so it must run after paint.
+			c.After(func() { w.pickTrustedLocation(language) })
 		}
 	})
 }
@@ -247,6 +248,7 @@ func (w *window) trustedLocationsNotices(c ui.C, language i18n.Language, l *trus
 
 // pickTrustedLocation asks for a folder and adds it as a draft once Core accepts it.
 func (w *window) pickTrustedLocation(language i18n.Language) {
+	defer w.inv.Invalidate()
 	path, err := app.OpenDirectory(app.OpenDirectoryOptions{Title: i18n.Shared(language, "desktop.trustedLocations.chooseFolder")})
 	// log-exempt: 用户取消：关闭目录选择器不修改可信位置草稿。
 	if errors.Is(err, app.ErrCanceled) {

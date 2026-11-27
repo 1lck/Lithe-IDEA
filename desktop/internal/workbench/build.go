@@ -859,6 +859,8 @@ func (a *App) loadBuildSystems(p *project) {
 				Manifest:         plugin.Manifest,
 				PackageDirectory: plugin.Directory,
 				System:           system,
+				// Core projects workspace tasks from an empty model without starting a tool.
+				modelLoaded: detected.ModelSource == "",
 			}
 			if len(detected.Model) != 0 && string(detected.Model) != "null" {
 				if err := json.Unmarshal(detected.Model, &instance.Model); err == nil {
@@ -886,6 +888,13 @@ func (a *App) finishBuildDetection(p *project, generation uint64, instances []bu
 	}
 	p.build.loaded = true
 	p.build.instances = instances
+	p.tree.clearModuleRoots()
+	for _, instance := range instances {
+		if instance.modelLoaded {
+			p.tree.changeModuleRoots(instance.Model.Projects, 1)
+		}
+	}
+	a.publishWorkspaceBuildOptions(p)
 	p.revokeAllBuildTests()
 	if p.build.selected >= len(instances) {
 		p.build.selected = 0
@@ -966,21 +975,27 @@ func (a *App) reloadBuildModel(p *project, index int) {
 		return
 	}
 	instance := &p.build.instances[index]
-	instance.modelLoaded, instance.modelError, instance.modelStopped = false, "", false
 	p.reloadBuildDependencies()
 	p.revokeBuildTests(instance.ID)
+	if instance.ModelSource == "" {
+		return
+	}
+	p.unloadBuildModel(instance)
+	instance.modelError, instance.modelStopped = "", false
 	a.loadBuildModelWith(p, index, true)
 }
 
-// buildModel loads instance's model from the source Core named for it at detection: a command
-// the host runs, or the plugin's provider process. A system that declares a provider process may
-// still read its model with a command, so the model's source decides, not the provider. resolved,
-// when given, is the build executable the caller already resolved.
+// buildModel loads the model from the source Core named at detection. A build system without a
+// model contributes only its declaration. resolved, when supplied, is the caller's build executable.
 func (a *App) buildModel(ctx context.Context, p *project, instance buildInstance, kernel Kernel, feed *buildSyncFeed, messages i18n.BuildMessages, refresh bool, resolved ...buildExecution) (core.BuildModel, error) {
-	if instance.ModelSource == "command" {
+	switch instance.ModelSource {
+	case "":
+		return core.BuildModel{}, nil
+	case "command":
 		return a.commandModel(ctx, p, instance, kernel, feed, messages, resolved...)
+	default:
+		return a.providerModel(ctx, p, instance, kernel, feed, refresh, resolved...)
 	}
-	return a.providerModel(ctx, p, instance, kernel, feed, refresh, resolved...)
 }
 
 // commandModel runs a command-sourced model plan and decodes its output. The
@@ -1228,7 +1243,7 @@ func (a *App) finishBuildModel(p *project, id string, model core.BuildModel, err
 		}
 		if instance.modelReloadPending {
 			instance.modelReloadPending = false
-			instance.modelLoaded = false
+			p.unloadBuildModel(instance)
 			if err != nil {
 				a.backgroundFailed("plugin_model_superseded", err)
 			}
@@ -1245,9 +1260,11 @@ func (a *App) finishBuildModel(p *project, id string, model core.BuildModel, err
 			a.settleTitleAction(p)
 			return
 		}
-		p.build.instances[index].Model = model
-		p.build.instances[index].modelLoaded = true
-		p.build.instances[index].modelVersion++
+		p.unloadBuildModel(instance)
+		instance.Model = model
+		instance.modelLoaded = true
+		instance.modelVersion++
+		p.tree.changeModuleRoots(model.Projects, 1)
 		p.build.status = ""
 		// The runs the model offers become run configurations.
 		a.refreshRunConfigurations(p)
@@ -1426,6 +1443,7 @@ func (a *App) runBuildTask(p *project, projectID, targetID, taskID string, userA
 	op := a.beginBuildOperation(p, "build", ideAPIBuildLabel(instance, taskID), "", restartWithInstance(instance.ID, func(a *App, p *project) {
 		_, _ = a.runBuildTask(p, projectID, targetID, taskID, userArguments)
 	}))
+	setRunGroupFromInstance(p, op.session, instance)
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
 		prepare, release := op.bind(ctx)
 		defer release()
@@ -1812,6 +1830,7 @@ func (a *App) startBuildEntry(p *project, instanceID, entryID string) {
 	op := a.beginRunOperation(p, entry.Name, "", "entry:"+instanceID+"/"+entryID, restartWithInstance(instance.ID, func(a *App, p *project) {
 		a.runBuildEntry(p, entryID)
 	}))
+	setRunGroupFromInstance(p, op.session, instance)
 	a.background(p, 0, func(ctx context.Context) func(*App) {
 		bounded, cancel := context.WithTimeout(ctx, runPreparationTimeout)
 		defer cancel()
@@ -1879,6 +1898,7 @@ func (a *App) beginBuildTarget(p *project, key, targetID string, run pluginservi
 		}
 		a.runBuildTarget(p, targetID, runID)
 	}))
+	setRunGroupFromInstance(p, op.session, instance)
 	var options *core.RunLaunchOptions
 	if (run.Execution != "" && run.Execution != "application") || debug != nil {
 		options = &core.RunLaunchOptions{Execution: run.Execution, RuntimeArguments: []string{}, Arguments: []string{}, Environment: map[string]string{}}
@@ -2453,6 +2473,7 @@ func (a *App) invalidateBuild(p *project) {
 	// land its stale instances or run configurations afterward.
 	runs, view, sessions, generation := p.build.runs, p.build.view, p.build.sessions, p.build.generation+1
 	p.build = buildState{runs: runs, view: view, sessions: sessions, generation: generation}
+	p.tree.clearModuleRoots()
 }
 
 // streamBuildOutput decodes text op wrote, on the goroutine that read it, and posts the decoded

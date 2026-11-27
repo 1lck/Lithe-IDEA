@@ -50,6 +50,34 @@ func (a *App) toolchainManifests(ctx context.Context) ([]json.RawMessage, error)
 	return manifests, err
 }
 
+// usableToolchainManifests is the shared policy for partial plugin reads. A
+// missing manifest must not conceal other valid tools; consumers still rely
+// on Core to resolve the requested ID. Log the degradation once per discovery.
+func (a *App) usableToolchainManifests(ctx context.Context, operation string) ([]json.RawMessage, bool, error) {
+	manifests, readErr := a.toolchainManifests(ctx)
+	usable, incomplete, err := partialToolchainCatalog(ctx, manifests, readErr)
+	if incomplete {
+		a.backgroundFailedIn(ctx, operation, readErr)
+	}
+	return usable, incomplete, err
+}
+
+// partialToolchainCatalog accepts valid manifests from a partially unreadable
+// plugin set, but cancellation of the *whole request* is always terminal.
+// A nested provider may time out independently without canceling ctx.
+func partialToolchainCatalog(ctx context.Context, manifests []json.RawMessage, readErr error) ([]json.RawMessage, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
+	if readErr == nil {
+		return manifests, false, nil
+	}
+	if len(manifests) == 0 {
+		return nil, false, readErr
+	}
+	return manifests, true, nil
+}
+
 // resolveToolchainSelection resolves one tool for one operation. A caller may
 // replace the selector in tests through toolchainResolve.
 func (a *App) resolveToolchainSelection(ctx context.Context, root, directory, tool, minimumVersion string) (core.ToolchainSelection, error) {
@@ -74,9 +102,19 @@ func (a *App) managedToolchainOptions(ctx context.Context, manifests []json.RawM
 }
 
 func (a *App) defaultToolchainSelection(ctx context.Context, root, directory, tool, minimumVersion string) (core.ToolchainSelection, error) {
-	manifests, err := a.toolchainManifests(ctx)
+	manifests, _, err := a.usableToolchainManifests(ctx, "toolchain_selection_discovery")
 	if err != nil {
 		return core.ToolchainSelection{}, err
+	}
+	return a.resolveToolchainSelectionFrom(ctx, root, directory, tool, minimumVersion, manifests)
+}
+
+// resolveToolchainSelectionFrom reuses a catalog read by a run or debugger.
+// Looking it up a second time could report the same partial-manifest failure twice,
+// or select a different plugin version between resolving and launching a tool.
+func (a *App) resolveToolchainSelectionFrom(ctx context.Context, root, directory, tool, minimumVersion string, manifests []json.RawMessage) (core.ToolchainSelection, error) {
+	if a.toolchainResolve != nil {
+		return a.toolchainResolve(ctx, root, directory, tool, minimumVersion)
 	}
 	if directory == "" {
 		directory = "."

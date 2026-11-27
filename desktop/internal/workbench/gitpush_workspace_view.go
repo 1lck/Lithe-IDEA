@@ -27,7 +27,7 @@ func (a *App) drawWorkspacePushDialog(c ui.C, p *project) {
 	size := a.theme.Metrics.FontSizeS
 	open := true
 	spec := ui.ModalSpec{Description: i18n.Shared(lang, "desktop.git.pushAll.description"), Width: reviewDialogWidth, Height: reviewDialogHeight}
-	closed := ui.ModalWith(c, &open, i18n.Shared(lang, "desktop.git.pushAll.title"), spec, func() {
+	closed := ui.Modal(c, &open, i18n.Shared(lang, "desktop.git.pushAll.title"), spec, func() {
 		ui.Column(c).Fill().Gap(8).Children(func() {
 			switch {
 			case !s.reviewed && s.err != "":

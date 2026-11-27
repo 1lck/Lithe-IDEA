@@ -9,7 +9,7 @@ const refreshTimeout = time.Second
 
 // Activate does nothing on Windows: a GUI program inherits the user's whole environment from the
 // registry there.
-func Activate() func() {
+func Activate() func() error {
 	mu.Lock()
 	activated = true
 	mu.Unlock()

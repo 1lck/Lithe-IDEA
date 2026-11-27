@@ -54,8 +54,12 @@ func (v *View) LineEnding() string {
 
 // lineContentEnd is where the characters of a line end: before its "\r\n".
 func (v *View) lineContentEnd(line int) int {
-	end := v.text.LineEnd(line)
-	if end > v.text.LineStart(line) && end < v.text.Len() && v.text.ByteAt(end-1) == '\r' {
+	return lineContentEnd(v.text, line)
+}
+
+func lineContentEnd(text rope.Rope, line int) int {
+	end := text.LineEnd(line)
+	if end > text.LineStart(line) && end < text.Len() && text.ByteAt(end-1) == '\r' {
 		end--
 	}
 	return end
@@ -65,13 +69,18 @@ func (v *View) lineContentEnd(line int) int {
 // ByteOffset, a column past the line or inside a surrogate pair is an error, so a
 // plugin's stale range is refused instead of silently moved.
 func (v *View) OffsetOf(line, column int) (int, error) {
-	if line < 0 || line >= v.text.LineCount() || column < 0 {
+	return OffsetOfSnapshot(v.text, line, column)
+}
+
+// OffsetOfSnapshot resolves a UTF-16 position against immutable editor text.
+func OffsetOfSnapshot(text rope.Rope, line, column int) (int, error) {
+	if line < 0 || line >= text.LineCount() || column < 0 {
 		return 0, ErrPosition
 	}
-	start, end := v.text.LineStart(line), v.lineContentEnd(line)
+	start, end := text.LineStart(line), lineContentEnd(text, line)
 	offset, remaining := start, column
 	ok := true
-	v.text.Chunks(start, end, func(chunk string) bool {
+	text.Chunks(start, end, func(chunk string) bool {
 		for len(chunk) > 0 && remaining > 0 {
 			r, size := utf8.DecodeRuneInString(chunk)
 			units := 1

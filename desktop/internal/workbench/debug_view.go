@@ -247,7 +247,7 @@ func (a *App) debugRemotePrompt(c ui.C, p *project) {
 		return
 	}
 	endpoint := d.remote.endpoint
-	closed := ui.Modal(c, open, t.RemoteTitle, func() {
+	closed := ui.Modal(c, open, t.RemoteTitle, ui.ModalSpec{}, func() {
 		ui.Paragraph(c, t.RemotePrompt(endpoint), 4).Color(a.colors.Warning)
 	}, func() {
 		if ui.Button(c, t.RemoteCancel).Outline().Clicked() {
@@ -300,7 +300,7 @@ func (a *App) debugBreakpointsDialog(c ui.C, p *project) {
 	}
 	t := a.text.Debug
 	k := c.Part("breakpoints-dialog")
-	closed := ui.ModalWith(k, open, t.Breakpoints, ui.ModalSpec{Width: 560}, func() {
+	closed := ui.Modal(k, open, t.Breakpoints, ui.ModalSpec{Width: 560}, func() {
 		ui.Column(k).FillWidth().Gap(6).Children(func() {
 			a.debugBreakpoints(k, p)
 			a.debugExceptionsView(k, p)

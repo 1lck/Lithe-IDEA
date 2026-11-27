@@ -53,7 +53,7 @@ func (a *App) treeDragAccept(source, target gfx.ID) bool {
 	if dst.path == src.path || path.Dir(src.path) == dst.path || strings.HasPrefix(dst.path, src.path+"/") {
 		return false
 	}
-	return true
+	return !p.tree.removalConflicts(src.path, dst.path)
 }
 
 // treeDragDrop moves the dragged item into the folder it was dropped on.
@@ -74,6 +74,13 @@ func (a *App) treeDragDrop(source, target gfx.ID) {
 // moveTreeItem moves the item at rel into the folder dir (project-relative). The open files below
 // it are saved first and follow the new path; a name the folder already has is refused.
 func (a *App) moveTreeItem(p *project, rel, dir string) {
+	if p.remote != nil {
+		a.remoteMoveTreeItem(p, rel, dir)
+		return
+	}
+	if a.rejectRemovalWrite(p, "project_tree_move", rel, dir) {
+		return
+	}
 	language := a.language()
 	oldFull := filepath.Join(p.root, filepath.FromSlash(rel))
 	newFull := filepath.Join(p.root, filepath.FromSlash(dir), filepath.Base(filepath.FromSlash(rel)))
@@ -119,12 +126,20 @@ func (a *App) treeClipboardHas(p *project) bool {
 // treePaste puts the clipboard items into the folder n (or the folder of n when it is a file).
 // A cut item moves; a copied item is copied under a free name in the folder.
 func (a *App) treePaste(p *project, n *treeNode) {
-	language := a.language()
+	if p.remote != nil {
+		a.remoteTreePaste(p, n)
+		return
+	}
 	dir := n.path
 	if !n.dir {
 		dir = path.Dir(n.path)
 	}
 	clip := p.tree.clip
+	writePaths := append([]string{dir}, clip.paths...)
+	if a.rejectRemovalWrite(p, "project_tree_paste", writePaths...) {
+		return
+	}
+	language := a.language()
 	var failed error
 	for _, rel := range clip.paths {
 		src := filepath.Join(p.root, filepath.FromSlash(rel))
@@ -143,6 +158,8 @@ func (a *App) treePaste(p *project, n *treeNode) {
 			}
 			if err := os.Rename(src, dst); err != nil {
 				failed = err
+			} else {
+				a.moveOpenDocuments(p, src, dst)
 			}
 			continue
 		}

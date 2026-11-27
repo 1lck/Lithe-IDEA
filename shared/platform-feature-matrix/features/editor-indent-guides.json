@@ -1,0 +1,41 @@
+{
+  "id": "editor-indent-guides",
+  "area": "编辑器",
+  "group": "文本编辑",
+  "capability": "缩进参考线及按缩进层级着色的彩虹参考线",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/editorview/indent_guides.go",
+      "desktop/internal/editorview/indent_guides_test.go",
+      "desktop/internal/settingswindow/editor_preferences_view.go",
+      "desktop/internal/settingswindow/editor_rainbow_brackets_view.go",
+      "desktop/internal/settingswindow/editor_rainbow_section_test.go",
+      "desktop/internal/workbench/editor_view.go",
+      "desktop/internal/workbench/editor_presentation.go",
+      "desktop/internal/workbench/source_preview_rainbow_test.go",
+      "desktop/internal/workbench/source_preview_rainbow_visual_test.go",
+      "desktop/internal/editorview/perf_bench_test.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/editorview/indent_guides.go",
+      "desktop/internal/editorview/indent_guides_test.go",
+      "desktop/internal/settingswindow/editor_preferences_view.go",
+      "desktop/internal/settingswindow/editor_rainbow_brackets_view.go",
+      "desktop/internal/settingswindow/editor_rainbow_section_test.go",
+      "desktop/internal/workbench/editor_view.go",
+      "desktop/internal/workbench/editor_presentation.go",
+      "desktop/internal/workbench/source_preview_rainbow_test.go",
+      "desktop/internal/workbench/source_preview_rainbow_visual_test.go",
+      "desktop/internal/editorview/perf_bench_test.go"
+    ]
+  },
+  "owner": "Editor",
+  "notes": "普通参考线默认显示，开关保留在编辑器显示区块；彩虹参考线默认关闭，开关与彩虹括号、变量及明暗色板放在彩虹括号区块。子开关随父开关禁用，已保存的选择会在重新打开父开关后生效。彩虹色与括号和变量共用明暗色板。",
+  "verification": "在明暗主题和独立文件窗口中打开有多层缩进的源码。检查参考线限于代码块内部，光标移到同级代码块时只有当前作用域参考线加深对比度。检查空白行、Tab 和空格缩进、滚动和换行。依次切换两级开关，确认颜色按深度变化、主开关关闭时线条消失，重新打开后恢复原来的子开关值。 在 Problems 完整源码预览中检查相同的参考线开关和明暗主题色板，编辑主文档与预览后保持一致。 运行 BenchmarkEditorViewPaint/indent-guides，使用默认开启的普通参考线和预先准备的作用域；100 KiB/10 MiB 比较遵循现有 Paint 零分配和规模比预算，不调整预算。"
+}

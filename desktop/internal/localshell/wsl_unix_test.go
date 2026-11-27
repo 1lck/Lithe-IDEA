@@ -84,7 +84,10 @@ func TestWSLScriptStartsTheLoginShellInTheStartFolder(t *testing.T) {
 			}, "wsl-test-token")
 			// The shell starts in the folder the environment named, not the home
 			// folder, and the user's own startup file ran.
-			s.await("the first prompt", func() bool { return s.ready() > 0 })
+			// Login startup reads /etc/profile and the runner's shell initialization.
+			// Under full desktop CI load it may not emit its first byte in 10s;
+			// later interactive commands still use the normal bounded 10s wait.
+			s.awaitWithin("the first prompt", 30*time.Second, func() bool { return s.ready() > 0 })
 			s.run("printf 'in=%s\\n' \"$PWD\"\r", 1, "in="+startDir+"\r\n")
 			if !strings.Contains(s.output, "user-profile-loaded") {
 				t.Fatalf("the user's startup file did not run: %q", s.output)

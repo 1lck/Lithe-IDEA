@@ -157,6 +157,16 @@ func TestVisualPluginSettingsPage(t *testing.T) {
 			if err := session.Screenshot(filepath.Join(out, "plugin-settings-page-"+look.theme+".png")); err != nil {
 				t.Fatal(err)
 			}
+			w.ctrl.SetWorkspaceBuildOptions(map[string][]WorkspaceBuildOptions{
+				"go": {{InstanceID: "fixture", PluginID: "dev.example.settings", Name: "Go", Root: "tools", Open: func() {}}},
+			})
+			w.openKind("buildSystem")
+			w.inv.Invalidate()
+			label := i18n.SharedFormat(look.language, "desktop.buildSettings.workspaceOptionsAt", map[string]string{"name": "Go", "root": "tools"})
+			d.until("workspace build options link", func() bool { return d.has(label) && w.pluginSettings.loaded })
+			if err := session.Screenshot(filepath.Join(out, "workspace-build-options-"+look.theme+".png")); err != nil {
+				t.Fatal(err)
+			}
 		})
 	}
 }

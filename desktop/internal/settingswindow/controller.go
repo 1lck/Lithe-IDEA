@@ -550,9 +550,6 @@ type Options struct {
 	// is false until Core has answered. Nil hides the stop time, for a platform where a
 	// stopped program is ended at once.
 	StopTime func() (rule StopTime, ok bool)
-	// SweepsLeftovers says the client finds, at start-up, the processes an earlier run left
-	// behind; false hides the setting for them.
-	SweepsLeftovers bool
 	// SetKeymap hands a change of Values.Keymap to the settings owner, like SetTabRows.
 	SetKeymap            func(shortcuts.Overrides)
 	SetEditorPreferences func(core.EditorStoredPreferences, core.EditorPreferences)
@@ -647,12 +644,33 @@ type Options struct {
 // Controller opens the settings window and keeps at most one open: opening it again brings
 // the open one to the front and keeps its current page and values.
 type Controller struct {
-	opts Options
+	opts             Options
+	workspaceOptions map[string][]WorkspaceBuildOptions // immutable after publication, guarded by mu
 
 	// mu guards current: Open runs on the window thread of the window that asks, and
 	// OnClosed on the settings window's.
 	mu      sync.Mutex
 	current *window
+}
+
+// WorkspaceBuildOptions identifies the editor for one detected instance of a build system.
+type WorkspaceBuildOptions struct {
+	InstanceID, PluginID, Name, Root string
+	Open                             func()
+}
+
+// SetWorkspaceBuildOptions publishes a new snapshot from the workbench window thread.
+func (c *Controller) SetWorkspaceBuildOptions(options map[string][]WorkspaceBuildOptions) {
+	c.mu.Lock()
+	c.workspaceOptions = options
+	c.mu.Unlock()
+	c.Invalidate()
+}
+
+func (c *Controller) buildOptionsFor(system string) []WorkspaceBuildOptions {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.workspaceOptions[system]
 }
 
 // NewController returns a controller with no window open.

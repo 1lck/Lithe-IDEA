@@ -18,7 +18,7 @@ func (a *App) cloneView(c ui.C) {
 	parentLabel := i18n.Shared(language, "desktop.clone.parent")
 	nameLabel := i18n.Shared(language, "desktop.clone.name")
 	submitted, cancelled, confirmed := false, false, false
-	closed := ui.ModalWith(c, &cl.open, i18n.Shared(language, "desktop.clone.title"), ui.ModalSpec{Width: 570}, func() {
+	closed := ui.Modal(c, &cl.open, i18n.Shared(language, "desktop.clone.title"), ui.ModalSpec{Width: 570}, func() {
 		ui.Column(c).FillWidth().Gap(10).Children(func() {
 			ui.Text(c, sourceLabel)
 			if ui.TextField(c, &cl.source, sourceLabel, i18n.Shared(language, "desktop.clone.sourcePlaceholder")).FillWidth().Disabled(cl.busy).Submitted() {

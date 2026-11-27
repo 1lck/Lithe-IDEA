@@ -7,6 +7,7 @@ import test from "node:test";
 
 // The workflows the script requires to keep an installed-package test.
 const installedPackageWorkflows = [
+  ["desktop/internal/workbench/remote_devcontainer_form_test.go", "TestRemoteDevcontainerConfigurationLeavesInstalledPackageUnchanged"],
   ["desktop/internal/remoteserver/remoteserver_test.go", "TestResolveLeavesTheInstalledPackageUnchanged"],
   ["desktop/internal/remoteplaceholder/remoteplaceholder_test.go", "TestEnsureLeavesTheInstalledPackageUnchanged"],
   ["desktop/internal/idehelp/idehelp_test.go", "TestInstallLeavesTheInstalledPackageUnchanged"],
@@ -15,6 +16,8 @@ const installedPackageWorkflows = [
   ["desktop/internal/marketplace/delta_test.go", "TestMarketplaceDeltaLeavesInstalledPackageUnchanged"],
   ["desktop/internal/plugininstall/pending_test.go", "TestStageUpdateLeavesInstalledPackageUnchanged"],
   ["desktop/internal/pluginservice/package_lifecycle_test.go", "TestUninstallWaitsForPackagePublicationInAnotherProcess"],
+  ["desktop/internal/workbench/editor_preferences_publication_test.go", "TestEditorPreferencesLeavesInstalledPackageUnchanged"],
+  ["desktop/internal/workbench/remote_devcontainer_form_test.go", "TestRemoteDevcontainerConfigurationLeavesInstalledPackageUnchanged"],
 ];
 
 function workflowTest(name, body = "\tif !installedpackagetest.Run(t) {\n\t\treturn\n\t}\n") {

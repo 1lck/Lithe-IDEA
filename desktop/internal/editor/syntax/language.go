@@ -121,6 +121,8 @@ type Language struct {
 	Comments    Comments
 	Brackets    []Pair
 	AutoClosing []Pair
+	// Candidates declares how this grammar names identifiers beyond generic variable scopes.
+	Candidates *CandidateRules
 }
 
 func (l *Language) rules() []Rule {

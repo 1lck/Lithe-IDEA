@@ -283,7 +283,7 @@ func (a *App) gitGutterPeek(c ui.C, p *project, d *document, anchor ui.Box) {
 		return
 	}
 	h := *d.gutter.peek
-	ui.Popover(c.Key("gutterpeek"), anchor, &d.gutter.peekOpen, func() {
+	ui.Popover(c.Key("gutterpeek"), anchor, &d.gutter.peekOpen, ui.PopoverSpec{}, func() {
 		ui.Column(c).Gap(6).MinWidth(280).Children(func() {
 			ui.Text(c, i18n.Shared(a.language(), "desktop.git.gutter.before")).FontSize(12).Weight(gfx.WeightSemibold).Color(a.colors.Subtle)
 			const maxLines = 20

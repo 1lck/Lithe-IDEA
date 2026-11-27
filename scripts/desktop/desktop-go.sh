@@ -106,10 +106,13 @@ LITHE_PLUGIN_CONTRACT_DIR="$(native_path "$CORE_CHECKOUT/shared/plugins/contract
 export LITHE_PLUGIN_CONTRACT_DIR
 LITHE_CORE_FIXTURE_DIR="$(native_path "$CORE_CHECKOUT/rust/fixtures")"
 export LITHE_CORE_FIXTURE_DIR
-if [[ -x "$STAGE_DIR/bin/lithe-mcp" ]]; then
-    export LITHE_IDE_HELPER="$STAGE_DIR/bin/lithe-mcp"
-elif [[ -x "$STAGE_DIR/bin/lithe-mcp.exe" ]]; then
-    export LITHE_IDE_HELPER="$STAGE_DIR/bin/lithe-mcp.exe"
+HELPER="$STAGE_DIR/bin/lithe-mcp"
+if [[ "$GOOS" == "windows" ]]; then
+    HELPER+=".exe"
+fi
+if [[ -x "$HELPER" ]]; then
+    LITHE_IDE_HELPER="$(native_path "$HELPER")"
+    export LITHE_IDE_HELPER
 fi
 # A development run connects to hosts with the server scripts/desktop/build-remote-server.sh staged,
 # when it staged one; nothing here builds it. A packaged client ignores the variable and uses the
@@ -131,6 +134,13 @@ NATIVE_STATIC_LIBS="$(<"$STAGE_DIR/native-static-libs.txt")"
 NATIVE_SEARCH_FLAGS=""
 CORE_LINK_INPUTS=("$STAGE_DIR/lib/liblithe_core.a" "$STAGE_DIR/include/lithe_core.h" "$STAGE_DIR/native-static-libs.txt")
 if [[ "$GOOS" == "windows" ]]; then
+    # Include any Cargo import archives staged directly under $STAGE_DIR/lib/ (e.g. from Linux
+    # cross-compilation), and fall back to scanning Cargo's target build output when present.
+    for staged_archive in "$STAGE_DIR/lib"/*.a; do
+        [[ -f "$staged_archive" ]] || continue
+        [[ "$staged_archive" == "$STAGE_DIR/lib/liblithe_core.a" ]] && continue
+        CORE_LINK_INPUTS+=("$staged_archive")
+    done
     CARGO_HOST_TARGET="$(rustc -vV | sed -n 's/^host: //p')"
     CARGO_BUILD_ROOT="$ROOT_DIR/.artifacts/desktop/lithe-core-rust/target"
     if [[ "$LITHE_CORE_TARGET" != "$CARGO_HOST_TARGET" ]]; then
@@ -153,6 +163,7 @@ if [[ "$GOOS" == "windows" ]]; then
             used_dir=false
             for arg in "${NATIVE_ARGS[@]}"; do
                 case "$arg" in -l*) lib_name="${arg#-l}" ;; *) continue ;; esac
+                [[ -f "$STAGE_DIR/lib/lib$lib_name.a" ]] && continue
                 archive="$native_dir/lib$lib_name.a"
                 [[ -f "$archive" ]] || continue
                 for i in "${!FOUND_NAMES[@]}"; do

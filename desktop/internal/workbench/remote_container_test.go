@@ -174,7 +174,7 @@ func TestRemoteContainerOpensAFolderInAContainer(t *testing.T) {
 	if got, want := h.app.projectDisplayName(p), "project [Container: "+remoteTestContainer+"]"; got != want {
 		t.Fatalf("title %q, want %q", got, want)
 	}
-	if status := remoteStatusText(lang, p.remote); !strings.HasPrefix(status, "Container: "+remoteTestContainer) || !h.shows(status) {
+	if status := remoteStatusText(lang, p.remote); !strings.HasPrefix(status, "Container: "+remoteTestContainer) || !h.remoteHostHasStatus(p.remote) {
 		t.Fatalf("status %q does not name the container", status)
 	}
 	saved := savedRemoteConnections(t, h)
@@ -209,6 +209,17 @@ func TestRemoteContainerOpensAFolderInAContainer(t *testing.T) {
 		h.app.remoteContainerWindows(core.ContainerEngineDocker, remoteTestContainerGone) != 0 {
 		t.Fatal("the windows open in the container are not counted by engine and name")
 	}
+	h.app.closeRemote()
+	h.redraw()
+	h.openRemoteHostChoices(t)
+	h.clickFront(i18n.Shared(lang, "desktop.remote.hostSwitcher.chooseFolder"))
+	h.await("another folder on the current container", func() bool { return r.browser != nil && !r.browser.loading })
+	if r.browser.host.container == nil || *r.browser.host.container != want || r.containers.selected == nil ||
+		r.containers.selected.Name != remoteTestContainer || r.containers.user.Text() != want.User {
+		t.Fatal("choosing another folder lost the current container or its selected row/user")
+	}
+	h.app.closeRemote()
+	h.settle()
 }
 
 // A container that is gone fails at the connection with the containers' own text and no OpenSSH
@@ -339,4 +350,12 @@ func TestRemoteContainersAbsentShowsNothing(t *testing.T) {
 	if h.shows(i18n.Shared(h.app.language(), "desktop.remote.container.heading")) {
 		t.Fatal("the window shows the containers' heading without an engine")
 	}
+}
+
+// Runtime discovery is outside the unit test boundary; integration tests use the real Core.
+func (k *testKernel) RemoteContainerRuntimes(context.Context) (core.ContainerRuntimes, error) {
+	return core.ContainerRuntimes{}, nil
+}
+func (k *remoteProbeKernel) RemoteContainerRuntimes(context.Context) (core.ContainerRuntimes, error) {
+	return core.ContainerRuntimes{}, nil
 }

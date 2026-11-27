@@ -86,7 +86,10 @@ func Sweep(root string) (err error) {
 		entries, err := os.ReadDir(directory)
 		if err == nil && len(entries) != 0 && release == nil {
 			release, err = filelock.TryAcquire(filepath.Join(root, stagingSweepLock))
-			if err != nil || release == nil {
+			if errors.Is(err, filelock.ErrBusy) {
+				return errors.Join(failures...)
+			}
+			if err != nil {
 				return errors.Join(append(failures, err)...)
 			}
 			// An owner may have created, removed or published a package

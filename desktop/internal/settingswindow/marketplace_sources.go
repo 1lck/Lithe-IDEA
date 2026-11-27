@@ -130,7 +130,7 @@ func (w *window) repositoriesModal(c ui.C, language i18n.Language) {
 			w.repositoriesOpen = false
 		}
 	}
-	ui.ModalWith(c.Part("repositories-modal"), &w.repositoriesOpen, title, ui.ModalSpec{Width: 600}, body, footer)
+	ui.Modal(c.Part("repositories-modal"), &w.repositoriesOpen, title, ui.ModalSpec{Width: 600}, body, footer)
 	if !w.repositoriesOpen {
 		w.marketSourceNotice = ""
 	}

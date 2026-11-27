@@ -202,6 +202,14 @@ test('an amd64 macOS package on an arm64 host embeds the amd64 helper', async ()
   });
 });
 
+test('skipping the file associations check avoids a second host-arch release Core build when cross-packaging', async () => {
+  await withFixture({ goos: 'darwin', goarch: 'arm64', rustHost: 'aarch64-apple-darwin' }, async ({ root, run, coreBuilds }) => {
+    await run('bash', ['scripts/desktop/package-desktop.sh', '--arch', 'amd64', '--no-sign', '--skip-file-associations-check']);
+    assert.deepEqual(new Set(await coreBuilds()), new Set(['x86_64-apple-darwin --release']));
+    assert.equal(await readFile(path.join(root, 'embedded-helper.txt'), 'utf8'), 'lithe-mcp for x86_64-apple-darwin\n');
+  });
+});
+
 test('Linux packaging retains cgo and embeds its native core helper', { timeout: 90000 }, async () => {
   await withFixture({ goos: 'linux', goarch: 'arm64', rustHost: 'aarch64-unknown-linux-gnu' }, async ({ root, run, coreBuilds }) => {
     await run('bash', ['scripts/desktop/package-desktop.sh', '--no-sign']);
@@ -338,10 +346,10 @@ test('make core stages the GNU core on Windows', async () => {
   });
 });
 
-test('Windows tool setup preserves the NSIS version switch in Git Bash', { timeout: 20000 }, async () => {
+test('Windows tool setup skips optional NSIS and preserves its version switch in Git Bash', { timeout: 20000 }, async () => {
   const action = await readFile(path.join(scripts, '../../.github/actions/setup-desktop-windows-build-tools/action.yml'), 'utf8');
   const body = action.split('      run: |\n')[1].split('\n').map(line => line.slice(8)).join('\n');
-  for (const location of ['path', 'x86', 'x64']) {
+  for (const location of ['disabled', 'path', 'x86', 'x64']) {
     const root = await mkdtemp(path.join(os.tmpdir(), 'lithe nsis-check-'));
     try {
       const bin = path.join(root, 'bin');
@@ -354,26 +362,33 @@ test('Windows tool setup preserves the NSIS version switch in Git Bash', { timeo
       // Model the MSYS boundary: the native compiler must receive /VERSION as an option,
       // not a translated Git-installation path. The real native check runs in Windows.
       const commands = {
-        gcc: 'exit 0',
+        gcc: 'printf "fixture gcc\\n"',
         choco: 'echo "unexpected install" >&2; exit 1',
         cygpath: 'printf "%s\\n" "$2"',
       };
       for (const [name, content] of Object.entries(commands)) {
         await writeFile(path.join(bin, name), `#!/usr/bin/env bash\n${content}\n`, { mode: 0o755 });
       }
-      await writeFile(nsis, '#!/usr/bin/env bash\nset -eu\n[[ "${MSYS2_ARG_CONV_EXCL:-}" == /VERSION && "$#" == 1 && "$1" == /VERSION ]] || { echo "NSIS version switch was not protected from path conversion" >&2; exit 1; }\nprintf "v3.11\\n"\n', { mode: 0o755 });
+      if (location !== 'disabled') {
+        await writeFile(nsis, '#!/usr/bin/env bash\nset -eu\n[[ "${MSYS2_ARG_CONV_EXCL:-}" == /VERSION && "$#" == 1 && "$1" == /VERSION ]] || { echo "NSIS version switch was not protected from path conversion" >&2; exit 1; }\nprintf "v3.11\\n"\n', { mode: 0o755 });
+      }
       // Force the fallback layouts even if the machine has another NSIS installation.
       const commandLookup = location === 'path' ? '' : 'command() { if [[ "$1" == -v && "$2" == makensis ]]; then return 1; fi; builtin command "$@"; }\n';
       const script = commandLookup + body.replaceAll('/c/Program Files (x86)/NSIS', x86).replaceAll('/c/Program Files/NSIS', x64);
       const result = await runProcess({
         command: 'bash', args: ['-e', '-o', 'pipefail', '-c', script], cwd: root,
-        env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, GITHUB_PATH: path.join(root, 'github-path'), MSYS2_ARG_CONV_EXCL: '' },
+        env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, GITHUB_PATH: path.join(root, 'github-path'), MSYS2_ARG_CONV_EXCL: '', SETUP_NSIS: location === 'disabled' ? 'false' : 'true' },
         timeoutMs: 4000, maxCapturedBytes: 65536,
       });
       assert.equal(result.timedOut, false);
       assert.equal(result.terminationConfirmed, true);
       assert.equal(result.code, 0, `${location}: ${result.stderr}`);
-      assert.match(result.stdout, /v3\.11/);
+      assert.match(result.stdout, /fixture gcc/);
+      if (location === 'disabled') {
+        assert.doesNotMatch(result.stdout, /v3\.11/);
+      } else {
+        assert.match(result.stdout, /v3\.11/);
+      }
     } finally {
       await rm(root, { recursive: true, force: true });
     }

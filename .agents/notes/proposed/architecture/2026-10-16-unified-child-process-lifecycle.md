@@ -2,7 +2,7 @@
 
 状态：提议中
 
-> Viva 迁移状态：桌面端已有进程账本 `desktop/internal/processledger`，构建、调试、测试、项目生成、本地 shell 和插件服务等启动点登记其中，下次启动时清扫上次遗留的进程。退出时的逐项确认、进程分类、监护进程和 Windows 的 Job Object 仍未落地；Windows 目前无法读取进程启动时间与命令，账本在该平台不登记。下文提案按 Viva 重新核对，实施前以代码为准。
+> Viva 迁移状态：桌面端已有进程账本 `desktop/internal/processledger`，构建、调试、测试、项目生成、本地 shell 和插件服务等启动点登记其中，下次启动时清扫上次遗留的进程。退出时的逐项确认、进程分类和监护进程仍未落地，Windows 的 Job Object 只用于经 `buildprocess` 启动的构建、运行、测试、调试和插件工具进程（`desktop/internal/buildprocess/process_windows.go`），终端 shell 不在其中；Windows 上账本通过进程句柄读取创建时间和程序路径，不启动外部程序（原因见 [Lithe 退出时结束它启动的全部子进程](../../implemented/bug-fix/2026-10-14-child-processes-end-with-the-ide.md)）。下文提案按 Viva 重新核对，实施前以代码为准。
 
 ## 先说结论
 

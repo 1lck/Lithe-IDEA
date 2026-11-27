@@ -11,6 +11,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/vivaui/viva/gfx"
 )
 
 // refusingKernel is Core's client that refuses every checkout and every new branch in the
@@ -41,13 +42,43 @@ func (k *refusingKernel) GitCreateBranch(ctx context.Context, root, name string,
 // branches every repository has.
 func (h *harness) openCommonBranches() *branchState {
 	h.t.Helper()
-	h.click(center(h.hitLabeled(h.app.text.Title.BranchMenu)))
+	h.branchClick(center(h.hitLabeled(h.app.text.Title.BranchMenu)))
 	b := &h.app.branch
 	h.settleUntil("the common branches", func() bool { return b.common.loaded })
 	if b.common.err != nil {
 		h.t.Fatalf("reading the common branches: %v", b.common.err)
 	}
 	return b
+}
+
+func (h *harness) branchClick(point gfx.Point) {
+	h.t.Helper()
+	h.sendClick(point)
+	h.awaitWithin(branchOperationTimeout, "branch operation", func() bool {
+		b := &h.app.branch
+		return !b.busy && !b.loading && !b.common.loading
+	})
+}
+
+func (h *harness) branchNamed(name string) {
+	h.t.Helper()
+	h.branchClick(center(h.pageHit(name).Bounds))
+}
+
+func (h *harness) typeCommonBranchName(name string, clear func(), value string) {
+	h.t.Helper()
+	clear()
+	h.app.invalidator.Invalidate()
+	if err := h.driver.Pump(); err != nil {
+		h.t.Fatal(err)
+	}
+	h.sendNamed(name)
+	if err := h.driver.Type(value); err != nil {
+		h.t.Fatal(err)
+	}
+	if err := h.driver.Pump(); err != nil {
+		h.t.Fatal(err)
+	}
 }
 
 // shortNames are the short names of refs.
@@ -92,11 +123,11 @@ func TestWorkspaceBranchPopupChecksOutACommonBranchInEveryRepository(t *testing.
 		t.Fatal("the popup lists only-alpha, which beta does not have, among the common branches")
 	}
 
-	h.click(center(h.branchRow("feature")))
+	h.branchClick(center(h.branchRow("feature")))
 	if b.menu != branchRowKey(commonSectionKeys[0], b.common.sections[0].refs[slices.Index(common, "feature")]) {
 		t.Fatalf("menu %q is open, want the common feature row's", b.menu)
 	}
-	h.clickNamed(h.app.text.Branch.Checkout)
+	h.branchNamed(h.app.text.Branch.Checkout)
 	for _, dir := range []string{alpha, beta} {
 		if got := currentBranch(t, dir); got != "feature" {
 			t.Fatalf("%s is on %q, want feature", filepath.Base(dir), got)
@@ -122,8 +153,8 @@ func TestWorkspaceCommonCheckoutRollsBackAfterAPartialFailure(t *testing.T) {
 	h.openWorkspaceFolder(parent)
 	b := h.openCommonBranches()
 
-	h.click(center(h.branchRow("feature")))
-	h.clickNamed(h.app.text.Branch.Checkout)
+	h.branchClick(center(h.branchRow("feature")))
+	h.branchNamed(h.app.text.Branch.Checkout)
 	if b.dialog != branchDialogRollback || !b.across {
 		t.Fatalf("after beta refused: dialog %v across %v, want the rollback dialog", b.dialog, b.across)
 	}
@@ -140,7 +171,7 @@ func TestWorkspaceCommonCheckoutRollsBackAfterAPartialFailure(t *testing.T) {
 		t.Fatalf("the rollback dialog does not say %q", failed)
 	}
 
-	h.clickNamed(i18n.Shared(lang, "desktop.branch.rollbackButton"))
+	h.branchNamed(i18n.Shared(lang, "desktop.branch.rollbackButton"))
 	if got := currentBranch(t, alpha); got != "main" {
 		t.Fatalf("alpha is on %q after the rollback, want main", got)
 	}
@@ -165,11 +196,11 @@ func TestWorkspaceCommonNewBranchIsCreatedInEveryRepository(t *testing.T) {
 			b := h.openCommonBranches()
 			text, lang := h.app.text.Branch, h.app.language()
 
-			h.click(center(h.branchRow("main")))
+			h.branchClick(center(h.branchRow("main")))
 			if _, ok := h.findPageHit(text.Checkout); ok {
 				t.Fatal("the menu of main, which every repository is on, offers a checkout")
 			}
-			h.clickNamed(text.NewBranchFrom("main"))
+			h.branchNamed(text.NewBranchFrom("main"))
 			if b.dialog != branchDialogCreate || !b.across {
 				t.Fatalf("after New Branch from main: dialog %v across %v", b.dialog, b.across)
 			}
@@ -177,12 +208,12 @@ func TestWorkspaceCommonNewBranchIsCreatedInEveryRepository(t *testing.T) {
 				t.Fatalf("the dialog does not say %q", want)
 			}
 			clear := func() { b.name.SetText("") }
-			h.typeInto(text.BranchName, clear, "only-alpha")
+			h.typeCommonBranchName(text.BranchName, clear, "only-alpha")
 			if want := text.NameExists("only-alpha"); !h.shows(want) {
 				t.Fatalf("the dialog does not say %q for a branch alpha has", want)
 			}
-			h.typeInto(text.BranchName, clear, "topic")
-			h.clickNamed(text.Create)
+			h.typeCommonBranchName(text.BranchName, clear, "topic")
+			h.branchNamed(text.Create)
 
 			if refused == "" {
 				for _, dir := range []string{alpha, beta} {
@@ -198,7 +229,7 @@ func TestWorkspaceCommonNewBranchIsCreatedInEveryRepository(t *testing.T) {
 			if b.dialog != branchDialogRollback {
 				t.Fatalf("after beta refused: dialog %v, want the rollback dialog", b.dialog)
 			}
-			h.clickNamed(i18n.Shared(lang, "desktop.branch.rollbackButton"))
+			h.branchNamed(i18n.Shared(lang, "desktop.branch.rollbackButton"))
 			if got := currentBranch(t, alpha); got != "main" {
 				t.Fatalf("alpha is on %q after the rollback, want main", got)
 			}
@@ -228,8 +259,8 @@ func TestWorkspaceCommonCheckoutListsTheBlockingChangesOfEveryRepository(t *test
 	p := h.openWorkspaceFolder(parent)
 	b := h.openCommonBranches()
 
-	h.click(center(h.branchRow("feature")))
-	h.clickNamed(h.app.text.Branch.Checkout)
+	h.branchClick(center(h.branchRow("feature")))
+	h.branchNamed(h.app.text.Branch.Checkout)
 	betaID := repositoryID(t, p, "beta")
 	if b.dialog != branchDialogConflict || !b.across {
 		t.Fatalf("dialog %v across %v, want the conflict dialog of the common checkout", b.dialog, b.across)
@@ -241,7 +272,7 @@ func TestWorkspaceCommonCheckoutListsTheBlockingChangesOfEveryRepository(t *test
 		t.Fatalf("alpha is on %q, want main while the dialog asks", got)
 	}
 
-	h.clickNamed(h.app.text.Branch.ForceCheckout)
+	h.branchNamed(h.app.text.Branch.ForceCheckout)
 	for _, dir := range []string{alpha, beta} {
 		if got := currentBranch(t, dir); got != "feature" {
 			t.Fatalf("%s is on %q, want feature", filepath.Base(dir), got)

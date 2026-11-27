@@ -131,6 +131,112 @@ func TestTableOnlyDeclaresTheVisibleRows(t *testing.T) {
 	}
 }
 
+// Resting over shortened content reveals the original record without adding a
+// pointer target between the table row and its text.
+func TestTableEllipsisShowsFullMessageAndKeepsRowSelection(t *testing.T) {
+	fixture, w, driver := bigFixture(t, 1)
+	full := strings.Repeat("完整日志消息/", 12) + "end"
+	fixture.model.records[0].Msg = full
+	w.inv.Invalidate()
+	settleWindow(t, driver)
+	var label app.Label
+	for _, item := range driver.Snapshot().Labels {
+		if strings.HasPrefix(item.Value, "完整日志") && strings.HasSuffix(item.Value, "…") {
+			label = item
+			break
+		}
+	}
+	if label.Value == "" {
+		t.Fatal("the message was not ellipsized")
+	}
+	x, y := label.Bounds.X+5, label.Bounds.Y+label.Bounds.Height/2
+	if err := driver.Move(x, y); err != nil {
+		t.Fatal(err)
+	}
+	if err := driver.Advance(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if got := tableTooltipText(driver); got != full {
+		t.Fatalf("message tooltip %q, want %q", got, full)
+	}
+	if err := driver.Click(x, y); err != nil {
+		t.Fatal(err)
+	}
+	if len(fixture.model.selection) != 1 {
+		t.Fatal("the message tooltip intercepted row selection")
+	}
+	if got := tableTooltipText(driver); got != "" {
+		t.Fatalf("the tooltip stayed open after a click: %q", got)
+	}
+}
+
+// A shortened message the filter marks is several labels; resting on a marked one
+// still shows the whole record.
+func TestTableEllipsisShowsFullMessageOverMarkedRuns(t *testing.T) {
+	fixture, w, driver := bigFixture(t, 1)
+	full := strings.Repeat("完整日志消息/", 12) + "end"
+	fixture.model.records[0].Msg = full
+	fixture.model.terms = []core.LogParsedTerm{{LogFilterTerm: core.LogFilterTerm{Kind: "text", Value: "消息"}}}
+	w.inv.Invalidate()
+	settleWindow(t, driver)
+	var mark app.Label
+	shortened := false
+	for _, item := range driver.Snapshot().Labels {
+		if item.Value == "消息" && mark.Value == "" {
+			mark = item
+		}
+		shortened = shortened || strings.HasSuffix(item.Value, "…")
+	}
+	if mark.Value == "" || !shortened {
+		t.Fatal("the message was not shortened into marked runs")
+	}
+	if err := driver.Move(mark.Bounds.X+mark.Bounds.Width/2, mark.Bounds.Y+mark.Bounds.Height/2); err != nil {
+		t.Fatal(err)
+	}
+	if err := driver.Advance(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if got := tableTooltipText(driver); got != full {
+		t.Fatalf("message tooltip %q, want %q", got, full)
+	}
+}
+
+func TestTableEllipsisShowsFullFieldAndKeepsFilterAction(t *testing.T) {
+	fixture, w, driver := bigFixture(t, 1)
+	fixture.model.opts.Kernel = &termKernel{exportKernel: fixture.kernel}
+	full := "/workspace/" + strings.Repeat("long-directory/", 12) + "file.go"
+	fixture.model.records[0].Fields = map[string]string{"path": full}
+	w.table.fields = nil
+	w.inv.Invalidate()
+	settleWindow(t, driver)
+	field := hitLabeled(t, driver, "path")
+	x, y := centerOf(field)
+	if err := driver.Move(x, y); err != nil {
+		t.Fatal(err)
+	}
+	if err := driver.Advance(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := tableTooltipText(driver), `path="`+full+`"`; got != want {
+		t.Fatalf("field tooltip %q, want %q", got, want)
+	}
+	clickHit(t, driver, field)
+	settle(t, fixture.model)
+	if expression := fixture.model.prefs.Query.Expression; !strings.Contains(expression, full) {
+		t.Fatalf("the field's filter action did not receive its complete value: %q", expression)
+	}
+}
+
+func tableTooltipText(driver *app.Driver) string {
+	var text strings.Builder
+	for _, label := range driver.Snapshot().Labels {
+		if label.Layer == ui.TooltipLayer {
+			text.WriteString(label.Value)
+		}
+	}
+	return text.String()
+}
+
 func TestTableArrowKeysMoveTheSelectionAndShiftExtendsIt(t *testing.T) {
 	fixture, _, driver := bigFixture(t, 200)
 	m := fixture.model
@@ -204,6 +310,28 @@ func TestTableSelectionFollowsAJumpAndTheModel(t *testing.T) {
 	}
 }
 
+// A jump to a distant log row must paint that row in the same driver frame
+// as the ScrollIntoView request; an extra mouse movement must not be required.
+func TestTableJumpToDistantRowPaintsOnTheFirstFrame(t *testing.T) {
+	fixture, w, driver := bigFixture(t, 200)
+	m := fixture.model
+	target := 147
+	m.jump(m.records[target].EpochMs)
+	w.inv.Invalidate()
+	if err := driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	if !w.table.chosen.Has(m.keyBase + target) {
+		t.Fatalf("jump did not select record %d", target)
+	}
+	for _, hit := range tableRowHits(driver) {
+		if hit.Selected && hit.Bounds.Height > 0 {
+			return
+		}
+	}
+	t.Fatal("selected distant log row was not painted on the scroll request frame")
+}
+
 func TestTableRightClickChoosesTheRowAndOpensItsMenu(t *testing.T) {
 	fixture, w, driver := bigFixture(t, 200)
 	row := tableRowHits(driver)[3]
@@ -257,13 +385,86 @@ func TestTableHeaderHandleResizesAColumn(t *testing.T) {
 	}
 }
 
+func TestStatusShowsPartialResultsUntilACompleteQuery(t *testing.T) {
+	fixture, w, driver := bigFixture(t, 1)
+	m := fixture.model
+	for _, result := range []core.LogQueryResult{{Truncated: true}, {SkippedInvalidLines: 1}, {}} {
+		partial := result.Truncated || result.SkippedInvalidLines > 0
+		result.Records = m.records
+		m.applyCollection(m.activeQuery, logstore.Collection{
+			Result: result,
+		})
+		w.inv.Invalidate()
+		settleWindow(t, driver)
+		found := false
+		for _, label := range driver.Snapshot().Labels {
+			if label.Value == w.text.Logs.PartialResults {
+				found = true
+			}
+		}
+		if found != partial {
+			t.Fatalf("partial results label visible = %v for Truncated = %v", found, partial)
+		}
+	}
+}
+
+func TestPausedTableKeepsTopRecordWhenEarlierRecordsExpire(t *testing.T) {
+	fixture, w, driver := bigFixture(t, 500)
+	m := fixture.model
+	x, y := centerOf(tableRowHits(driver)[1])
+	if err := driver.Scroll(gfx.ScrollEvent{X: x, Y: y, DeltaY: 100 * tableRowHeight, Precise: true}); err != nil {
+		t.Fatal(err)
+	}
+	settleWindow(t, driver)
+	top := w.table.topIndex
+	if top < 50 || top >= len(w.table.rows) {
+		t.Fatalf("expected an interior top row, got %d", top)
+	}
+	id := w.table.rows[top].id
+	before := tableRowHits(driver)
+	// A partially clipped top record can put its successor first among
+	// the fully visible row hits.
+	if len(before) == 0 || (before[0].ID != w.table.list.RowID(top) && before[0].ID != w.table.list.RowID(top+1)) {
+		t.Fatalf("tracked top row %d is outside the viewport", top)
+	}
+	m.applyCollection(m.activeQuery, logstore.Collection{
+		Result: core.LogQueryResult{Records: m.records[40:]},
+	})
+	w.inv.Invalidate()
+	if err := driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	index := tableRowIndex(w.table.rows, id)
+	after := tableRowHits(driver)
+	if index < 0 || index >= top || len(after) == 0 || after[0].ID != w.table.list.RowID(index) {
+		t.Fatalf("record from row %d moved within the viewport after expiration (new row %d)", top, index)
+	}
+}
+
 func TestFollowingPausesWhenTheTableIsScrolledUp(t *testing.T) {
 	fixture, w, driver := bigFixture(t, 500)
 	m := fixture.model
-	m.follows = true
-	m.scrollRevision++
+	last := len(w.table.rows) - 1
+	lastVisible := func() bool {
+		id := w.table.list.RowID(last)
+		for _, hit := range tableRowHits(driver) {
+			if hit.ID == id {
+				return true
+			}
+		}
+		return false
+	}
+	if lastVisible() {
+		t.Fatal("last log row already visible before resuming")
+	}
+	m.resume()
 	w.inv.Invalidate()
-	settleWindow(t, driver)
+	if err := driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	if !lastVisible() {
+		t.Fatal("resuming did not paint the last log row on the first frame")
+	}
 	if !m.follows {
 		t.Fatal("the window stopped following by itself")
 	}

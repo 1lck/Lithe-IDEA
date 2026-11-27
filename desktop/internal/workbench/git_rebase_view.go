@@ -17,7 +17,7 @@ func (a *App) drawRebaseDialog(c ui.C, p *project) {
 	lang := a.language()
 	open := true
 	description := i18n.SharedFormat(lang, "desktop.rebase.description", map[string]string{"hash": shortHash(r.base)})
-	closed := ui.ModalWith(c, &open, i18n.Shared(lang, "desktop.rebase.title"), ui.ModalSpec{Description: description, Width: reviewDialogWidth, Height: reviewDialogHeight}, func() {
+	closed := ui.Modal(c, &open, i18n.Shared(lang, "desktop.rebase.title"), ui.ModalSpec{Description: description, Width: reviewDialogWidth, Height: reviewDialogHeight}, func() {
 		ui.Column(c).Fill().Gap(8).Children(func() {
 			if r.err != "" {
 				ui.Paragraph(c, r.err, 3).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)

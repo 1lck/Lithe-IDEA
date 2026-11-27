@@ -23,20 +23,31 @@ func syncFixture(t *testing.T) (h *harness, p *project, dir, other string) {
 	gitRun(t, dir, "branch", "-u", "origin/main", "main")
 	other = filepath.Join(t.TempDir(), "other")
 	gitRun(t, dir, "clone", bare, other)
-	h = newHarness(t, gitKernel{core.NewClient()})
-	h.app.delays = logDelays{}
-	h.open(dir)
-	h.app.layout.gitTab = gitTabLog
-	h.settle()
-	if !h.app.project.log.started {
-		h.click(center(h.button(itemGit)))
-		h.settle()
-	}
-	p = h.app.project
-	if p.log.current != "main" {
-		t.Fatalf("log current branch = %q, want main", p.log.current)
-	}
+	h, p = openGitLogFixture(t, dir)
 	return h, p, dir, other
+}
+
+func openGitLogFixture(t *testing.T, dir string) (*harness, *project) {
+	t.Helper()
+	h := newHarness(t, gitKernel{core.NewClient()})
+	h.app.delays = logDelays{}
+	h.app.openProject(dir)
+	p := h.app.project
+	h.app.layout.gitTab = gitTabLog
+	h.await("repository status", func() bool { return p.git.loaded })
+	if !p.git.isRepository() {
+		t.Fatalf("fixture did not load a repository: %v", p.git.err)
+	}
+	if !h.app.chrome.isOpen(catalogIndex[itemGit]) {
+		h.sendClick(center(h.button(itemGit)))
+	}
+	h.awaitLogReady(p)
+	return h, p
+}
+
+func (h *harness) awaitLogReady(p *project) {
+	h.t.Helper()
+	h.await("Git log", func() bool { return p.log.started && !p.log.loading && p.log.current != "" })
 }
 
 func publishCommit(t *testing.T, clone, name string) {

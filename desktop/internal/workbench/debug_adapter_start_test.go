@@ -193,7 +193,7 @@ func TestDebugHostedAdapterThatNeverAnswersIsRecordedAsATimeout(t *testing.T) {
 	root, _ := fixtureWorkspace(t)
 	server := serveHostedAdapter(t, root, true)
 	h.app.debugHostedPort = func(context.Context, *project, debugAdapter) (int, error) { return server.port(), nil }
-	h.app.debugInitializeWindow = 300 * time.Millisecond
+	h.app.debugInitializeTrigger = server.initializeReceived
 	p := openHostedPanel(t, h, root)
 	h.app.startDebug(p)
 	session := p.debug.activeSession()

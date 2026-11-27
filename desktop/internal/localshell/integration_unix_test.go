@@ -69,8 +69,15 @@ func (s *integrated) lastExit() int {
 // await feeds the shell's output to the terminal until done holds. The
 // terminal's state changes only with output, and every output wakes the wait.
 func (s *integrated) await(what string, done func() bool) {
+	s.awaitWithin(what, 10*time.Second, done)
+}
+
+// awaitWithin uses the caller's bounded deadline for the first cold shell
+// startup under full-CI load, without changing the interactive command budget.
+func (s *integrated) awaitWithin(what string, timeout time.Duration, done func() bool) {
 	s.t.Helper()
-	deadline := time.After(10 * time.Second)
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
 	for {
 		data := s.shell.Drain(nil)
 		s.output += string(data)
@@ -80,7 +87,7 @@ func (s *integrated) await(what string, done func() bool) {
 		}
 		select {
 		case <-s.wakes:
-		case <-deadline:
+		case <-deadline.C:
 			s.t.Fatalf("waiting for %s (ready=%d starts=%d): %q", what, s.ready(), s.starts(), s.output)
 		}
 	}
@@ -283,6 +290,99 @@ func TestClosingAnIntegratedShellRightAfterACommandHangsUpItsJobs(t *testing.T) 
 			closeAndAwaitEnd(t, s.shell)
 			awaitProcessEnd(t, job)
 		})
+	}
+}
+
+// A shell job is its process group: every command in a pipeline ends, not only
+// the process Bash names as the job leader.
+func TestClosingAnIntegratedBashHangsUpTheWholeJob(t *testing.T) {
+	s := startHangupShell(t, "bash", nil)
+	s.run("sleep 300 | sleep 301 & echo pgid=$(jobs -p)\r", 1, "\r\npgid=")
+	match := regexp.MustCompile(`\r\npgid=(\d+)\r\n`).FindStringSubmatch(s.output)
+	if match == nil {
+		t.Fatalf("no job process group in %q", s.output)
+	}
+	pgid, _ := strconv.Atoi(match[1])
+	t.Cleanup(func() { _ = syscall.Kill(-pgid, syscall.SIGKILL) })
+
+	closeAndAwaitEnd(t, s.shell)
+	deadline := time.Now().Add(5 * time.Second)
+	for !errors.Is(syscall.Kill(-pgid, 0), syscall.ESRCH) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the shell's job process group %d outlived the closed terminal by 5s", pgid)
+		}
+		// test-stability: allow(go-real-sleep) reason: the end of a process group has no event to wait on.
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// Bash's hangup forwarding also continues stopped jobs so they can act on the
+// hangup instead of remaining stopped forever.
+func TestClosingAnIntegratedBashHangsUpAStoppedJob(t *testing.T) {
+	s := startHangupShell(t, "bash", nil)
+	s.run("sleep 300 & job=$(jobs -p); echo job=$job; kill -STOP $job\r", 1, "\r\njob=")
+	job := jobOf(t, s)
+
+	closeAndAwaitEnd(t, s.shell)
+	awaitProcessEnd(t, job)
+}
+
+// The close is a shell key binding, not command text appended to the input the
+// user left unfinished; even the continuation of a multiline command cannot
+// keep the terminal open or execute as part of the close.
+func TestClosingAnIntegratedBashWithUnfinishedInputHangsUpItsJobs(t *testing.T) {
+	s := startHangupShell(t, "bash", nil)
+	s.run("sleep 300 & echo job=$!\r", 1, "\r\njob=")
+	job := jobOf(t, s)
+	marker := filepath.Join(t.TempDir(), "was-run")
+	s.shell.Write([]byte("touch " + strconv.Quote(marker) + " \\\ncontinued-input"))
+	s.await("the unfinished input", func() bool { return strings.Contains(s.output, "continued-input") })
+
+	closeAndAwaitEnd(t, s.shell)
+	awaitProcessEnd(t, job)
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the unfinished multiline command ran during close: %v", err)
+	}
+}
+
+// The controlled close is bound in the insert and command keymaps a vi-editing
+// Bash can be in when the terminal closes.
+func TestClosingAnIntegratedViBashHangsUpItsJobs(t *testing.T) {
+	inputrc := filepath.Join(t.TempDir(), "inputrc")
+	if err := os.WriteFile(inputrc, []byte("set editing-mode vi\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := startHangupShell(t, "bash", []string{"INPUTRC=" + inputrc})
+	s.run("sleep 300 & echo job=$!\r", 1, "\r\njob=")
+	job := jobOf(t, s)
+	// Escape moves vi editing to command mode. Both modes must carry the close binding.
+	s.shell.Write([]byte{0x1b})
+	closeAndAwaitEnd(t, s.shell)
+	awaitProcessEnd(t, job)
+}
+
+// Closing is terminal shutdown, not a failed user command: even when the
+// command before it failed, the controlled exit itself succeeds.
+func TestClosingAnIntegratedBashAfterAFailedCommandExitsSuccessfully(t *testing.T) {
+	s := startHangupShell(t, "bash", nil)
+	s.run("false\r", 1, "")
+
+	closeAndAwaitEnd(t, s.shell)
+	if s.shell.ExitStatus() != 0 {
+		t.Fatalf("the closed shell's exit status = %d, want 0", s.shell.ExitStatus())
+	}
+}
+
+// Bash's hangup forwarding leaves disowned jobs alone; the terminal's
+// controlled close must keep that contract rather than killing the process group.
+func TestClosingAnIntegratedBashLeavesDisownedJobs(t *testing.T) {
+	s := startHangupShell(t, "bash", nil)
+	s.run("sleep 300 & job=$(jobs -p); echo job=$job; disown\r", 1, "\r\njob=")
+	job := jobOf(t, s)
+
+	closeAndAwaitEnd(t, s.shell)
+	if err := syscall.Kill(job, 0); err != nil {
+		t.Fatalf("the disowned job %d did not survive the closed terminal: %v", job, err)
 	}
 }
 

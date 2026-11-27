@@ -753,9 +753,10 @@ type LogMessages struct {
 	Tailing          string
 	PausedScrolledUp string
 	// VisibleCount is the row count; the numbers come grouped, for example "1,204".
-	VisibleCount  func(visible, total, line string) string
-	Dropped       func(count int) string
-	WriteFailures func(count int) string
+	VisibleCount   func(visible, total, line string) string
+	PartialResults string
+	Dropped        func(count int) string
+	WriteFailures  func(count int) string
 	// Rejected counts the events the kernel refused and names the latest one; event and code
 	// are diagnostic identifiers and stay untranslated.
 	Rejected func(count int, event string, code int) string

@@ -15,7 +15,7 @@ func (a *App) drawPullRequestsDialog(c ui.C, p *project) {
 	pr := &a.pullRequests
 	lang := a.language()
 	open := true
-	closed := ui.ModalWith(c, &open, i18n.Shared(lang, "desktop.github.pullRequests"), ui.ModalSpec{Width: reviewDialogWidth, Height: reviewDialogHeight}, func() {
+	closed := ui.Modal(c, &open, i18n.Shared(lang, "desktop.github.pullRequests"), ui.ModalSpec{Width: reviewDialogWidth, Height: reviewDialogHeight}, func() {
 		ui.Column(c).Fill().Gap(8).Children(func() {
 			ui.Row(c).FillWidth().Shrink(0).Gap(6).Children(func() {
 				if ui.Button(c, i18n.Shared(lang, "desktop.github.newPullRequest")).Outline().Disabled(pr.repo == nil && pr.err == "").Clicked() {

@@ -62,6 +62,7 @@ fi
 # - Plugin packages: extracting, installing and removing one (pluginpkg).
 # Fail closed if a listed test is missing or stops running through the copy.
 installed_package_workflows=(
+    desktop/internal/workbench/remote_devcontainer_form_test.go:TestRemoteDevcontainerConfigurationLeavesInstalledPackageUnchanged
     desktop/internal/remoteserver/remoteserver_test.go:TestResolveLeavesTheInstalledPackageUnchanged
     desktop/internal/remoteplaceholder/remoteplaceholder_test.go:TestEnsureLeavesTheInstalledPackageUnchanged
     desktop/internal/idehelp/idehelp_test.go:TestInstallLeavesTheInstalledPackageUnchanged
@@ -70,6 +71,7 @@ installed_package_workflows=(
     desktop/internal/marketplace/delta_test.go:TestMarketplaceDeltaLeavesInstalledPackageUnchanged
     desktop/internal/plugininstall/pending_test.go:TestStageUpdateLeavesInstalledPackageUnchanged
     desktop/internal/pluginservice/package_lifecycle_test.go:TestUninstallWaitsForPackagePublicationInAnotherProcess
+    desktop/internal/workbench/editor_preferences_publication_test.go:TestEditorPreferencesLeavesInstalledPackageUnchanged
 )
 for workflow in $installed_package_workflows; do
     workflow_file=${workflow%%:*}

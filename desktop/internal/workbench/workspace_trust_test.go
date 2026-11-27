@@ -221,12 +221,17 @@ func TestSafeModeRunsNoGitUntilTrusted(t *testing.T) {
 
 	// Withdrawing the trust stops Git again: the status and the watch of the metadata.
 	h.app.applyProjectTrust(p, false)
+	// The test changes trust directly rather than through the window's button; invalidate the
+	// frame explicitly so the assertion cannot read the last trusted paint.
+	h.app.invalidator.Invalidate()
 	h.settle()
 	if !p.git.safeMode || p.observe.metadata != nil || p.observe.watches != nil {
 		t.Fatalf("withdrawn trust kept Git running: git %+v, watching %v", p.git, p.observe.watches)
 	}
-	if !h.showsWrapped(i18n.Shared(language, "desktop.trust.gitSafeMode")) || h.shows("changed.txt") {
-		t.Fatal("the Commit window still lists the changes of an untrusted project")
+	safeModeShown := h.showsWrapped(i18n.Shared(language, "desktop.trust.gitSafeMode"))
+	changeShown := h.shows("changed.txt")
+	if !safeModeShown || changeShown {
+		t.Fatalf("after withdrawn trust safe mode shown %v, change shown %v", safeModeShown, changeShown)
 	}
 }
 
@@ -283,5 +288,36 @@ func TestTrustFolderLabelShortensHomeAndLongPaths(t *testing.T) {
 	got := []rune(trustFolderLabel(long, home))
 	if len(got) != trustFolderMaxRunes || string(got[:5]) != string([]rune(long)[:5]) || !strings.HasSuffix(string(got), "projects") || !strings.Contains(string(got), "…") {
 		t.Fatalf("long label = %q, want %d runes keeping its start and its own name", string(got), trustFolderMaxRunes)
+	}
+}
+
+func TestTrustEllipsisShowsTheFullLocationAndKeepsCheckbox(t *testing.T) {
+	h := trustHarness(t)
+	dir := filepath.Join(t.TempDir(), strings.Repeat("long-directory-", 6), "project")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prompt := openAsking(t, h, dir)
+	full := i18n.SharedFormat(h.app.language(), "desktop.trust.location", map[string]string{"folder": filepath.Dir(dir)})
+	if prompt.checkFull != full || !strings.Contains(prompt.check, "…") {
+		t.Fatalf("the shortened trust label %q lost its full location %q", prompt.check, prompt.checkFull)
+	}
+	point := center(h.hitLabeled(prompt.check))
+	if err := h.driver.Move(point.X, point.Y); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.driver.Advance(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	var tip strings.Builder
+	for _, label := range h.tooltips() {
+		tip.WriteString(label.Value)
+	}
+	if got := strings.Join(strings.Fields(tip.String()), ""); got != strings.Join(strings.Fields(full), "") {
+		t.Fatalf("trust tooltip %q, want %q", tip.String(), full)
+	}
+	h.clickLabeled(prompt.check)
+	if !prompt.checked {
+		t.Fatal("the full-text hint intercepted the checkbox click")
 	}
 }

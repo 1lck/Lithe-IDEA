@@ -45,6 +45,7 @@ const (
 type treePrompt struct {
 	kind treePromptKind
 	open bool
+	busy bool
 	node *treeNode
 	name string
 	err  string
@@ -56,16 +57,13 @@ type treePrompt struct {
 // but the root can be renamed or deleted. The Git items appear only for a file the last status
 // lists as changed.
 //
-// A row of a remote workspace has the items that do not touch the folder: copying its host path
-// and refreshing the tree. Its rows are neither dragged nor dropped on.
+// A row of a remote workspace shares the same menu and file operations over its host session
+// (remote_files.go), omitting only items that require this computer's file system (Local
+// History, local search exclusions, Open With and the local file manager).
 func (a *App) projectTreeMenu(c ui.C, p *project, row gfx.ID, n *treeNode, target ui.Box) {
 	language := a.language()
 	root := n == p.tree.root
 	target.LabelFor(row)
-	if p.remote != nil {
-		a.remoteTreeMenu(c, p, n, target)
-		return
-	}
 	if !root {
 		p.tree.rememberRow(row, n)
 		target.DragSource(&a.dnd.tree)
@@ -121,12 +119,14 @@ func (a *App) projectTreeMenu(c ui.C, p *project, row gfx.ID, n *treeNode, targe
 		}
 		if !n.dir && !root {
 			a.treeGitMenu(c, p, n, menu)
-			if _, ok := a.kernel.(localHistoryKernel); ok && menu.Item(i18n.Shared(language, "desktop.history.show")).Clicked() {
-				file := filepath.Join(p.root, filepath.FromSlash(n.path))
-				c.After(func() {
-					a.performed("localHistory.show", surfaceContextMenu)
-					a.openLocalHistory(p, file)
-				})
+			if p.remote == nil {
+				if _, ok := a.kernel.(localHistoryKernel); ok && menu.Item(i18n.Shared(language, "desktop.history.show")).Clicked() {
+					file := filepath.Join(p.root, filepath.FromSlash(n.path))
+					c.After(func() {
+						a.performed("localHistory.show", surfaceContextMenu)
+						a.openLocalHistory(p, file)
+					})
+				}
 			}
 			opened = true
 		}
@@ -146,7 +146,7 @@ func (a *App) projectTreeMenu(c ui.C, p *project, row gfx.ID, n *treeNode, targe
 				a.openFindInFiles(p, true)
 			})
 		}
-		if n.dir && !root {
+		if p.remote == nil && n.dir && !root {
 			if p.directoryExcluded(n.path) {
 				if menu.Item(i18n.Shared(language, "indexing.cancelExclusion")).Clicked() {
 					c.After(func() { a.excludeFromSearch(p, n.path, true) })
@@ -202,23 +202,6 @@ func (a *App) projectTreeMenu(c ui.C, p *project, row gfx.ID, n *treeNode, targe
 		full := filepath.Join(p.root, filepath.FromSlash(n.path))
 		a.copyPathMenu(c, menu, full, !root, "workspace.tree")
 		a.openInMenu(c, p, menu, full, n.dir)
-		menu.Separator()
-		if menu.Item(i18n.Shared(language, "desktop.files.refresh")).Clicked() {
-			c.After(func() {
-				a.performed("workspace.tree.refresh", surfaceContextMenu)
-				a.refreshProjectTree(p)
-			})
-		}
-	})
-}
-
-// remoteTreeMenu declares the context menu of row n of the remote workspace p.
-func (a *App) remoteTreeMenu(c ui.C, p *project, n *treeNode, target ui.Box) {
-	language := a.language()
-	ui.ContextMenu(c, target, func(menu *ui.MenuItems) {
-		menu.WidthRange(200, 280)
-		full := filepath.Join(p.root, filepath.FromSlash(n.path))
-		a.copyPathMenu(c, menu, full, n != p.tree.root, "workspace.tree")
 		menu.Separator()
 		if menu.Item(i18n.Shared(language, "desktop.files.refresh")).Clicked() {
 			c.After(func() {
@@ -318,24 +301,24 @@ func (a *App) treePromptDialog(c ui.C, p *project) {
 		pr.open = false
 		return
 	}
-	closed := ui.Modal(c, &pr.open, title, func() {
+	closed := ui.Modal(c, &pr.open, title, ui.ModalSpec{}, func() {
 		submitted := ui.TextField(c, &pr.name, i18n.Shared(language, "desktop.files.name"), i18n.Shared(language, "desktop.files.name")).FillWidth().Submitted()
 		if pr.err != "" {
 			ui.Text(c, pr.err).FontSize(12).Color(a.colors.Deleted)
 		}
-		if submitted {
+		if submitted && !pr.busy {
 			c.After(func() { a.submitTreePrompt(p) })
 		}
 	}, func() {
 		if ui.Button(c, i18n.Shared(language, "desktop.files.cancel")).Outline().Clicked() {
 			pr.open = false
 		}
-		if ui.Button(c, confirm).Clicked() {
+		if ui.Button(c, confirm).Disabled(pr.busy).Clicked() {
 			c.After(func() { a.submitTreePrompt(p) })
 		}
 	})
 	if closed || !pr.open {
-		pr.kind, pr.node, pr.err, pr.name = treePromptNone, nil, "", ""
+		pr.kind, pr.node, pr.err, pr.name, pr.busy = treePromptNone, nil, "", "", false
 	}
 }
 
@@ -373,7 +356,14 @@ func (a *App) createTreeItem(p *project) {
 	if !ok || !pr.node.dir {
 		return
 	}
+	if p.remote != nil {
+		a.remoteCreateTreeItem(p, name)
+		return
+	}
 	rel := path.Join(pr.node.path, name)
+	if a.rejectRemovalWrite(p, "project_tree_create", rel) {
+		return
+	}
 	full := filepath.Join(p.root, filepath.FromSlash(rel))
 	if _, err := os.Lstat(full); err == nil {
 		pr.err = i18n.Shared(language, "desktop.files.nameExists")
@@ -417,8 +407,15 @@ func (a *App) renameTreeItem(p *project) {
 		pr.open = false
 		return
 	}
+	if p.remote != nil {
+		a.remoteRenameTreeItem(p, node, name)
+		return
+	}
 	oldRel := node.path
 	newRel := path.Join(path.Dir(oldRel), name)
+	if a.rejectRemovalWrite(p, "project_tree_rename", oldRel, newRel) {
+		return
+	}
 	oldFull := filepath.Join(p.root, filepath.FromSlash(oldRel))
 	newFull := filepath.Join(p.root, filepath.FromSlash(newRel))
 	if oldInfo, err := os.Lstat(oldFull); err == nil {
@@ -468,6 +465,12 @@ func (a *App) documentsUnder(p *project, target string) []*document {
 // failed save or a conflicting disk copy stops the action: it must not be taken on content
 // the window could not keep.
 func (a *App) saveDocumentsThen(p *project, docs []*document, then func()) {
+	a.saveDocumentsThenOrAbort(p, docs, then, func() {})
+}
+
+// saveDocumentsThenOrAbort is saveDocumentsThen with a callback for the failure path, so a caller
+// that already reserved exclusive work can release it when the writes never start.
+func (a *App) saveDocumentsThenOrAbort(p *project, docs []*document, then, abort func()) {
 	for len(docs) > 0 {
 		d := docs[0]
 		docs = docs[1:]
@@ -476,7 +479,9 @@ func (a *App) saveDocumentsThen(p *project, docs []*document, then func()) {
 		}
 		a.saveBeforeClose(p, d, func(ok bool) {
 			if ok {
-				a.saveDocumentsThen(p, docs, then)
+				a.saveDocumentsThenOrAbort(p, docs, then, abort)
+			} else {
+				abort()
 			}
 		})
 		return
@@ -505,8 +510,10 @@ func (a *App) moveOpenDocuments(p *project, oldPath, newPath string) {
 		d.path = filepath.Join(newPath, rel)
 		d.name = filepath.Base(d.path)
 	}
-	for _, d := range p.docs.list {
-		a.watchDocument(p, d)
+	if p.remote == nil {
+		for _, d := range p.docs.list {
+			a.watchDocument(p, d)
+		}
 	}
 	for _, d := range docs {
 		a.startDocumentSync(p, d)

@@ -112,11 +112,22 @@ func TestRunConsoleWrapSwitchBreaksLongLinesInsteadOfCuttingThem(t *testing.T) {
 	if hit := h.pageHit(wrap); hit.Role != gfx.RoleSwitch || hit.Checked {
 		t.Fatalf("the wrap switch is %+v, want an unchecked switch", hit)
 	}
-	// Unwrapped, the long line ends in an ellipsis at the console's edge.
-	if h.shows("finish") || !h.shows("…") || !h.shows("short line") {
-		t.Fatal("an unwrapped long line is not cut with an ellipsis at the console's edge")
+	// Unwrapped, the long line scrolls horizontally instead of being truncated with an ellipsis.
+	if h.shows("…") || !h.shows("short line") {
+		t.Fatal("an unwrapped long line should not be cut with an ellipsis")
 	}
 	unwrapped := labelsHolding(h, "word")
+
+	// Horizontal wheel scrolling reaches the end of the long line.
+	consoleHit := h.pageHit(h.app.text.Build.Output)
+	pt := center(consoleHit.Bounds)
+	if err := h.driver.Scroll(gfx.ScrollEvent{X: pt.X, Y: pt.Y, DeltaX: 10000, Precise: true}); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+	if !h.shows("finish") {
+		t.Fatal("horizontal scrolling did not reveal the end of the unwrapped long line")
+	}
 
 	h.clickNamed(wrap)
 	h.settle()
@@ -132,8 +143,8 @@ func TestRunConsoleWrapSwitchBreaksLongLinesInsteadOfCuttingThem(t *testing.T) {
 
 	h.clickNamed(wrap)
 	h.settle()
-	if h.app.runWrap || h.shows("finish") || !h.shows("…") {
-		t.Fatal("a second click did not cut the long line again")
+	if h.app.runWrap || h.shows("…") {
+		t.Fatal("a second click did not turn wrap back off cleanly")
 	}
 }
 
@@ -182,12 +193,13 @@ func TestRunPerformanceCollapseKeepsSummaryAndPersistsTheChoice(t *testing.T) {
 	if !h.shows(h.app.text.Run.Performance.CPU("25")) || !h.shows(h.app.text.Run.Performance.Memory("96")) || !h.shows("a running process emitted this line") {
 		t.Fatal("collapsing hid the summary or output")
 	}
+	h.settle()
 	var savedCollapsed settings
 	if _, err := h.store.Load(settingsFile, &savedCollapsed); err != nil || !savedCollapsed.RunPerformanceCollapsed {
 		t.Fatalf("collapse preference was not saved: %+v, err=%v", savedCollapsed, err)
 	}
 
-	// A second run tab shares the collapsed preference while keeping its own samples.
+	// Grouped executions share the collapsed preference while keeping their own samples.
 	h.app.applyRunEvent(pluginservice.RunEvent{Type: pluginservice.RunStarted, RunID: "run-second", PluginID: "dev.lithe.test.output-links", Label: "Second run", Workspace: root})
 	h.settle()
 	if len(p.build.runs) != 2 {
@@ -203,8 +215,12 @@ func TestRunPerformanceCollapseKeepsSummaryAndPersistsTheChoice(t *testing.T) {
 	if !h.shows(h.app.text.Run.Performance.CPU("70")) || !h.shows(h.app.text.Run.Performance.Memory("128")) {
 		t.Fatal("second run does not show its own resource summary")
 	}
-	h.clickNamed("Test run")
+	firstNode := h.pageHit(run.label + ", " + h.app.runStatusText(run))
+	h.click(center(firstNode.Bounds))
 	h.settle()
+	if p.activeRun() != run {
+		t.Fatal("the execution tree did not select the first run")
+	}
 	if !h.shows(h.app.text.Run.Performance.CPU("25")) || !h.shows(h.app.text.Run.Performance.Memory("96")) {
 		t.Fatal("switching back did not preserve the first run's samples")
 	}
@@ -233,7 +249,7 @@ func TestRunPerformanceCollapseKeepsSummaryAndPersistsTheChoice(t *testing.T) {
 	if reopenedCollapsedHit.Expanded {
 		t.Fatalf("reopened run chart started expanded: %+v", reopenedCollapsedHit)
 	}
-	reopened.clickNamed("Test run")
+	reopened.click(center(reopened.pageHit(reopenedRun.label + ", " + reopened.app.runStatusText(reopenedRun)).Bounds))
 	reopened.settle()
 	for range 40 {
 		if reopened.focusedName() == expand {
@@ -260,6 +276,7 @@ func TestRunPerformanceCollapseKeepsSummaryAndPersistsTheChoice(t *testing.T) {
 	if got := reopened.driver.Snapshot().Focused; got != reopenedExpandedHit.ID {
 		t.Fatalf("keyboard focus moved after expanding: got %v, want %v", got, reopenedExpandedHit.ID)
 	}
+	reopened.settle()
 	var savedExpanded settings
 	if _, err := reopened.store.Load(settingsFile, &savedExpanded); err != nil || savedExpanded.RunPerformanceCollapsed {
 		t.Fatalf("expansion preference was not saved: %+v, err=%v", savedExpanded, err)

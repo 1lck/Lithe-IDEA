@@ -23,12 +23,12 @@ const remoteListFooterHeight = 30
 // like Close.
 func (a *App) remoteView(c ui.C) {
 	r := &a.remote
-	if !r.open {
+	if !r.open || r.hostsOnly {
 		return
 	}
 	language := a.language()
 	open := true
-	ui.ModalWith(c, &open, a.remoteTitle(language), ui.ModalSpec{Width: remoteWindowWidth, Height: remoteWindowHeight}, func() {
+	ui.Modal(c, &open, a.remoteTitle(language), ui.ModalSpec{Width: remoteWindowWidth, Height: remoteWindowHeight}, func() {
 		k := c.Part("remote")
 		ui.Row(k).Fill().Children(func() {
 			a.remoteList(k, language)

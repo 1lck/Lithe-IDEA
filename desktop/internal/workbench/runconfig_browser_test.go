@@ -19,7 +19,7 @@ func runBrowserInstances() []buildInstance {
 	engine.System.DisplayName = "Engine"
 	engine.System.Runs = append(engine.System.Runs, pluginservice.BuildRunDeclaration{ID: "serve", Name: "Serve", Execution: "service", Tags: []string{"app"}})
 	alpha := runConfigInstance("tools")
-	alpha.BuildInstance = core.BuildInstance{ID: "alpha@tools", PluginID: "dev.example.alpha", BuildSystemID: "alpha", Root: "tools"}
+	alpha.BuildInstance = core.BuildInstance{ID: "alpha@tools", PluginID: "dev.example.alpha", BuildSystemID: "alpha", Root: "tools", ModelSource: "provider"}
 	alpha.PluginID = "dev.example.alpha"
 	alpha.System.DisplayName = "Alpha"
 	return []buildInstance{engine, alpha}
@@ -72,7 +72,7 @@ func TestRunConfigurationListScopesGroupsPinsAndRuns(t *testing.T) {
 	if got := s.scopes(); !slices.Equal(got, []string{"", runScopePinned, "service", "application"}) {
 		t.Fatalf("scopes %q, want every, pinned, then the service and application kinds", got)
 	}
-	if !h.shows(i18n.Shared(lang, "native.runConfigurations")) || !h.shows(h.app.runScopeLabel(s, "")) {
+	if !h.shows(i18n.Shared(lang, "native.runConfigurations")) || !h.showsFitted(h.app.runScopeLabel(s, "")) {
 		t.Fatal("the Build tool window does not show the configurations under the scope of all of them")
 	}
 	if h.app.runScopeLabel(s, "") != "All configurations (3)" || h.app.runScopeLabel(s, "application") != "Applications (2)" {

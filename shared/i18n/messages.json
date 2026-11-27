@@ -7056,13 +7056,6 @@
       ]
     },
     {
-      "id": "desktop.build.optionsTitle",
-      "description": "Build window toolbar button and dialog title for which folders build system detection skips",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.build.detection",
       "description": "Heading of the Build options dialog section that sets how build systems are detected",
       "platforms": [
@@ -8143,6 +8136,13 @@
     {
       "id": "desktop.debug.adapter",
       "description": "Debug adapter selection label",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.debug.adapterExecutableUnavailable",
+      "description": "Debug start failure when the configured adapter executable cannot run locally",
       "platforms": [
         "desktop"
       ]
@@ -9767,6 +9767,13 @@
     {
       "id": "desktop.files.crossBoundaryMove",
       "description": "Notice when a move or rename would cross between WSL distributions or between a distribution and a local folder",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.files.removalInProgress",
+      "description": "Notice when a project-tree write is refused because the item or its destination is already being deleted",
       "platforms": [
         "desktop"
       ]
@@ -12787,6 +12794,11 @@
       ]
     },
     {
+      "id": "desktop.logs.partialResults",
+      "description": "Log window status when a query returned only part of the matching logs",
+      "platforms": ["desktop"]
+    },
+    {
       "id": "desktop.logs.dropped",
       "description": "Desktop log window: Dropped",
       "platforms": [
@@ -15395,6 +15407,20 @@
       ]
     },
     {
+      "id": "desktop.run.collapseDetails",
+      "description": "Disclosure button to collapse an execution's detail rows in the Run tool window tree",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.run.detachTab",
+      "description": "Context menu action to move a grouped execution into its own tab in the Run tool window",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.run.durationHours",
       "description": "How long an execution took, at least an hour. {hours} and {minutes} are whole numbers.",
       "platforms": [
@@ -15452,6 +15478,13 @@
       ]
     },
     {
+      "id": "desktop.run.expandDetails",
+      "description": "Disclosure button to expand an execution's detail rows in the Run tool window tree",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.run.exited",
       "description": "Run finished. {code} is the exit code.",
       "platforms": [
@@ -15471,6 +15504,13 @@
     {
       "id": "desktop.run.linkUnresolved",
       "description": "The plugin could not turn a clicked output link into a file",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.run.mergeIntoGroup",
+      "description": "Context menu action to merge a detached execution tab back into its plugin group in the Run tool window",
       "platforms": [
         "desktop"
       ]

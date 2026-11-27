@@ -107,6 +107,10 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	v.hl.Prepare(prepareFirst, prepareLast)
 
 	selStart, selEnd := v.Selection()
+	var symbolRanges []Range
+	if v.symbolRevision == v.revision && v.symbolSelection == (Range{Start: selStart, End: selEnd}) {
+		symbolRanges = v.symbolRanges
+	}
 	caretLine := v.text.LineOf(v.caret)
 	textArea := gfx.Rect{X: area.X + gutter, Y: area.Y, Width: v.textRight - area.X - gutter, Height: area.Height}
 	bottom := area.Y + area.Height
@@ -116,6 +120,26 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 	annotation := 0
 	top := area.Y + float32(firstRow-firstSub)*v.lineH - v.scroll
 	composeRow, composeAt, composeCells := v.compositionRoom()
+	bracketPair := v.caretBracketPair(selStart, selEnd)
+	guideUnit := 0
+	var guideScopes []indentScopeGuide
+	activeGuideScope := -1
+	var fallbackGuide fallbackIndentGuide
+	if v.presentation.IndentGuides {
+		guideUnit, _ = v.IndentSettings()
+		if v.indentGuideRevision == v.revision {
+			guideScopes = v.indentGuideScopes
+		}
+		if len(guideScopes) > 0 {
+			activeGuideScope = activeIndentScope(guideScopes, v.caret)
+		}
+		if activeGuideScope < 0 {
+			fallbackGuide = v.fallbackActiveGuide(caretLine, guideUnit)
+		}
+	}
+	var guideGap indentGuideGap
+	guideInk := look.Foreground
+	guideInk.Alpha *= 0.16
 	for line := firstLine; line <= lastLine; line++ {
 		l := v.ref(line)
 		wraps := v.rowsOf(l)
@@ -139,7 +163,30 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 			v.decor.colorLine, v.decor.colorBase = v.lineColors(l.start, l.start+l.size), l.start
 		}
 		lineHints := v.lineInlayHints(line)
-		for k, row := range wraps {
+		guideCells, guideScope, activeGuideDepth := 0, -1, 0
+		if guideUnit > 0 {
+			if len(guideScopes) > 0 {
+				guideScope = indentScopeAtLine(guideScopes, line)
+			}
+			if guideScope < 0 {
+				// Brace ranges cover their own block rows. Other rows still use indentation.
+				guideCells = v.indentGuideCells(l, &guideGap)
+			} else if outer := guideScopes[guideScope].outerColumn; outer > guideUnit {
+				// Retain surrounding indentation to the left of the structural guides.
+				guideCells = min(v.indentGuideCells(l, &guideGap), outer-1)
+			}
+			if line >= fallbackGuide.first && line <= fallbackGuide.last {
+				activeGuideDepth = fallbackGuide.depth
+			}
+		}
+		// rowLine already located the first visible row. Walking its preceding rows
+		// makes repainting a deeply scrolled long line depend on its entire prefix.
+		first := 0
+		if line == firstLine {
+			first = firstSub
+		}
+		for k := first; k < len(wraps); k++ {
+			row := wraps[k]
 			y := top + float32(k)*v.lineH
 			if y+v.lineH <= area.Y {
 				continue
@@ -156,7 +203,21 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 			if !v.wrapping() {
 				from, to = v.visibleCells()
 			}
+			if guideScope >= 0 {
+				v.paintScopeGuides(canvas, guideScopes, guideScope, activeGuideScope, guideUnit, activeGuideDepth, from, to, shift, y, guideInk)
+			}
+			if guideCells >= guideUnit && guideUnit > 0 {
+				v.paintIndentGuides(canvas, guideCells, guideUnit, activeGuideDepth, from, to, shift, y, guideInk)
+			}
 			v.paintInline(canvas, line, from, to, shift, y)
+			end := l.size
+			if k+1 < len(wraps) {
+				end = wraps[k+1].at
+			}
+			p := v.part(l, row, end, from, to)
+			if !v.preedit.Composing && (len(symbolRanges) > 0 || bracketPair[0] < bracketPair[1]) {
+				v.paintContextHighlights(canvas, l, p, end, from, to, shift, y, look, symbolRanges, bracketPair)
+			}
 			lo, hi := selFrom, selTo
 			if v.wrapping() {
 				lo, hi = max(lo, row.cells), min(hi, to)
@@ -177,11 +238,6 @@ func (v *View) Paint(canvas *gfx.Canvas, area gfx.Rect, look Look) {
 					}
 				}
 			}
-			end := l.size
-			if k+1 < len(wraps) {
-				end = wraps[k+1].at
-			}
-			p := v.part(l, row, end, from, to)
 			v.paintSearchMatches(canvas, l, p, from, to, shift, y, look.Selection)
 			if len(lineHints) > 0 {
 				if line == caretLine && k == composeRow && composeCells > 0 {

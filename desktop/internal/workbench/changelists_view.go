@@ -151,7 +151,7 @@ func (a *App) drawChangeListDialog(c ui.C, p *project) {
 		label := i18n.Shared(lang, "native.name")
 		ready := !l.running && l.name.Text() != ""
 		open, submitted := true, false
-		closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Width: 380}, func() {
+		closed := ui.Modal(c, &open, title, ui.ModalSpec{Width: 380}, func() {
 			ui.Column(c).FillWidth().Gap(8).Children(func() {
 				submitted = ui.TextField(c, &l.name, label, label).FillWidth().AutoFocus().Submitted()
 				if l.nameError != "" {
@@ -178,7 +178,7 @@ func (a *App) drawChangeListDialog(c ui.C, p *project) {
 			Description: i18n.Shared(lang, "native.filesReturnToTheDefaultChangeListAndMayBeIncludedByStageAllTheirGitStagingStateIsUnchanged"),
 			Width:       420,
 		}
-		closed := ui.ModalWith(c, &open, i18n.Shared(lang, "native.deleteChangeList.variant2"), spec, func() {
+		closed := ui.Modal(c, &open, i18n.Shared(lang, "native.deleteChangeList.variant2"), spec, func() {
 			ui.Text(c, a.changeListNameByID(p, l.target)).Weight(gfx.WeightMedium)
 		}, func() {
 			if ui.Button(c, cancel).Outline().Clicked() {

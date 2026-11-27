@@ -157,7 +157,7 @@ func (a *App) recentFilesPopup(c ui.C) {
 	if v.edited {
 		title = i18n.Shared(a.language(), "desktop.recentFiles.edited")
 	}
-	ui.ModalWith(c.Part("recent-files"), &v.open, title, ui.ModalSpec{Width: 660}, func() {
+	ui.Modal(c.Part("recent-files"), &v.open, title, ui.ModalSpec{Width: 660}, func() {
 		submitted := ui.TextField(c.Part("query"), &v.query, i18n.Shared(a.language(), "desktop.recentFiles.query"), "").Icon(icons.Search).FillWidth().Submitted()
 		open := func(entry core.EditorRecentEntry) {
 			v.open = false

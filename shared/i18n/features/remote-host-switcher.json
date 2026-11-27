@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.remote.hostSwitcher.switch",
+      "description": "Title bar remote host dropdown: heading above the hosts that connect directly when chosen",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "desktop.remote.hostSwitcher.chooseFolder",
+      "description": "Title bar remote host dropdown: connect to the current host and choose another folder",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "desktop.remote.hostSwitcher.empty",
+      "description": "Title bar remote host dropdown: no saved SSH connections, WSL distributions or running containers",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "desktop.remote.hostSwitcher.connectionRemoved",
+      "description": "Remote folder chooser: the chosen host no longer has a saved SSH connection",
+      "platforms": ["desktop"]
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.remote.hostSwitcher.switch": "Switch Host",
+      "desktop.remote.hostSwitcher.chooseFolder": "Open Another Folder on This Host…",
+      "desktop.remote.hostSwitcher.empty": "No available hosts. Add a connection in Remote Development…",
+      "desktop.remote.hostSwitcher.connectionRemoved": "This saved connection has been deleted. Add it again in Remote Development, then choose a folder."
+    },
+    "zh-CN": {
+      "desktop.remote.hostSwitcher.switch": "切换主机",
+      "desktop.remote.hostSwitcher.chooseFolder": "在当前主机打开其他文件夹…",
+      "desktop.remote.hostSwitcher.empty": "没有可用的主机，请在“远程开发”中添加连接。",
+      "desktop.remote.hostSwitcher.connectionRemoved": "此连接已被删除，请在“远程开发”中重新添加后再选择文件夹。"
+    }
+  }
+}

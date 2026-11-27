@@ -18,6 +18,7 @@ import (
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/keymap"
+	"github.com/vivaui/viva/ui"
 )
 
 func TestProjectSearchOpensMatchingLine(t *testing.T) {
@@ -517,7 +518,7 @@ func TestProjectSearchVirtualizesLoadedGroups(t *testing.T) {
 	if got := countRows(); got < 1 || got > last-first+1 || got >= len(p.search.presentation.Rows) {
 		t.Fatalf("visible rows = %d, visible range = %d..%d, total = %d", got, first, last, len(p.search.presentation.Rows))
 	}
-	if h.shows("file-199.txt (1)") {
+	if _, visible := h.findPageHit("file-199.txt"); visible {
 		t.Fatal("offscreen file heading was painted")
 	}
 	at := center(h.pageHit("file-000.txt").Bounds)
@@ -531,6 +532,19 @@ func TestProjectSearchVirtualizesLoadedGroups(t *testing.T) {
 	}
 	if h.shows(i18n.Shared(h.app.language(), "desktop.search.first200")) {
 		t.Fatal("obsolete total cap shown")
+	}
+	// ScrollTo must reveal the first result in the very frame it is requested.
+	// Before this request the first group is virtualized outside the viewport.
+	if _, visible := h.findPageHit("file-000.txt"); visible {
+		t.Fatal("scrolling to the last search results did not hide the first group")
+	}
+	h.app.searchView.list.ScrollTo(0, ui.ListStart)
+	h.app.invalidator.Invalidate()
+	if err := h.driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	if hit, visible := h.findPageHit("file-000.txt"); !visible || hit.Bounds.Height <= 0 {
+		t.Fatal("search results stayed blank at the old scroll offset until another frame")
 	}
 }
 

@@ -110,6 +110,9 @@ func vscodeCommand(command string) string {
 		"workbench.action.debug.run":                "run.selected",
 		"editor.debug.action.toggleBreakpoint":      "debug.toggleBreakpoint",
 		"git.commit":                                "git.commit",
+		"git.pull":                                  "git.pull",
+		"git.push":                                  "git.push",
+		"git.fetch":                                 "git.fetch",
 	}[command]
 }
 

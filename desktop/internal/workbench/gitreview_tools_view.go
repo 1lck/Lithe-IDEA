@@ -55,7 +55,7 @@ func (a *App) drawPushDialog(c ui.C, p *project) {
 	s := &p.review.push
 	title := i18n.SharedFormat(a.language(), "git.pushDialog.title", map[string]string{"repository": p.name})
 	open := true
-	closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Width: 640, Height: 480, Description: i18n.Shared(a.language(), "git.pushDialog.description")}, func() {
+	closed := ui.Modal(c, &open, title, ui.ModalSpec{Width: 640, Height: 480, Description: i18n.Shared(a.language(), "git.pushDialog.description")}, func() {
 		ui.Column(c).Fill().Gap(8).Children(func() {
 			switch {
 			case s.loading && !s.hasPrev:
@@ -167,7 +167,7 @@ func (a *App) drawPushDialog(c ui.C, p *project) {
 func (a *App) drawToolsDialog(c ui.C, p *project) {
 	t := &p.review.tools
 	open := true
-	closed := ui.ModalWith(c, &open, i18n.Shared(a.language(), "git.repositories"), ui.ModalSpec{Width: 720, Height: 520}, func() {
+	closed := ui.Modal(c, &open, i18n.Shared(a.language(), "git.repositories"), ui.ModalSpec{Width: 720, Height: 520}, func() {
 		ui.Column(c).Fill().Gap(8).Children(func() {
 			if t.err != "" {
 				ui.Paragraph(c, t.err, 3).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)

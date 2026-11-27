@@ -17,19 +17,19 @@ var (
 // Acquire uses an OS lock, not a pid or timestamp lease: process death releases
 // ownership automatically. The file stays in place so another opener cannot
 // lock a different inode while a previous waiter still holds the old one.
-func Acquire(ctx context.Context, name string) (func() error, error) {
+func Acquire(ctx context.Context, name string) (unlock func() error, err error) {
 	return acquire(ctx, name, true, true)
 }
 
 // AcquireShared lets multiple users hold the same lock until an exclusive
 // operation can run without any of them.
-func AcquireShared(ctx context.Context, name string) (func() error, error) {
+func AcquireShared(ctx context.Context, name string) (unlock func() error, err error) {
 	return acquire(ctx, name, false, true)
 }
 
-// TryAcquire attempts an exclusive lock once. A nil closer with no error means
-// another process owns the lock.
-func TryAcquire(name string) (func() error, error) {
+// TryAcquire performs one native lock attempt without waiting for another
+// process. Callers can move contention to an owned background operation.
+func TryAcquire(name string) (unlock func() error, err error) {
 	return acquire(context.Background(), name, true, false)
 }
 
@@ -85,7 +85,7 @@ func acquire(ctx context.Context, name string, exclusive, wait bool) (unlock fun
 			return file.Close, nil
 		}
 		if !wait {
-			return nil, nil
+			return nil, ErrBusy
 		}
 		// Native advisory locks have no cross-platform cancellable wait. The
 		// bounded timer performs no filesystem scanning and owns no goroutine.

@@ -58,16 +58,13 @@ func main() {
 	}
 	// An app started from Finder or the Dock gets only the system PATH; take the login shell's
 	// before any project services start. The CLI requests above are synchronous pure rules.
-	var refreshLoginEnvironment func()
+	var refreshLoginEnvironment func() error
 	if !file {
 		refreshLoginEnvironment = loginenv.Activate()
 	}
 	preferences, err := store.Open()
 	if err != nil {
 		fail(err)
-	}
-	if refreshLoginEnvironment != nil {
-		go refreshLoginEnvironment()
 	}
 	version := desktop.Version()
 	options := workbench.DesktopOptions(client, preferences, version)
@@ -88,6 +85,15 @@ func main() {
 		// the log keeps it for the next start, and tells how earlier sessions ended.
 		logs.CaptureCrashes()
 		options.Logs = logs
+	}
+	if refreshLoginEnvironment != nil {
+		go func() {
+			if err := refreshLoginEnvironment(); err != nil && logs != nil {
+				fields := core.LogErrorFields(err)
+				fields["operation"] = "login_path_cache_write"
+				logs.Emit(core.LevelWarn, "app.background.operation_failed", "", fields)
+			}
+		}()
 	}
 	err = workbench.New(options).Run()
 	// os.Exit skips deferred calls, so the log is closed, and its queue written, here.

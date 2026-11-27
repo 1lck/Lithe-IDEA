@@ -252,7 +252,7 @@ type debugSession struct {
 	// Closing it interrupts a blocked write, so Stop and shutdown use that.
 	transportMu sync.Mutex
 	transport   io.WriteCloser
-	// writeTimeout bounds one write against a stalled adapter.
+	// writeTimeout bounds a stdio write against a stalled adapter.
 	writeTimeout time.Duration
 	// observing is set when a goroutine watches the stream or process end and
 	// will close exitObserved.
@@ -321,16 +321,20 @@ func (s *debugSession) writeFrames(frames []string) error {
 	if transport == nil {
 		return nil
 	}
-	// Closing the stream interrupts both a blocked write and a writer waiting
-	// behind it. A native file also avoids exec.Cmd's stdin-copy goroutine.
-	timeout := s.writeTimeout
-	if timeout <= 0 {
-		timeout = debugOperationTimeout
+	ctx := s.ctx
+	if pipe, ok := transport.(*os.File); ok {
+		// A stdio write can block in the OS. Hosted writes only enqueue frames.
+		// Their stream must stay open for the disconnect after session cancellation.
+		timeout := s.writeTimeout
+		if timeout <= 0 {
+			timeout = debugOperationTimeout
+		}
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+		stop := context.AfterFunc(ctx, func() { _ = pipe.Close() })
+		defer stop()
 	}
-	ctx, cancel := context.WithTimeout(s.ctx, timeout)
-	defer cancel()
-	stop := context.AfterFunc(ctx, func() { _ = transport.Close() })
-	defer stop()
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if err := ctx.Err(); err != nil {
@@ -1023,16 +1027,25 @@ func (a *App) finishDebugError(p *project, session *debugSession, err error) {
 		a.endDebugSession(p, session)
 		return
 	}
-	message := a.launchFailureText(err)
-	var settingsError *debugSettingsError
-	if errors.As(err, &settingsError) {
-		message = i18n.Shared(a.language(), "desktop.debug.settingsUnreadable")
-	}
+	message := a.debugFailureText(err)
 	a.operationFailed("debug", err)
 	a.endDebugSession(p, session)
 	p.debug.failure = message
 	if p.debug.activeSession() != nil {
 		p.debug.status = a.text.Debug.Failed
+	}
+}
+
+func (a *App) debugFailureText(err error) string {
+	var settingsError *debugSettingsError
+	var executableError *debugAdapterExecutableError
+	switch {
+	case errors.As(err, &settingsError):
+		return i18n.Shared(a.language(), "desktop.debug.settingsUnreadable")
+	case errors.As(err, &executableError):
+		return i18n.Shared(a.language(), "desktop.debug.adapterExecutableUnavailable")
+	default:
+		return a.launchFailureText(err)
 	}
 }
 

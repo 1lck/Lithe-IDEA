@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/gfx"
 )
@@ -19,9 +18,16 @@ import (
 func branchDeleteFixture(t *testing.T) (h *harness, p *project, dir, other string) {
 	t.Helper()
 	h, p, dir, other = syncFixture(t)
-	h.app.reduceChrome(core.SetChromeOpen(itemGit, true))
-	h.settleChain()
 	return h, p, dir, other
+}
+
+// Local-only force deletion needs real history, but no bare remote or second clone.
+func localBranchDeleteFixture(t *testing.T) (*harness, *project, string) {
+	t.Helper()
+	dir := newTestRepository(t)
+	gitRun(t, dir, "commit", "-am", "second")
+	h, p := openGitLogFixture(t, dir)
+	return h, p, dir
 }
 
 // publishBranch pushes what the clone has checked out to the branch name of its origin, and fetches
@@ -31,7 +37,10 @@ func (h *harness) publishBranch(t *testing.T, dir, clone, name string) {
 	gitRun(t, clone, "push", "origin", "HEAD:refs/heads/"+name)
 	gitRun(t, dir, "fetch", "origin")
 	h.app.loadLog(h.app.project)
-	h.settleChain()
+	h.await("published remote reference", func() bool {
+		_, found := h.app.project.log.findReference("refs/remotes/origin/" + name)
+		return !h.app.project.log.loading && found
+	})
 }
 
 // logRefRowOf is the row of the reference pane that shows the reference named short, or HEAD.
@@ -50,7 +59,7 @@ func (h *harness) logRefRowOf(short string) int {
 // clickLogRef clicks the row of the reference pane that shows short.
 func (h *harness) clickLogRef(short string) {
 	h.t.Helper()
-	h.click(center(h.topHit(h.app.logView.refs.RowID(h.logRefRowOf(short)))))
+	h.sendClick(center(h.topHit(h.app.logView.refs.RowID(h.logRefRowOf(short)))))
 }
 
 // clickLogRefsWith clicks the rows of the reference pane that show shorts with key held, as a person
@@ -62,12 +71,13 @@ func (h *harness) clickLogRefsWith(key gfx.Key, shorts ...string) {
 	}
 	for _, short := range shorts {
 		h.clickLogRef(short)
-		h.settleChain()
 	}
 	if err := h.driver.KeyUp(key, ""); err != nil {
 		h.t.Fatal(err)
 	}
-	h.settle()
+	if err := h.driver.Pump(); err != nil {
+		h.t.Fatal(err)
+	}
 }
 
 // markLogRefs marks the rows of the reference pane that show shorts with the platform's primary
@@ -107,7 +117,7 @@ func TestLogDeletesARemoteBranchFromItsMenu(t *testing.T) {
 	}
 
 	h.logRefMenu("origin/feature")
-	h.click(center(h.popupHit(h.app.text.Branch.Delete)))
+	h.sendClick(center(h.popupHit(h.app.text.Branch.Delete)))
 	b := &h.app.branch
 	if b.dialog != branchDialogDelete || b.target.FullName != "refs/remotes/origin/feature" || len(b.deleting) != 1 {
 		t.Fatalf("dialog %v for %+v (%d branches), want the delete confirmation of origin/feature", b.dialog, b.target, len(b.deleting))
@@ -116,9 +126,12 @@ func TestLogDeletesARemoteBranchFromItsMenu(t *testing.T) {
 	if !h.showsWrapped(prompt) {
 		t.Fatalf("the dialog does not warn that the remote branch goes for everyone: %q", prompt)
 	}
-	h.click(center(h.popupHit(h.app.text.Branch.DeleteButton)))
-	h.await("the remote branch deleted", func() bool { return !b.busy && remoteHeads(t, dir, "feature") == "" })
-	h.settleChain()
+	h.sendClick(center(h.popupHit(h.app.text.Branch.DeleteButton)))
+	h.awaitWithin(branchOperationTimeout, "the remote branch deleted", func() bool { return !b.busy && b.dialog == branchDialogNone })
+	if got := remoteHeads(t, dir, "feature"); got != "" {
+		t.Fatalf("remote branch still exists: %q", got)
+	}
+	h.awaitLogReady(h.app.project)
 	if b.dialog != branchDialogNone {
 		t.Fatalf("dialog %v stays open after the deletion", b.dialog)
 	}
@@ -164,11 +177,17 @@ func TestLogDeletesTheMarkedBranchesFromTheMenu(t *testing.T) {
 	}
 
 	label := i18n.SharedFormat(h.app.language(), "desktop.branch.deleteSelected", map[string]string{"count": "3"})
-	h.rightClickAt(h.topHit(h.app.logView.refs.RowID(h.logRefRowOf("two"))))
+	point := center(h.topHit(h.app.logView.refs.RowID(h.logRefRowOf("two"))))
+	if err := h.driver.ClickButton(point.X, point.Y, gfx.PointerButtonSecondary); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
 	if got := h.topMenuItems(); !slices.Equal(got, []string{label}) {
 		t.Fatalf("the menu of a chosen row shows %q, want only %q", got, label)
 	}
-	h.click(center(h.popupHit(label)))
+	h.sendClick(center(h.popupHit(label)))
 	b := &h.app.branch
 	if b.dialog != branchDialogDelete || len(b.deleting) != 3 || b.deleteSkipped != 2 {
 		t.Fatalf("dialog %v with %d branches, %d left out; want the delete confirmation of 3 with 2 left out", b.dialog, len(b.deleting), b.deleteSkipped)
@@ -184,9 +203,9 @@ func TestLogDeletesTheMarkedBranchesFromTheMenu(t *testing.T) {
 			t.Fatalf("the dialog does not show %q", text)
 		}
 	}
-	h.click(center(h.popupHit(h.app.text.Branch.DeleteButton)))
-	h.await("the chosen branches deleted", func() bool { return !b.busy && b.dialog == branchDialogNone })
-	h.settleChain()
+	h.sendClick(center(h.popupHit(h.app.text.Branch.DeleteButton)))
+	h.awaitWithin(branchOperationTimeout, "the chosen branches deleted", func() bool { return !b.busy && b.dialog == branchDialogNone })
+	h.awaitLogReady(h.app.project)
 	if got := gitRun(t, dir, "branch", "--list", "one", "two"); got != "" {
 		t.Fatalf("local branches left: %q", got)
 	}
@@ -204,7 +223,7 @@ func TestLogDeletesTheMarkedBranchesFromTheMenu(t *testing.T) {
 	// are deleted by the next press of Delete.
 	gitRun(t, dir, "branch", "one")
 	h.app.loadLog(p)
-	h.settleChain()
+	h.awaitLogReady(h.app.project)
 	if refs, head := h.app.logView.markedLogRefs(p); len(refs) != 0 || head {
 		t.Fatalf("after the deletion %d references are marked and HEAD %v, want none", len(refs), head)
 	}
@@ -228,14 +247,14 @@ func TestLogDeleteButtonReportsTheBranchesItCouldNotDelete(t *testing.T) {
 	}
 
 	h.markLogRefs("one", "origin/gone")
-	h.clickNamed(h.app.text.Git.DeleteBranch)
+	h.sendNamed(h.app.text.Git.DeleteBranch)
 	b := &h.app.branch
 	if b.dialog != branchDialogDelete || len(b.deleting) != 2 || b.deleteSkipped != 0 {
 		t.Fatalf("dialog %v with %d branches, %d left out; want the delete confirmation of one and origin/gone", b.dialog, len(b.deleting), b.deleteSkipped)
 	}
-	h.click(center(h.popupHit(h.app.text.Branch.DeleteButton)))
-	h.await("the deletion attempted", func() bool { return !b.busy && b.dialog == branchDialogDeleteResult })
-	h.settleChain()
+	h.sendClick(center(h.popupHit(h.app.text.Branch.DeleteButton)))
+	h.awaitWithin(branchOperationTimeout, "the deletion attempted", func() bool { return !b.busy && b.dialog == branchDialogDeleteResult })
+	h.awaitLogReady(h.app.project)
 	if got := gitRun(t, dir, "branch", "--list", "one"); got != "" {
 		t.Fatalf("one is still there: %q", got)
 	}
@@ -263,22 +282,22 @@ func makeUnmergedBranch(t *testing.T, dir, name string) string {
 }
 
 func TestLogForceDeleteRequiresSecondConfirmation(t *testing.T) {
-	h, p, dir, _ := branchDeleteFixture(t)
+	h, p, dir := localBranchDeleteFixture(t)
 	name := "backup/before-strip-trailers"
 	makeUnmergedBranch(t, dir, name)
 	h.app.loadLog(p)
-	h.settleChain()
+	h.awaitLogReady(h.app.project)
 	lang := h.app.language()
 	start := func() {
 		h.logRefMenu(name)
-		h.click(center(h.popupHit(h.app.text.Branch.Delete)))
-		h.click(center(h.popupHit(h.app.text.Branch.DeleteButton)))
-		h.await("ordinary deletion refused", func() bool { return !h.app.branch.busy })
-		h.settleChain()
+		h.sendClick(center(h.popupHit(h.app.text.Branch.Delete)))
+		h.sendClick(center(h.popupHit(h.app.text.Branch.DeleteButton)))
+		h.awaitWithin(branchOperationTimeout, "ordinary deletion refused", func() bool { return !h.app.branch.busy })
+		h.awaitLogReady(h.app.project)
 		if h.app.branch.dialog != branchDialogDeleteUnmerged {
 			t.Fatalf("dialog = %v, want unmerged warning", h.app.branch.dialog)
 		}
-		h.click(center(h.popupHit(i18n.Shared(lang, "desktop.branch.reviewForceDelete"))))
+		h.sendClick(center(h.popupHit(i18n.Shared(lang, "desktop.branch.reviewForceDelete"))))
 		if h.app.branch.dialog != branchDialogForceDelete || h.app.branch.busy {
 			t.Fatal("review did not open a separate idle confirmation")
 		}
@@ -297,7 +316,7 @@ func TestLogForceDeleteRequiresSecondConfirmation(t *testing.T) {
 	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
-	h.settleChain()
+	h.awaitLogReady(h.app.project)
 	if h.app.branch.dialog != branchDialogNone || gitRun(t, dir, "branch", "--list", name) == "" {
 		t.Fatal("Enter did not cancel safely")
 	}
@@ -305,31 +324,31 @@ func TestLogForceDeleteRequiresSecondConfirmation(t *testing.T) {
 	if err := h.driver.Key(gfx.KeyEscape, 0); err != nil {
 		t.Fatal(err)
 	}
-	h.settleChain()
+	h.awaitLogReady(h.app.project)
 	if h.app.branch.dialog != branchDialogNone || gitRun(t, dir, "branch", "--list", name) == "" {
 		t.Fatal("Escape did not cancel safely")
 	}
 	start()
-	h.click(center(h.popupHit(i18n.Shared(lang, "desktop.branch.forceDelete"))))
-	h.await("forced deletion completed", func() bool { return !h.app.branch.busy })
-	h.settleChain()
+	h.sendClick(center(h.popupHit(i18n.Shared(lang, "desktop.branch.forceDelete"))))
+	h.awaitWithin(branchOperationTimeout, "forced deletion completed", func() bool { return !h.app.branch.busy })
+	h.awaitLogReady(h.app.project)
 	if h.app.branch.dialog != branchDialogNone || gitRun(t, dir, "branch", "--list", name) != "" {
 		t.Fatal("confirmed force deletion did not remove the branch")
 	}
 }
 
 func TestLogForceDeleteBatchOnlyRetriesUnmergedAndRejectsChangedTip(t *testing.T) {
-	h, p, dir, _ := branchDeleteFixture(t)
+	h, p, dir := localBranchDeleteFixture(t)
 	name := "backup/unmerged"
 	old := makeUnmergedBranch(t, dir, name)
 	gitRun(t, dir, "branch", "merged")
 	h.app.loadLog(p)
-	h.settleChain()
+	h.awaitLogReady(h.app.project)
 	h.markLogRefs("merged", name)
-	h.clickNamed(h.app.text.Git.DeleteBranch)
-	h.click(center(h.popupHit(h.app.text.Branch.DeleteButton)))
-	h.await("batch deletion completed", func() bool { return !h.app.branch.busy })
-	h.settleChain()
+	h.sendNamed(h.app.text.Git.DeleteBranch)
+	h.sendClick(center(h.popupHit(h.app.text.Branch.DeleteButton)))
+	h.awaitWithin(branchOperationTimeout, "batch deletion completed", func() bool { return !h.app.branch.busy })
+	h.awaitLogReady(h.app.project)
 	b := &h.app.branch
 	if b.dialog != branchDialogDeleteUnmerged || len(b.deleting) != 1 || b.deleting[0].ShortName != name {
 		t.Fatalf("force retry selection = %+v, dialog = %v", b.deleting, b.dialog)
@@ -337,13 +356,13 @@ func TestLogForceDeleteBatchOnlyRetriesUnmergedAndRejectsChangedTip(t *testing.T
 	if gitRun(t, dir, "branch", "--list", "merged") != "" {
 		t.Fatal("ordinary deletion left the merged branch")
 	}
-	h.click(center(h.popupHit(i18n.Shared(h.app.language(), "desktop.branch.reviewForceDelete"))))
+	h.sendClick(center(h.popupHit(i18n.Shared(h.app.language(), "desktop.branch.reviewForceDelete"))))
 	// An external writer moves the target after review, with no timing-based synchronization.
 	current := gitRun(t, dir, "rev-parse", "main")
 	gitRun(t, dir, "update-ref", "refs/heads/"+name, current, old)
-	h.click(center(h.popupHit(i18n.Shared(h.app.language(), "desktop.branch.forceDelete"))))
-	h.await("stale confirmation refused", func() bool { return !b.busy })
-	h.settleChain()
+	h.sendClick(center(h.popupHit(i18n.Shared(h.app.language(), "desktop.branch.forceDelete"))))
+	h.awaitWithin(branchOperationTimeout, "stale confirmation refused", func() bool { return !b.busy })
+	h.awaitLogReady(h.app.project)
 	if got := gitRun(t, dir, "rev-parse", "refs/heads/"+name); got != current {
 		t.Fatalf("changed branch was deleted or moved: %s", got)
 	}
@@ -368,11 +387,11 @@ func TestLogForceDeleteMixedBatchRetainsEveryOutcome(t *testing.T) {
 	if names, _, several := h.markedLogNames(); !several || len(names) != 4 {
 		t.Fatalf("plain click followed by primary clicks selected %v", names)
 	}
-	h.clickNamed(h.app.text.Git.DeleteBranch)
-	h.click(center(h.popupHit(h.app.text.Branch.DeleteButton)))
+	h.sendNamed(h.app.text.Git.DeleteBranch)
+	h.sendClick(center(h.popupHit(h.app.text.Branch.DeleteButton)))
 	b := &h.app.branch
-	h.await("mixed batch attempted", func() bool { return !b.busy })
-	h.settleChain()
+	h.awaitWithin(branchOperationTimeout, "mixed batch attempted", func() bool { return !b.busy })
+	h.awaitLogReady(h.app.project)
 	if b.dialog != branchDialogDeleteUnmerged || len(b.deleting) != 2 || len(b.deleteReport.results) != 4 {
 		t.Fatalf("mixed result lost a branch or included a non-unmerged force target: %+v", b)
 	}
@@ -386,13 +405,13 @@ func TestLogForceDeleteMixedBatchRetainsEveryOutcome(t *testing.T) {
 	}
 	// A branch created again under a successful name must not be retried by force.
 	gitRun(t, dir, "branch", "merged")
-	h.click(center(h.popupHit(i18n.Shared(h.app.language(), "desktop.branch.reviewForceDelete"))))
+	h.sendClick(center(h.popupHit(i18n.Shared(h.app.language(), "desktop.branch.reviewForceDelete"))))
 	// Another worktree checks out a reviewed branch before force executes. Only that branch
 	// fails; the remaining unmerged branch still deletes and earlier remote failure stays visible.
 	gitRun(t, dir, "worktree", "add", t.TempDir(), "backup/busy")
-	h.click(center(h.popupHit(i18n.Shared(h.app.language(), "desktop.branch.forceDelete"))))
-	h.await("only unmerged branch force deleted", func() bool { return !b.busy })
-	h.settleChain()
+	h.sendClick(center(h.popupHit(i18n.Shared(h.app.language(), "desktop.branch.forceDelete"))))
+	h.awaitWithin(branchOperationTimeout, "only unmerged branch force deleted", func() bool { return !b.busy })
+	h.awaitLogReady(h.app.project)
 	if b.dialog != branchDialogDeleteResult || gitRun(t, dir, "branch", "--list", name) != "" || gitRun(t, dir, "branch", "--list", "merged") == "" {
 		t.Fatal("force retry removed a successful branch again or kept the confirmed branch")
 	}

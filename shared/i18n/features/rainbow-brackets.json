@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.editorPrefs.rainbowBrackets",
+      "description": "Switch for coloring paired brackets by nesting depth",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.rainbowBracketsHelp",
+      "description": "Information about nesting colors and per-theme palette editing",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.rainbowVariables",
+      "description": "Switch for coloring variable names",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.rainbowVariablesHelp",
+      "description": "Information about matching variable names and the shared palettes",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.indentGuides",
+      "description": "Switch for displaying indentation guides in the editor",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.rainbowIndentGuides",
+      "description": "Switch for coloring indentation guides by depth",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.rainbowIndentGuidesHelp",
+      "description": "Information about depth coloring and the shared palettes",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.rainbowLightColors",
+      "description": "Shared rainbow colors for light editor themes",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.rainbowDarkColors",
+      "description": "Shared rainbow colors for dark editor themes",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.rainbowSaturation",
+      "description": "Accessible name of the rainbow color saturation and brightness plane",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.rainbowHue",
+      "description": "Accessible name of the rainbow color hue slider",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.rainbowHex",
+      "description": "Accessible name of the rainbow color hex input",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.rainbowInvalidHex",
+      "description": "Validation message for an invalid rainbow hex color",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.rainbowResetPalette",
+      "description": "Reset the current rainbow palette to defaults",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.rainbowPaletteColor",
+      "description": "Accessible name of a swatch, identified by the palette and position",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "palette": "string",
+        "number": "unsignedInteger"
+      }
+    },
+    {
+      "id": "desktop.editorPrefs.rainbowAddColor",
+      "description": "Accessible name of the control to add a color to a specific palette",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "palette": "string"
+      }
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.editorPrefs.rainbowBrackets": "Rainbow brackets",
+      "desktop.editorPrefs.rainbowBracketsHelp": "Color matching brackets by nesting depth. Select a swatch to change its color.",
+      "desktop.editorPrefs.rainbowVariables": "Rainbow variables",
+      "desktop.editorPrefs.rainbowVariablesHelp": "Give matching variable names the same color. Uses the same light and dark palettes as rainbow brackets.",
+      "desktop.editorPrefs.indentGuides": "Indent guides",
+      "desktop.editorPrefs.rainbowIndentGuides": "Rainbow guides",
+      "desktop.editorPrefs.rainbowIndentGuidesHelp": "Color indent guides by depth using the shared rainbow palettes.",
+      "desktop.editorPrefs.rainbowLightColors": "Light theme colors",
+      "desktop.editorPrefs.rainbowDarkColors": "Dark theme colors",
+      "desktop.editorPrefs.rainbowSaturation": "Saturation and brightness",
+      "desktop.editorPrefs.rainbowHue": "Hue",
+      "desktop.editorPrefs.rainbowHex": "Hex color",
+      "desktop.editorPrefs.rainbowInvalidHex": "Invalid hex color",
+      "desktop.editorPrefs.rainbowResetPalette": "Reset palette",
+      "desktop.editorPrefs.rainbowPaletteColor": "{palette}, color {number}",
+      "desktop.editorPrefs.rainbowAddColor": "Add color to {palette}"
+    },
+    "zh-CN": {
+      "desktop.editorPrefs.rainbowBrackets": "彩虹括号",
+      "desktop.editorPrefs.rainbowBracketsHelp": "按嵌套层级为配对的括号着色。点击色块可更改颜色。",
+      "desktop.editorPrefs.rainbowVariables": "彩虹变量",
+      "desktop.editorPrefs.rainbowVariablesHelp": "同名变量显示为相同颜色，与彩虹括号共用明暗主题配色。",
+      "desktop.editorPrefs.indentGuides": "缩进参考线",
+      "desktop.editorPrefs.rainbowIndentGuides": "彩虹参考线",
+      "desktop.editorPrefs.rainbowIndentGuidesHelp": "使用共用的彩虹配色，按缩进层级为参考线着色。",
+      "desktop.editorPrefs.rainbowLightColors": "浅色主题配色",
+      "desktop.editorPrefs.rainbowDarkColors": "深色主题配色",
+      "desktop.editorPrefs.rainbowSaturation": "饱和度和亮度",
+      "desktop.editorPrefs.rainbowHue": "色相",
+      "desktop.editorPrefs.rainbowHex": "十六进制颜色",
+      "desktop.editorPrefs.rainbowInvalidHex": "无效的十六进制颜色",
+      "desktop.editorPrefs.rainbowResetPalette": "恢复默认配色",
+      "desktop.editorPrefs.rainbowPaletteColor": "{palette}，第 {number} 个颜色",
+      "desktop.editorPrefs.rainbowAddColor": "向{palette}添加颜色"
+    }
+  }
+}

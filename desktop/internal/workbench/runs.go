@@ -48,8 +48,14 @@ type runEntry struct {
 	id string
 	// pluginID is the plugin that started the run, "" for an execution of the host.
 	pluginID string
-	label    string
-	rerun    *pluginservice.RunRerun
+	// groupID aggregates non-detached sessions from the same plugin or build system into one
+	// Run window tab, named by groupLabel when two or more sessions share the tab. detached is
+	// set when the user drags the session out into its own top-level tab.
+	groupID    string
+	groupLabel string
+	detached   bool
+	label      string
+	rerun      *pluginservice.RunRerun
 	// restart starts the host's execution again; nil for a plugin's run.
 	restart func(*App, *project)
 	// operation is the host's execution writing the session, nil once it ended.
@@ -71,8 +77,10 @@ type runEntry struct {
 	summary string
 	// remote says the execution runs on a remote workspace's host, which its tab shows.
 	remote bool
-	// console is the console's selection and scroll state.
-	console textview.View
+	// console is the console's selection and scroll state; scrollToEnd requests jumping to
+	// the newest line on the next paint when horizontal scrolling owns the outer scroll area.
+	console     textview.View
+	scrollToEnd bool
 	// snapshots counts the output snapshots taken of this run, so each tab has its own URI.
 	snapshots int
 	// samples are the process tree's CPU and memory, oldest first, bounded; stopSampling ends the sampler.
@@ -173,17 +181,18 @@ func (a *App) resolveBackendTool(ctx context.Context, _, workingDirectory, tool 
 // resolveBackendToolEntry supplies native installation facts and the verified
 // entry to Core. The definition, not the host, decides how a tool loads it.
 func (a *App) resolveBackendToolEntry(ctx context.Context, _ string, workingDirectory string, input pluginbackend.ToolEntryLaunch) (pluginbackend.ToolExecutable, error) {
+	// Share one validated manifest snapshot between the selected executable
+	// and Core's launch template, including when one unrelated plugin is unreadable.
+	manifests, _, err := a.usableToolchainManifests(ctx, "toolchain_run_entry_discovery")
+	if err != nil {
+		return pluginbackend.ToolExecutable{}, err
+	}
 	selection := core.ToolchainSelection{Executable: input.Executable}
 	if selection.Executable == "" {
-		var err error
-		selection, err = a.resolveToolchainSelection(ctx, workingDirectory, ".", input.Tool, input.MinimumVersion)
+		selection, err = a.resolveToolchainSelectionFrom(ctx, workingDirectory, ".", input.Tool, input.MinimumVersion, manifests)
 		if err != nil {
 			return pluginbackend.ToolExecutable{}, err
 		}
-	}
-	manifests, err := a.toolchainManifests(ctx)
-	if err != nil {
-		return pluginbackend.ToolExecutable{}, err
 	}
 	registry, err := toolchain.RegistryInput(manifests)
 	if err != nil {
@@ -233,6 +242,7 @@ func (a *App) applyRunEvent(event pluginservice.RunEvent) {
 			id: event.RunID, pluginID: event.PluginID, label: event.Label, rerun: event.Rerun, running: true,
 			processRunning: true, started: a.now(), output: newOutputBuffer(runOutputMaxLines, runOutputBytes),
 		}
+		entry.setRunGroup(event.PluginID, a.runGroupLabel(p, event.PluginID))
 		a.addRunSession(p, entry)
 		if event.PID > 0 {
 			a.startRunSampling(entry, event.PID)
@@ -290,6 +300,11 @@ func (a *App) addRunSession(p *project, entry *runEntry) {
 	replaced := false
 	for index, candidate := range b.runs {
 		if !candidate.running && candidate.label == entry.label {
+			entry.detached = candidate.detached
+			if entry.groupID == "" && candidate.groupID != "" {
+				entry.groupID, entry.groupLabel = candidate.groupID, candidate.groupLabel
+			}
+			delete(p.panels.runExpanded, candidate.id)
 			b.runs[index], replaced = entry, true
 			break
 		}
@@ -305,26 +320,368 @@ func (a *App) addRunSession(p *project, entry *runEntry) {
 		if index < 0 {
 			break
 		}
+		delete(p.panels.runExpanded, b.runs[index].id)
 		b.runs = slices.Delete(b.runs, index, index+1)
 	}
-	b.view = entry.id
+	p.selectRun(entry.id)
 }
 
 // closeRunSession removes a finished session from the Run window; a session still running
-// stays. The neighbour that takes its place is selected when it was the one shown.
+// stays. When the closed session was shown, a remaining sibling in the same group tab is
+// selected first, else the neighbour that takes its place.
 func (p *project) closeRunSession(id string) {
 	b := &p.build
 	index := slices.IndexFunc(b.runs, func(candidate *runEntry) bool { return candidate.id == id })
 	if index < 0 || b.runs[index].running {
 		return
 	}
+	closed := b.runs[index]
+	delete(p.panels.runExpanded, id)
 	b.runs = slices.Delete(b.runs, index, index+1)
 	if b.view == id {
 		b.view = ""
+		if closed.groupID != "" && !closed.detached {
+			for i := len(b.runs) - 1; i >= 0; i-- {
+				if b.runs[i].groupID == closed.groupID && !b.runs[i].detached {
+					p.selectRun(b.runs[i].id)
+					return
+				}
+			}
+		}
 		if len(b.runs) > 0 {
-			b.view = b.runs[min(index, len(b.runs)-1)].id
+			p.selectRun(b.runs[min(index, len(b.runs)-1)].id)
 		}
 	}
+}
+
+// setRunGroup assigns the plugin/build-system aggregation identity for a session.
+func (e *runEntry) setRunGroup(groupID, groupLabel string) {
+	if e == nil || groupID == "" {
+		return
+	}
+	e.groupID = groupID
+	if groupLabel != "" {
+		e.groupLabel = groupLabel
+	} else {
+		e.groupLabel = groupID
+	}
+}
+
+// setRunGroupFromInstance assigns a session's aggregation group from its build instance.
+func setRunGroupFromInstance(p *project, e *runEntry, instance *buildInstance) {
+	if e == nil || instance == nil {
+		return
+	}
+	groupID := instance.PluginID
+	if groupID == "" && instance.BuildSystemID != "" {
+		groupID = "build:" + instance.BuildSystemID
+	}
+	e.setRunGroup(groupID, buildSystemName(instance))
+	if p != nil && p.build.view == e.id && e.groupID != "" && !e.detached {
+		if p.panels.runGroupLast == nil {
+			p.panels.runGroupLast = map[string]string{}
+		}
+		p.panels.runGroupLast[e.groupID] = e.id
+	}
+}
+
+// runGroupLabel resolves the human-readable group tab title for a plugin ID.
+func (a *App) runGroupLabel(p *project, pluginID string) string {
+	if pluginID == "" {
+		return ""
+	}
+	if p != nil {
+		for i := range p.build.instances {
+			if p.build.instances[i].PluginID == pluginID {
+				return buildSystemName(&p.build.instances[i])
+			}
+		}
+	}
+	return pluginID
+}
+
+// runTab is one tab in the Run window header: either an aggregated group of non-detached
+// sessions sharing groupID, or a single standalone/detached session.
+type runTab struct {
+	key      string
+	groupID  string
+	label    string
+	detached bool
+	entries  []*runEntry
+}
+
+func (t runTab) contains(id string) bool {
+	for _, entry := range t.entries {
+		if entry.id == id {
+			return true
+		}
+	}
+	return false
+}
+
+func (t runTab) anyRunning() bool {
+	for _, entry := range t.entries {
+		if entry.running {
+			return true
+		}
+	}
+	return false
+}
+
+func (t runTab) anyRemote() bool {
+	for _, entry := range t.entries {
+		if entry.remote {
+			return true
+		}
+	}
+	return false
+}
+
+func (t runTab) firstRunningWithPorts() *runEntry {
+	for _, entry := range t.entries {
+		if entry.running && len(entry.ports) > 0 {
+			return entry
+		}
+	}
+	return nil
+}
+
+func (t runTab) aggregateStatus() (running, processRunning bool, outcome runOutcome) {
+	outcome = runSucceeded
+	hasStopped := false
+	for _, entry := range t.entries {
+		if entry.running {
+			running = true
+			if entry.processRunning {
+				processRunning = true
+			}
+			continue
+		}
+		switch entry.outcome {
+		case runFailed:
+			outcome = runFailed
+		case runStopped:
+			hasStopped = true
+		}
+	}
+	if running {
+		return true, processRunning, runActive
+	}
+	if outcome != runFailed && hasStopped {
+		outcome = runStopped
+	}
+	return false, false, outcome
+}
+
+// runTabs projects p.build.runs into header tabs, preserving first-seen order. Non-detached
+// sessions with the same non-empty groupID share one tab; detached or ungrouped sessions get
+// their own tab. When a group tab aggregates two or more sessions, its title is groupLabel.
+func (p *project) runTabs() []runTab {
+	if p == nil || len(p.build.runs) == 0 {
+		return nil
+	}
+	tabs := make([]runTab, 0, len(p.build.runs))
+	groupIndex := map[string]int{}
+	for _, entry := range p.build.runs {
+		if entry.groupID != "" && !entry.detached {
+			if idx, ok := groupIndex[entry.groupID]; ok {
+				tabs[idx].entries = append(tabs[idx].entries, entry)
+				continue
+			}
+			groupIndex[entry.groupID] = len(tabs)
+			tabs = append(tabs, runTab{
+				key:     "group:" + entry.groupID,
+				groupID: entry.groupID,
+				label:   entry.label,
+				entries: []*runEntry{entry},
+			})
+			continue
+		}
+		tabs = append(tabs, runTab{
+			key:      "run:" + entry.id,
+			groupID:  entry.groupID,
+			label:    entry.label,
+			detached: entry.detached,
+			entries:  []*runEntry{entry},
+		})
+	}
+	for i := range tabs {
+		if !tabs[i].detached && tabs[i].groupID != "" && len(tabs[i].entries) > 1 {
+			label := tabs[i].groupID
+			for _, entry := range tabs[i].entries {
+				if entry.groupLabel != "" {
+					label = entry.groupLabel
+					break
+				}
+			}
+			tabs[i].label = label
+		}
+	}
+	return tabs
+}
+
+// activeRunTab returns the header tab containing the active run session, along with that session.
+func (p *project) activeRunTab() (runTab, *runEntry, bool) {
+	shown := p.activeRun()
+	if shown == nil {
+		return runTab{}, nil, false
+	}
+	for _, tab := range p.runTabs() {
+		if tab.contains(shown.id) {
+			return tab, shown, true
+		}
+	}
+	return runTab{key: "run:" + shown.id, groupID: shown.groupID, label: shown.label, detached: shown.detached, entries: []*runEntry{shown}}, shown, true
+}
+
+// selectRun selects the given session and remembers it as the active member of its group.
+func (p *project) selectRun(id string) {
+	if p == nil {
+		return
+	}
+	p.build.view = id
+	entry := p.runEntry(id)
+	if entry != nil && entry.groupID != "" && !entry.detached {
+		if p.panels.runGroupLast == nil {
+			p.panels.runGroupLast = map[string]string{}
+		}
+		p.panels.runGroupLast[entry.groupID] = id
+	}
+}
+
+// selectRunTab selects a header tab, restoring the last viewed session in a group tab when
+// still present or falling back to its newest session.
+func (p *project) selectRunTab(tab runTab) {
+	if p == nil || len(tab.entries) == 0 {
+		return
+	}
+	if !tab.detached && tab.groupID != "" {
+		if last := p.panels.runGroupLast[tab.groupID]; last != "" && tab.contains(last) {
+			p.selectRun(last)
+			return
+		}
+	}
+	p.selectRun(tab.entries[len(tab.entries)-1].id)
+}
+
+// closeRunTab closes all finished sessions belonging to tab; does nothing if any is running.
+func (p *project) closeRunTab(tab runTab) {
+	if p == nil || tab.anyRunning() || len(tab.entries) == 0 {
+		return
+	}
+	removing := make(map[string]bool, len(tab.entries))
+	for _, entry := range tab.entries {
+		removing[entry.id] = true
+		delete(p.panels.runExpanded, entry.id)
+	}
+	firstRemoved := -1
+	kept := p.build.runs[:0]
+	for i, entry := range p.build.runs {
+		if removing[entry.id] {
+			if firstRemoved < 0 {
+				firstRemoved = i
+			}
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	p.build.runs = kept
+	if removing[p.build.view] {
+		p.build.view = ""
+		if len(p.build.runs) > 0 {
+			p.selectRun(p.build.runs[min(max(firstRemoved, 0), len(p.build.runs)-1)].id)
+		}
+	}
+}
+
+// runNodeExpanded reports whether a session node's child details are expanded in the Run tree.
+func (p *project) runNodeExpanded(run *runEntry) bool {
+	if p != nil && p.panels.runExpanded != nil {
+		if open, ok := p.panels.runExpanded[run.id]; ok {
+			return open
+		}
+	}
+	return run != nil && run.running && len(run.ports) > 0
+}
+
+// toggleRunNodeExpanded flips a session node's expanded state in the Run tree.
+func (p *project) toggleRunNodeExpanded(run *runEntry) {
+	if p == nil || run == nil {
+		return
+	}
+	if p.panels.runExpanded == nil {
+		p.panels.runExpanded = map[string]bool{}
+	}
+	p.panels.runExpanded[run.id] = !p.runNodeExpanded(run)
+}
+
+// detachRunSession moves a grouped session out into its own top-level tab, optionally placing
+// it before the tab at beforeTabIndex (-1 appends at the end).
+func (p *project) detachRunSession(id string, beforeTabIndex int) {
+	if p == nil {
+		return
+	}
+	entry := p.runEntry(id)
+	if entry == nil {
+		return
+	}
+	entry.detached = true
+	if beforeTabIndex >= 0 {
+		p.reorderRunTab("run:"+entry.id, beforeTabIndex)
+	}
+	p.selectRun(entry.id)
+}
+
+// mergeRunSessions merges detached sessions back into their plugin group tab.
+func (p *project) mergeRunSessions(ids ...string) {
+	if p == nil {
+		return
+	}
+	var last string
+	for _, id := range ids {
+		entry := p.runEntry(id)
+		if entry == nil || entry.groupID == "" {
+			continue
+		}
+		entry.detached = false
+		last = entry.id
+	}
+	if last != "" {
+		p.selectRun(last)
+	}
+}
+
+// reorderRunTab moves all entries of the tab named tabKey to appear before beforeTabIndex
+// in the tab bar order.
+func (p *project) reorderRunTab(tabKey string, beforeTabIndex int) {
+	if p == nil {
+		return
+	}
+	tabs := p.runTabs()
+	srcIdx := slices.IndexFunc(tabs, func(t runTab) bool { return t.key == tabKey })
+	if srcIdx < 0 {
+		return
+	}
+	if beforeTabIndex < 0 || beforeTabIndex > len(tabs) {
+		beforeTabIndex = len(tabs)
+	}
+	if beforeTabIndex == srcIdx || beforeTabIndex == srcIdx+1 {
+		return
+	}
+	moving := tabs[srcIdx]
+	without := append(append([]runTab(nil), tabs[:srcIdx]...), tabs[srcIdx+1:]...)
+	if beforeTabIndex > srcIdx {
+		beforeTabIndex--
+	}
+	ordered := make([]runTab, 0, len(tabs))
+	ordered = append(ordered, without[:beforeTabIndex]...)
+	ordered = append(ordered, moving)
+	ordered = append(ordered, without[beforeTabIndex:]...)
+	rebuilt := make([]*runEntry, 0, len(p.build.runs))
+	for _, tab := range ordered {
+		rebuilt = append(rebuilt, tab.entries...)
+	}
+	p.build.runs = rebuilt
 }
 
 func (p *project) runEntry(id string) *runEntry {

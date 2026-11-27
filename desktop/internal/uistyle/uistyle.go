@@ -5,6 +5,7 @@ package uistyle
 import (
 	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/gfx"
+	"github.com/vivaui/viva/ui"
 )
 
 // Bars is the geometry every scrollbar of the client draws with: IDEA's eleven point track
@@ -29,4 +30,19 @@ func Tooltip(dark bool) gfx.TooltipStyle {
 		style.Background, style.Text = gfx.RGB24(0x33353B), gfx.RGB24(0xD1D3D9)
 	}
 	return style
+}
+
+// SettingsRow is the vertical spacing for an individual settings form entry.
+func SettingsRow(c ui.C) ui.Box {
+	return ui.Column(c).FillWidth().Shrink(0).Gap(4).PadY(6)
+}
+
+// SettingsLine wraps the title and its control together on narrow pages.
+func SettingsLine(c ui.C) ui.Box {
+	return ui.Flow(c).FillWidth().MinHeight(30).Items(ui.Center).Gap(8).LineGap(6)
+}
+
+// SettingsTitle aligns labels and their host-provided information buttons.
+func SettingsTitle(c ui.C) ui.Box {
+	return ui.Row(c.Part("title")).Basis(0).Grow(2).Shrink(1).MinWidth(120).Items(ui.Center).Gap(8)
 }

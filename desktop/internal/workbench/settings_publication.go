@@ -27,26 +27,56 @@ type settingsSubscription struct {
 	notices chan settingsNotice
 	done    chan struct{}
 	once    sync.Once
+	// Shared by live native windows and project tabs using the same directory.
+	editorPreferences *editorPreferencesPublication
+	editorGeneration  uint64
 }
 
 func (a *App) subscribeSettings() {
 	settingsWindows.Lock()
-	defer settingsWindows.Unlock()
 	if a.settingsSubscription != nil {
+		settingsWindows.Unlock()
 		return
 	}
 	sub := &settingsSubscription{notices: make(chan settingsNotice, 8), done: make(chan struct{})}
+	sub.editorPreferences = a.settingsSaveState()
+	startWatch := true
+	for target, existing := range settingsWindows.live {
+		if samePreferencesDirectory(a, target) {
+			sub.editorPreferences = existing.editorPreferences
+			startWatch = false
+			break
+		}
+	}
 	a.settingsSubscription = sub
+	a.settingsPublication = sub.editorPreferences
 	settingsWindows.live[a] = sub
+	settingsWindows.Unlock()
+	if startWatch {
+		a.startEditorPreferencesWatch(sub.editorPreferences)
+	}
 }
 
 func (a *App) unsubscribeSettings() {
 	settingsWindows.Lock()
 	delete(settingsWindows.live, a)
 	sub := a.settingsSubscription
+	last := sub != nil
+	for _, other := range settingsWindows.live {
+		if sub != nil && sub.editorPreferences == other.editorPreferences {
+			last = false
+			break
+		}
+	}
 	settingsWindows.Unlock()
 	if sub != nil {
 		sub.once.Do(func() { close(sub.done) })
+		if last {
+			sub.editorPreferences.Lock()
+			watch := sub.editorPreferences.watch
+			sub.editorPreferences.Unlock()
+			watch.close()
+		}
 	}
 }
 
@@ -107,6 +137,8 @@ func (a *App) drainSettings() {
 		return
 	default:
 	}
+	a.drainEditorPreferencesWatch()
+	a.drainEditorPreferences()
 	// Capture this frame's bounded batch; concurrent publishers request another wake.
 	count := len(sub.notices)
 	for i := 0; i < count; i++ {

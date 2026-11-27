@@ -595,7 +595,7 @@ func (a *App) drawVcsRollbackDialog(c ui.C, p *project, t vcsTarget) {
 	paths := view.rollback
 	open, confirmed := true, false
 	spec := ui.ModalSpec{Width: 440, Description: i18n.Shared(lang, "native.localEditsToTheseFilesAreLost")}
-	closed := ui.ModalWith(c, &open, i18n.Shared(lang, "native.rollBackTheSelectedChanges"), spec, func() {
+	closed := ui.Modal(c, &open, i18n.Shared(lang, "native.rollBackTheSelectedChanges"), spec, func() {
 		ui.Column(c).FillWidth().Gap(4).Children(func() {
 			for index, path := range paths {
 				if index == vcsRollbackShown {

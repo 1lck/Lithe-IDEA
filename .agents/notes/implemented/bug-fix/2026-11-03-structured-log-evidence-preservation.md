@@ -14,6 +14,7 @@
 
 ## 决策
 
+- **保留部分导出的可读记录。** 如果所选会话的子目录没有读取权限，扫描继续处理同级目录。导出包在 `collection-status.txt` 中写入 `truncated=true`，这样排查者知道部分记录可能缺失。若日志根目录本身无法打开，直接返回读取错误。过期清理可继续处理完整枚举的会话，并保留扫描未完成的会话供下次重试。
 - **Core 决定读取顺序。** Core 接收文件元数据，先按会话和既有分类筛选，再按最新会话、活动段、轮转序号及修改时间分配有界读取。宿主只执行返回的路径、偏移和长度（`desktop/internal/logstore/collect.go` 的 `Collect`）。正确做法是先读活动文件，再读旧轮转；不要按文件名的字符串顺序花完预算。
 - **通道分类由 Core 持有。** 通道到旧六类设置选项的映射由 Core 持有，收集和详细诊断共用。更新、远程及 Agent 事件仍属于 Application；终端属于 Run。
 - **追加前检查文件身份。** 每次追加前检查缓存句柄与磁盘上的路径是否仍是同一个文件（`desktop/internal/logstore/store.go` 使用 `os.SameFile` 和文件大小）。路径被删除、替换或截断后关闭旧句柄并重开，必要时重建文件头；目录不可写时沿用默认目录回退。只检查路径存在无法发现原子替换。
@@ -32,6 +33,7 @@
 
 ## 验证
 
+- `TestCollectMarksUnreadableSubtreeAsIncomplete` 在可读日志旁建立一个不可读的子目录，检查导出包含可读事件并标记不完整。
 - `scripts/desktop/desktop-go.sh test ./internal/logstore/...`：`collect_test.go`、`store_test.go` 和 `writer_test.go` 覆盖收集预算、删除与替换后的重开以及导出。
 - `scripts/desktop/verify/verify-runtime-bundle-immutability.sh`
 

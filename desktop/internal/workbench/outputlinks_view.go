@@ -124,9 +124,12 @@ func (s outputSource) Line(n int) string { return s.output.row(n - s.output.star
 // line spacing makes it. A secondary press opens menu, when there is one. The console keeps
 // to the newest line as output arrives, until the user scrolls up, and keeps to it again once
 // they scroll back down. A line wider than the console breaks onto more rows when wrap is set
-// and otherwise ends in an ellipsis, as the Git console's do (gitconsole_view.go); the lines are
-// broken again only when the output or the width changed.
+// and otherwise scrolls horizontally without cutting it off with an ellipsis.
 func (a *App) outputList(c ui.C, p *project, view *textview.View, scope, label string, output *outputBuffer, from int, wrap bool, menu *outputMenu) ui.Box {
+	return a.outputListWithScroll(c, p, view, scope, label, output, from, wrap, nil, menu)
+}
+
+func (a *App) outputListWithScroll(c ui.C, p *project, view *textview.View, scope, label string, output *outputBuffer, from int, wrap bool, scrollToEnd *bool, menu *outputMenu) ui.Box {
 	if menu != nil && menu.key != "" {
 		c = c.Key(menu.key)
 	}
@@ -140,10 +143,10 @@ func (a *App) outputList(c ui.C, p *project, view *textview.View, scope, label s
 		LineHeight: font.lineHeight(c.Canvas()),
 		PadX:       8,
 		Selection:  a.terminalLook().Selection,
-		Scroll:     true,
+		Scroll:     wrap,
 		Follow:     true,
 		Wrap:       wrap,
-		Ellipsis:   true,
+		Ellipsis:   false,
 		Revision:   output.revision,
 		Spans: func(n int, text string, dst []textview.Span) []textview.Span {
 			return a.outputSpans(p, scope, output.row(n-output.start), &ink, dst)
@@ -162,7 +165,27 @@ func (a *App) outputList(c ui.C, p *project, view *textview.View, scope, label s
 	if menu != nil {
 		spec.Menu = a.outputLineMenu(c, view, src, menu)
 	}
-	box := view.Declare(c, spec)
+	var box ui.Box
+	if wrap {
+		if scrollToEnd != nil && *scrollToEnd {
+			*scrollToEnd = false
+			view.ScrollToEnd()
+		}
+		box = view.Declare(c, spec)
+	} else {
+		cellW, _ := c.Canvas().MonoCellSize(spec.Font.Size, spec.Font.MonoFace)
+		outer := ui.Scroll(c).Sideways().Scrollbars().Follow(true).Label(label)
+		state := outer.ScrollState()
+		if scrollToEnd != nil && *scrollToEnd {
+			*scrollToEnd = false
+			state.ScrollToEnd()
+		}
+		contentW := max(float32(output.widestCells())*cellW+2*spec.PadX+8, state.ViewportWidth)
+		outer.Children(func() {
+			view.Declare(c.Part("content"), spec).Width(contentW).MinHeight(state.Viewport)
+		})
+		box = outer
+	}
 	// The links of the lines on screen are asked for before they are drawn, so the request
 	// goes out in this frame; the answer repaints.
 	first, last := view.Visible()

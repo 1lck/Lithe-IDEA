@@ -94,7 +94,13 @@ func (r *remoteState) connectTarget() (core.SavedRemoteConnection, remoteHost) {
 	}
 	if r.containers.selected != nil {
 		container := r.containers.connection()
-		return core.SavedRemoteConnection{ID: container.Identity(), Name: container.Container}, remoteHost{container: &container}
+		host := remoteHost{container: &container}
+		identity := container.Identity()
+		if target := r.containers.selected.runtime; target != nil && target.WSL != "" {
+			host.wsl = &core.WSLConnection{Distribution: target.WSL}
+			identity = host.wsl.Identity() + "/" + identity
+		}
+		return core.SavedRemoteConnection{ID: identity, Name: container.Container}, host
 	}
 	entry := *r.entry(r.selected)
 	return entry, remoteHost{ssh: entry.Connection}

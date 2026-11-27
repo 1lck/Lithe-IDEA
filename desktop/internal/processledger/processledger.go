@@ -13,23 +13,16 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/atomicfile"
 )
 
 // LedgerFile is the name of the ledger in the application's preferences directory.
 const LedgerFile = "process-ledger.json"
-
-// Supported says this platform can tell a process's start time and command (identity), so
-// the ledger records the processes the app starts. On Windows it cannot, and nothing is
-// recorded or found at the next start.
-const Supported = runtime.GOOS != "windows"
 
 // Record is one process the app started.
 type Record struct {
@@ -40,8 +33,8 @@ type Record struct {
 	Kind string `json:"kind,omitempty"`
 }
 
-// Ledger is the file of records. A nil Ledger records nothing, so platforms without the
-// identity check (Windows here) run without one.
+// Ledger is the file of records. A nil Ledger, which Open returns without a directory, records
+// nothing.
 type Ledger struct {
 	path string
 	mu   sync.Mutex
@@ -226,36 +219,11 @@ func (l *Ledger) read() ([]Record, error) {
 
 // write replaces the ledger atomically, so a crash never leaves half a file.
 func (l *Ledger) write(records []Record) error {
-	if err := os.MkdirAll(filepath.Dir(l.path), 0o700); err != nil {
-		return err
-	}
 	data, err := json.Marshal(records)
 	if err != nil {
 		return err
 	}
-	temporary := l.path + ".tmp"
-	if err := os.WriteFile(temporary, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(temporary, l.path)
-}
-
-// identity reads the start time and command name of a live process. ok is false when the process
-// is gone or the platform cannot tell.
-func identity(pid int) (started, command string, ok bool) {
-	output, err := exec.Command("ps", "-o", "lstart=", "-o", "comm=", "-p", strconv.Itoa(pid)).Output()
-	if err != nil {
-		return "", "", false
-	}
-	line := strings.TrimSpace(string(output))
-	if line == "" {
-		return "", "", false
-	}
-	// lstart has a fixed width of 24 characters on the systems this runs on; the command follows it.
-	if len(line) < 25 {
-		return "", "", false
-	}
-	return strings.TrimSpace(line[:24]), strings.TrimSpace(line[24:]), true
+	return atomicfile.Write(l.path, data, 0o600)
 }
 
 // current reports that record's PID is still the process that was recorded.
@@ -309,8 +277,4 @@ func endProcesses(ctx context.Context, records []Record, grace time.Duration) (i
 		ended++
 	}
 	return ended, errors.Join(failures...)
-}
-
-func signal(pid int, name string) error {
-	return exec.Command("kill", "-"+name, strconv.Itoa(pid)).Run()
 }

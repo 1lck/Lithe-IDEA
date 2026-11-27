@@ -626,6 +626,9 @@ func (a *App) selectDocument(p *project, id int) {
 	if a.semantics.documentID != 0 && a.semantics.documentID != id {
 		a.closePluginSemantics()
 	}
+	if d := a.semantics.symbolHighlights.key.document; d != nil && d.id != id {
+		a.clearSymbolHighlights()
+	}
 	for _, doc := range p.docs.list {
 		if doc.id != id {
 			a.clearEditorActionHover(doc)
@@ -638,6 +641,7 @@ func (a *App) selectDocument(p *project, id int) {
 	a.focusDocument(id)
 	p.touchDocument(id)
 	if d := p.docs.find(id); d != nil {
+		a.syncSymbolHighlights(p, d)
 		a.noteRecentFile(p, d, "opened")
 		if d.actionsTimedOut {
 			a.scheduleEditorActions(p, d)
@@ -761,7 +765,14 @@ func (a *App) saveDocumentMode(p *project, id int, mode saveMode) {
 					}
 					return
 				}
-				if errors.Is(err, documentio.ErrConflict) {
+				if missing {
+					// Restore the last observed deletion so a failed recreation still offers
+					// a way to discard the buffer. The fresh check updates that observation.
+					d.recreateMissing = false
+					d.conflicted, d.conflictMissing = true, true
+					d.conflictGeneration++
+				}
+				if missing || errors.Is(err, documentio.ErrConflict) {
 					d.checkPending = true
 				}
 				a.saveFailed(id, revision, name, err)
@@ -931,6 +942,9 @@ func (a *App) closeDocument(p *project, id int) {
 // removeDocument takes a tab away without asking about its text. The caller has saved it or
 // decided that it is going away: deleting its file, for one.
 func (a *App) removeDocument(p *project, d *document) {
+	if a.semantics.symbolHighlights.key.document == d {
+		a.clearSymbolHighlights()
+	}
 	a.closePreviewsOfDocument(d)
 	d.find.dispose()
 	d.cancelAutoSave()
@@ -1042,6 +1056,7 @@ func (a *App) saveProjectPass(p *project, verified map[int]int, done func(bool))
 
 // closeDocuments releases views after their saves have completed.
 func (a *App) closeDocuments(p *project) {
+	a.clearSymbolHighlights()
 	for _, watch := range p.docs.watches {
 		watch.close()
 	}

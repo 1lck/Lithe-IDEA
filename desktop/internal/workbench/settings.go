@@ -16,7 +16,6 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginicons"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/processledger"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
@@ -255,7 +254,6 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 			a.post(func(a *App) { a.setConsoleEncoding(value) })
 		},
 		ConsoleEncodings:         a.consoleEncodingsOption,
-		SweepsLeftovers:          processledger.Supported,
 		SteppingAdapters:         a.steppingAdapters,
 		NormalizeSteppingFilters: a.kernel.NormalizeSteppingFilters,
 		SetSteppingFilters: func(adapter string, filters *core.DebugSteppingFilters) {
@@ -335,14 +333,7 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		LocalHistory: a.localHistorySettingsSource(),
 		SetEditorPreferences: func(stored core.EditorStoredPreferences, resolved core.EditorPreferences) {
 			a.post(func(a *App) {
-				a.settings.EditorPreferences = stored
-				inlayChanged := a.editorPreferences.InlayHints != resolved.InlayHints
-				a.editorPreferences = resolved
-				if inlayChanged {
-					a.applyInlayHintsPreference(resolved.InlayHints)
-				}
-				a.saveSettings()
-				a.invalidator.Invalidate()
+				a.setEditorPreferences(stored, resolved)
 			})
 		},
 		SetKeymapSchemes: func(value core.KeymapSchemeResult) {
@@ -386,10 +377,8 @@ func (a *App) setMarketplaceWidth(width float32) {
 }
 
 // setSettingsWindowSize keeps the size the user gave the settings window, which the next one
-// opens at. Every project tab of the window holds its own copy of the settings and saves it
-// whole, so each tab takes the size: the next window opens at it whichever tab opens it, and no
-// tab writes the old size back. One owner for the settings of every tab and window (#1851)
-// replaces this.
+// opens at. Mirror the size to every tab so whichever tab later opens the window
+// or saves settings uses the new size.
 func (a *App) setSettingsWindowSize(width, height int) {
 	if a.settings.SettingsWindowWidth == width && a.settings.SettingsWindowHeight == height {
 		return
@@ -398,7 +387,7 @@ func (a *App) setSettingsWindowSize(width, height int) {
 		tab.settings.SettingsWindowWidth, tab.settings.SettingsWindowHeight = width, height
 	}
 	a.settings.SettingsWindowWidth, a.settings.SettingsWindowHeight = width, height
-	a.saveSettings()
+	a.enqueueSettingsSave(true, &settingsWindowSize{width, height})
 }
 
 // closeSettingsWindow closes the open settings window as this workbench closes. It keeps the
@@ -474,6 +463,51 @@ const (
 
 func (a *App) openSettingsPage(surface actionSurface, page settingsPage) {
 	a.openSettingsPageWith(surface, page, "")
+}
+
+// publishWorkspaceBuildOptions refreshes settings links after detection or a project change.
+func (a *App) publishWorkspaceBuildOptions(p *project) {
+	if a.settingsWindow == nil {
+		return
+	}
+	a.settingsWindow.SetWorkspaceBuildOptions(a.workspaceBuildOptions(p))
+}
+
+func (a *App) workspaceBuildOptions(p *project) map[string][]settingswindow.WorkspaceBuildOptions {
+	if p == nil {
+		return nil
+	}
+	options := make(map[string][]settingswindow.WorkspaceBuildOptions)
+	for i := range p.build.instances {
+		instance := &p.build.instances[i]
+		if !instance.hasDeclaredOptions() {
+			continue
+		}
+		id, system, plugin := instance.ID, instance.BuildSystemID, instance.PluginID
+		options[system] = append(options[system], settingswindow.WorkspaceBuildOptions{
+			InstanceID: id, PluginID: plugin, Name: buildSystemName(instance), Root: buildRootDetail(instance),
+			Open: func() {
+				a.post(func(a *App) {
+					if a.project != p {
+						return
+					}
+					current := p.buildInstanceByID(id)
+					if current == nil || current.BuildSystemID != system || current.PluginID != plugin || !current.hasDeclaredOptions() {
+						return
+					}
+					// An open editor can contain unsaved changes. Bring it forward intact.
+					if !p.build.options.open {
+						a.performed("build.options.open", surfaceButton)
+						a.openBuildOptions(p, current)
+					}
+					if a.window != nil {
+						a.window.Show()
+					}
+				})
+			},
+		})
+	}
+	return options
 }
 
 // openSettingsPageWith is openSettingsPage with the marketplace search text the plugin page starts with.

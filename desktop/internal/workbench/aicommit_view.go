@@ -30,7 +30,7 @@ func (a *App) drawGeneratedMessageConfirm(c ui.C, p *project) {
 	}
 	t := a.text.AI.Commit
 	open := true
-	closed := ui.ModalWith(c, &open, t.ReplaceTitle, ui.ModalSpec{Description: t.ReplaceBody, Width: 420}, func() {
+	closed := ui.Modal(c, &open, t.ReplaceTitle, ui.ModalSpec{Description: t.ReplaceBody, Width: 420}, func() {
 		ui.Paragraph(c, firstLine(p.commit.ai.pending), 2)
 	}, func() {
 		if ui.Button(c, t.Keep).Outline().Clicked() {

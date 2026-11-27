@@ -38,7 +38,7 @@ func (a *App) searchReplaceRow(c ui.C, query searchQuery) {
 	}
 	t := a.text.Search
 	ui.Row(c.Key("replace-row")).FillWidth().PadSides(0, 10, 6, 10).Items(ui.Center).Gap(6).Children(func() {
-		ui.TextFieldID(c, searchReplaceID, &v.replace, t.Replace, t.ReplacePlaceholder).Grow(1).MinWidth(0)
+		ui.TextField(c, &v.replace, t.Replace, t.ReplacePlaceholder, ui.WithID(searchReplaceID)).Grow(1).MinWidth(0)
 		disabled := strings.TrimSpace(query.text) == "" || p.replace.loading || p.replace.applying
 		if ui.Button(c.Key("replace-all"), t.ReplaceAll).Small().Disabled(disabled).Clicked() {
 			replacement := v.replace.Text()
@@ -61,7 +61,7 @@ func (a *App) drawProjectReplace(c ui.C, p *project) {
 	if !r.loading && r.failure == "" {
 		description = t.ReplaceSummary(strconv.Itoa(occurrences), strconv.Itoa(files))
 	}
-	closed := ui.ModalWith(c, &open, t.PreviewTitle, ui.ModalSpec{Width: 620, Description: description}, func() {
+	closed := ui.Modal(c, &open, t.PreviewTitle, ui.ModalSpec{Width: 620, Description: description}, func() {
 		ui.Column(c.Part("replace-preview")).FillWidth().Gap(4).Children(func() {
 			switch {
 			case r.loading:

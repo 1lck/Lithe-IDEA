@@ -534,7 +534,7 @@ func (a *App) drawRunConfigTask(c ui.C, p *project) {
 		title = i18n.SharedFormat(language, "desktop.runConfig.taskAddTitle", map[string]string{"name": t.kind.DisplayName})
 	}
 	open := true
-	closed := ui.ModalWith(c, &open, title, ui.ModalSpec{Description: t.kind.Description, Width: 560}, func() {
+	closed := ui.Modal(c, &open, title, ui.ModalSpec{Description: t.kind.Description, Width: 560}, func() {
 		k := c.Part("run-config-task")
 		ui.Column(k).FillWidth().Gap(10).Children(func() {
 			a.drawRunConfigFormFields(k, p, t.form, !t.checking)

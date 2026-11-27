@@ -97,7 +97,7 @@ func (a *App) credentialImportView(c ui.C) {
 	}
 	lang := a.language()
 	confirmed, cancelled := false, false
-	closed := ui.ModalWith(c, &in.confirming, i18n.Shared(lang, "desktop.credentials.importLegacyTitle"),
+	closed := ui.Modal(c, &in.confirming, i18n.Shared(lang, "desktop.credentials.importLegacyTitle"),
 		ui.ModalSpec{Width: 460}, func() {
 			ui.Wrap(c, i18n.Shared(lang, "desktop.credentials.importLegacyDescription")).FontSize(12).Muted()
 		}, func() {

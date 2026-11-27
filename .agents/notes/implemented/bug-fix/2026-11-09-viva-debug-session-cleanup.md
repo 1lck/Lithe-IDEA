@@ -15,6 +15,7 @@
 ## 决策
 
 - 使用原生文件管道作为适配器标准输入，宿主拥有并关闭父进程端；取消和有界写入超时都关闭管道。
+- 标准输入的写入可以阻塞在操作系统中，只有这种原生文件管道在每次写入时登记取消关闭。托管 TCP（传输控制协议）写入只把帧交给 Core 的队列，写入期限和用户停止时的排空由传输生命周期执行。会话取消后，迟到的检查请求应返回取消错误，把连接留给清理任务发送 DAP（调试适配协议）断连帧。给所有写入都登记取消关闭，会让已取消的检查抢先关闭连接，导致断连帧入队失败。
 - 同时观察进程退出与协议结束。清理幂等，立即停止进程和写入，再等待启动任务结束后销毁 Core 记录；等待退出观察器回收。
 - 会话 ID 跨项目唯一，界面结果按项目、会话身份和代次核对。投递给界面的结果使用独立值快照。
 - 正确示例：用户点击停止，创建调用迟到成功，清理任务随后销毁该 ID。不要先销毁尚不存在的 ID 就认为完成。
@@ -41,10 +42,12 @@
 
 `desktop/internal/workbench/debug_test.go` 覆盖无结束事件的退出、旧错误迟到、创建返回前停止、取消阻塞写入，以及正常断点/暂停/继续流程。前两项在修复前失败，修复后通过。新增空启动参数回归先失败后通过；Core 的延迟启动确认回归先失败，再通过 Core 的引擎测试。`debug_launch_test.go` 覆盖缺失目标在进程启动前拒绝，以及运行时参数来自工具定义。真实 LLDB 端到端流程的验收已随插件归属规则移到插件仓库（见 [插件的测试、功能矩阵和翻译只在插件仓库](../architecture/2026-11-14-plugin-owned-tests-matrix-i18n.md)），宿主不再保留该测试。
 
+`debug_transport_test.go` 的 `TestDebugCancelledSessionWriteLeavesHostedStreamForDisconnect` 使用真实 Core 状态机、内存双向连接和 Go 同步测试工具固定顺序，先建立连接，再取消会话、执行迟到的写入，最后发送断连并排空。修复前断连入队失败，修复后对端收到完整断连内容。`TestDebugBlockedWriteEndsOnCancellation` 继续证明标准输入的阻塞写入能够取消。原始 `TestDebugAnnouncedAdapterBreakpointPauseContinueStop` 保留独立观察连接上的断连报告断言。
+
 ```bash
 scripts/desktop/desktop-go.sh test -race ./internal/workbench -run TestDebug -count=1 -timeout=90s
 ```
 
 ## 适用范围
 
-`desktop/internal/workbench/debug.go` 与 `desktop/internal/buildprocess/process.go` 的原生 stdio 调试路径。DAP 帧解析与状态规则仍由固定版本的 Rust Core 负责；进程启动准备见 `desktop/internal/workbench/debug_launch.go`，共享桥接见 `desktop/internal/core/debug_launch.go`。
+`desktop/internal/workbench/debug.go` 与 `desktop/internal/buildprocess/process.go` 的原生 stdio 调试路径，以及 `desktop/internal/workbench/debug_transport.go` 的托管 TCP 写入与停止排空边界。DAP 帧解析与状态规则仍由固定版本的 Rust Core 负责；进程启动准备见 `desktop/internal/workbench/debug_launch.go`，共享桥接见 `desktop/internal/core/debug_launch.go`。

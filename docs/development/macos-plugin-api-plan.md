@@ -2,6 +2,10 @@
 
 状态：待实施计划。盘点日期：2026-10-28；2026-10-30 按 preview `e8c4e9fc9` 刷新（#1517、#1515 已合并）。2026-11-04 补充 Java 拆分对应条目的计划说明与 API-35 第一阶段，不新增 API 编号。
 
+## 2026-11-25：新增 API-45（Agent）
+
+2026-11-25 用户批准新增编号 API-45，用于 Agent：插件声明用户自己安装的官方 CLI，以原生模式（插件后端翻译 CLI 自己的协议）或 ACP 模式（Core 通用客户端）连接；Core 负责本地会话记录的缓存、统计、全文搜索和 MCP 会话搜索。设计见 [Agent 原生调用与本地会话记录提案](../../.agents/notes/proposed/architecture/2026-11-25-agent-native-cli-and-local-session-records.md)，契约在 Core 实现 PR 中定稿。API-44（插件提供 Skill、Hook、MCP 候选）保持不变。
+
 ## 2026-11-24：Viva 通用工作流 API 增量
 
 Core [#193](https://github.com/Lithe-IDEA/Lithe-core-rust/pull/193) 已合入，
@@ -56,7 +60,7 @@ Cookie 自动提取、身份验证会话、AI/MCP 授权和下载到文件不在
 数据源、精确全文搜索匹配范围、文件修改/保存事务、可替换预览标签和 Windows
 适配。三个完整安装插件的 UI 验收尚未全部完成，不把分层集成测试等同于整机验收。
 
-## API-01–44 完成度总表（基于 PR #1595，持续更新）
+## API-01–45 完成度总表（基于 PR #1595，持续更新）
 
 这是**实现范围**，不是发布或全平台验收结论。已公开表示已注册到 Core 白名单及 macOS
 宿主分发、插件可按权限调用；仍需以 `getCapabilities` 判断当前宿主支持的方法。
@@ -110,6 +114,7 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 | API-42 | 未做 | 内置 Git 公共 SCM 只读快照/events 未开放 |
 | API-43 | 未做 | 保存前事件/带超时编辑尚未开放 |
 | API-44 | 未做 | 插件贡献 Skills/Hooks/MCP 候选及独立授权评审未完成 |
+| API-45 | 未做 | 2026-11-25 新增：Agent 会话（原生模式与 ACP 模式）、CLI 安装与更新、本地会话记录的统计与搜索；只有设计提案 |
 
 ### API-25：JSON 配置的支持范围与局限
 
@@ -302,6 +307,7 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 | API-36 运行时 | 可选 WASM Component/WASI 宿主；当前能力表无 WASM [S1] | 复用相同公共 API/权限；独立验证 WIT 版本、fuel/内存/时间预算、取消、沙盒可达性、签名、工具链和分发。不得预挂载整个 HOME/工作区或绕过主进程隔离 | 后续，非 M0–M4 前置 |
 | API-42 H/E | 内置 Git 只读快照：`scm.getRepositories/getHead/getStatus/onDidChange` 一类候选。现状：Git 在 `LitheGitModule`（`GitFeatureModel`、`package` 级 `GitOperations`），不在统一 VCS 层；`VcsProvidersFeatureModel` 只用 Git 根判断归属，IDE broker 无 Git 工具 [S21] | 只读仓库元数据授权；经小型适配器返回仓库根 ID、当前分支/HEAD、ahead/behind 和有页大小上限的变更路径，不暴露 `GitOperations`/`GitChange` 等内部类型，不含 diff 内容、凭据或带令牌的远程 URL。暂存、提交、切分支等写操作不在本项，等统一 VCS 提案第 10 节的 Git 接入决策。事件合并限流；远程工作区按 API-40 的 authority 返回 | M3 |
 | API-44 C | Agent 侧贡献：插件提供 Skill、Hook、MCP 服务器的候选清单。现状：Skills、Hooks、MCP 是用户管理的 Codex/Claude 原生配置，宿主只读取并编辑用户选定的来源，没有插件来源 [S22] | 插件只能提供可审阅的候选，不自动写入或启用；用户确认后才写入明确来源并重读结果。Hook 与 MCP 会执行命令，需单独授权、标注来源并可撤销；卸载插件不静默改动用户已导入的配置。不转交 IDE broker token 或 Agent 历史，与 API-34 一并做威胁建模 | 后续，独立安全评审 |
+| API-45 C/P/H/E | Agent：插件用工具定义声明官方 CLI，并声明原生模式（后端翻译 CLI 自己的协议）或 ACP 模式（Core 通用客户端）、更新方式和会话文件目录；后端解析会话文件，Core 负责缓存、统计、搜索和 MCP 会话搜索。现状：没有；旧的 ACP 适配器方案已在 #1799 删除 [S23] | 只运行用户装好、登录好的官方 CLI；CLI 进程由 Core 启动和回收，启动结果不得带环境变量；不读凭据、不改请求去向、不冒充客户端；只有用户发起的请求能开始会话；只在可信工作区启动，远程工作区按 API-40 拒绝。读会话目录需逐个 Agent 同意，缓存不存正文、可删可重建；MCP 会话搜索另需单独开关。插件只能读自己声明的目录，不转交给其他插件，与 API-34 一致 | 后续：Core 会话记录 → 契约 → 官方插件 → 界面 |
 
 ### 3.6 通用配套能力
 
@@ -464,3 +470,4 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 | S20 | [远程工作区路由 Note](../../.agents/notes/implemented/architecture/2026-10-24-remote-workspace-routing.md)、占位根、绑定与路由、远程插件启动、[远程主机提案](../../.agents/notes/proposed/architecture/2026-10-24-remote-development-workspace-host.md)、[SSH 调试提案](../../.agents/notes/proposed/architecture/2026-10-27-remote-debug-adapter-over-ssh.md) |
 | S21 | Git 功能、Git 服务端口、[统一 VCS 提案](../../.agents/notes/proposed/architecture/2026-10-22-unified-vcs-provider-model.md) |
 | S22 | Skills、Hooks、MCP 注册、MCP 服务器库、[Skill 管理 Note](../../.agents/notes/archived/feature/2026-10-20-agent-skill-management.md)、[Hooks Note](../../.agents/notes/archived/feature/2026-10-24-agent-hooks.md)、[MCP 服务器库 Note](../../.agents/notes/archived/feature/2026-10-17-mcp-server-library.md) |
+| S23 | [Agent 原生调用与本地会话记录提案](../../.agents/notes/proposed/architecture/2026-11-25-agent-native-cli-and-local-session-records.md)、[已删除的旧 Agent 对话](../../.agents/notes/implemented/feature/2026-11-12-viva-agent-conversation-removed.md) |
