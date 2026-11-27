@@ -18,16 +18,22 @@ var (
 // ownership automatically. The file stays in place so another opener cannot
 // lock a different inode while a previous waiter still holds the old one.
 func Acquire(ctx context.Context, name string) (unlock func() error, err error) {
-	return acquire(ctx, name, true)
+	return acquire(ctx, name, true, true)
+}
+
+// AcquireShared lets multiple users hold the same lock until an exclusive
+// operation can run without any of them.
+func AcquireShared(ctx context.Context, name string) (unlock func() error, err error) {
+	return acquire(ctx, name, false, true)
 }
 
 // TryAcquire performs one native lock attempt without waiting for another
 // process. Callers can move contention to an owned background operation.
 func TryAcquire(name string) (unlock func() error, err error) {
-	return acquire(context.Background(), name, false)
+	return acquire(context.Background(), name, true, false)
 }
 
-func acquire(ctx context.Context, name string, wait bool) (unlock func() error, err error) {
+func acquire(ctx context.Context, name string, exclusive, wait bool) (unlock func() error, err error) {
 	defer func() {
 		if err != nil && unlock != nil {
 			err = errors.Join(err, unlock())
@@ -67,7 +73,7 @@ func acquire(ctx context.Context, name string, wait bool) (unlock func() error, 
 	bounded, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	for {
-		locked, err := tryLock(file)
+		locked, err := tryLock(file, exclusive)
 		if err != nil {
 			return nil, err
 		}
