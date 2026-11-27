@@ -569,7 +569,7 @@ type pluginManifestFacts struct {
 	SettingActions []json.RawMessage `json:"settingActions"`
 }
 
-// pluginApprovals looks up what the user approved for one installed version.
+// pluginApprovals looks up a version in the all-or-nothing approval store.
 type pluginApprovals interface {
 	Approval(id, version string) (plugintrust.Record, bool, error)
 }
@@ -592,7 +592,9 @@ func installedPluginFacts(entries []pluginmanager.Entry, approvals pluginApprova
 		if approvals != nil {
 			record, ok, err := approvals.Approval(item.ID, item.Version)
 			if err != nil {
-				failures = append(failures, fmt.Errorf("read approval for %s@%s: %w", item.ID, item.Version, err))
+				failures = append(failures, err)
+				// Each lookup reads the same store. Try it again on the next refresh.
+				approvals = nil
 			} else if ok {
 				item.Source = string(record.Source)
 				item.ArchiveSHA256 = record.ArchiveSHA256

@@ -35,17 +35,23 @@ func TestRefreshPluginStateKeepsInstalledFactsAndReportsMetadataFailures(t *test
 	const id, version = "dev.lithe.test.broken-facts", "1.0.0"
 	preferences := newPluginSnapshotStore(t)
 	root := t.TempDir()
-	staging, err := pluginpkg.NewStaging(root)
-	if err != nil {
-		t.Fatal(err)
+	install := func(id, manifest string) pluginpkg.Installed {
+		t.Helper()
+		staging, err := pluginpkg.NewStaging(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(staging, pluginpkg.ManifestFile), []byte(manifest), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		installed, err := pluginpkg.Install(root, id, version, staging)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return installed
 	}
-	if err := os.WriteFile(filepath.Join(staging, pluginpkg.ManifestFile), []byte("{"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	installed, err := pluginpkg.Install(root, id, version, staging)
-	if err != nil {
-		t.Fatal(err)
-	}
+	installed := install(id, "{")
+	healthy := install("dev.lithe.test.healthy-facts", `{"displayName":"Fixture"}`)
 	if err := os.WriteFile(filepath.Join(preferences.Dir(), "plugin-approvals.json"), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -57,11 +63,14 @@ func TestRefreshPluginStateKeepsInstalledFactsAndReportsMetadataFailures(t *test
 	h.settle()
 
 	facts := h.app.pluginFacts.Load()
-	if facts == nil || len(*facts) != 1 {
-		t.Fatalf("installed facts = %v, want one degraded row", facts)
+	if facts == nil || len(*facts) != 2 {
+		t.Fatalf("installed facts = %v, want the degraded and healthy rows", facts)
 	}
 	if item := (*facts)[0]; item.ID != id || item.Version != version || item.Path != installed.Path || item.Name != "" || item.Source != "" {
 		t.Fatalf("installed row = %+v, want basic package facts", item)
+	}
+	if item := (*facts)[1]; item.ID != healthy.ID || item.Name != "Fixture" {
+		t.Fatalf("installed row = %+v, want the readable manifest despite the approval failure", item)
 	}
 	var diagnostics []string
 	for _, event := range loggedEvents(logger, backgroundFailedEvent) {
@@ -69,7 +78,7 @@ func TestRefreshPluginStateKeepsInstalledFactsAndReportsMetadataFailures(t *test
 			diagnostics = append(diagnostics, event.Fields["error"].(string))
 		}
 	}
-	if len(diagnostics) != 1 || !strings.Contains(diagnostics[0], "approval") ||
+	if len(diagnostics) != 1 || strings.Count(diagnostics[0], "read plugin approvals") != 1 ||
 		!strings.Contains(diagnostics[0], "decode installed manifest") || !strings.Contains(diagnostics[0], id) {
 		t.Fatalf("inventory diagnostics = %v, want one event with both causes", diagnostics)
 	}
