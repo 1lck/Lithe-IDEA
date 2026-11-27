@@ -91,15 +91,17 @@ type PluginBackendPlan struct {
 	// Owner identifies the validated package that produced this launch plan.
 	Owner  *PluginSettingsOwner `json:"owner,omitempty"`
 	Launch struct {
-		Kind             string   `json:"kind"`
-		Path             string   `json:"path"`
-		Commands         []string `json:"commands"`
-		Tool             string   `json:"tool"`
-		Entry            string   `json:"entry"`
-		PackagedRuntime  string   `json:"packagedRuntime"`
-		MinimumVersion   string   `json:"minimumVersion"`
-		RuntimeArguments []string `json:"runtimeArguments"`
-		VersionArguments []string `json:"versionArguments"`
+		Kind     string   `json:"kind"`
+		Path     string   `json:"path"`
+		Commands []string `json:"commands"`
+		// ConfiguredExecutable comes from the global file setting of a system-command debug adapter.
+		ConfiguredExecutable string   `json:"configuredExecutable"`
+		Tool                 string   `json:"tool"`
+		Entry                string   `json:"entry"`
+		PackagedRuntime      string   `json:"packagedRuntime"`
+		MinimumVersion       string   `json:"minimumVersion"`
+		RuntimeArguments     []string `json:"runtimeArguments"`
+		VersionArguments     []string `json:"versionArguments"`
 		// Function and TimeoutMilliseconds describe a backend-resolved launch
 		// (kind "backend"): the first step calls this plugin function.
 		Function            string `json:"function"`
