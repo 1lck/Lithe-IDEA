@@ -13,6 +13,41 @@ import (
 	"github.com/vivaui/viva/headless"
 )
 
+func TestVisualPartialLogResults(t *testing.T) {
+	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
+	if out == "" {
+		t.Skip("set LITHE_VISUAL_OUTPUT_DIR")
+	}
+	if err := os.MkdirAll(out, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, language := range i18n.Languages {
+		for _, dark := range []bool{true, false} {
+			look := map[bool]string{true: "dark", false: "light"}[dark] + "-" + language.Code()
+			t.Run(look, func(t *testing.T) {
+				fixture := newExportFixture(t)
+				fillRecords(fixture.model, 40)
+				fixture.model.follows = false
+				w := newWindow(NewController(WindowOptions{Text: func() *i18n.Messages { return i18n.For(language) }, Dark: func() bool { return dark }}), fixture.model)
+				fixture.model.opts.Wake = w.inv.Invalidate
+				session, err := headless.Open(w.config(), nil, headless.Options{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(session.Close)
+				if err := session.Screenshot(filepath.Join(out, "complete-"+look+".png")); err != nil {
+					t.Fatal(err)
+				}
+				fixture.model.partialResults = true
+				w.inv.Invalidate()
+				if err := session.Screenshot(filepath.Join(out, "partial-"+look+".png")); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
+	}
+}
+
 // TestVisualLogs renders synthetic records through the production diagnostics Page.
 func TestVisualLogs(t *testing.T) {
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
