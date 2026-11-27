@@ -56,6 +56,14 @@ func TestVisualDirectoryMarkContextMenu(t *testing.T) {
 				return session.Driver(), session.Close, nil
 			})
 			h.openTree(t, root)
+			// Seed visible directory marks and a quick-colored plain folder so the screenshot
+			// verifies direct icon + folder-name tinting alongside the context menu.
+			h.app.setDirectoryRole(h.app.project, "src", "sources")
+			h.settle()
+			h.app.setDirectoryRole(h.app.project, "tests", "tests")
+			h.settle()
+			h.app.setDirectoryColor(h.app.project, "docs", "#8b5cf6")
+			h.settle()
 			h.rightClickNamed("src")
 			h.popupClick(h.shared("desktop.directoryMarks.menuTitle"))
 			h.settle()

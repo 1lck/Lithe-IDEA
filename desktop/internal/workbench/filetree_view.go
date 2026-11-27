@@ -4,6 +4,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/treelist"
 	"github.com/vivaui/viva/components"
@@ -215,8 +216,14 @@ func (a *App) drawTreeContent(c ui.C, p *project, row gfx.ID, n *treeNode) {
 		iconTint := a.colors.Subtle
 		switch {
 		case n.dir && hasMeta && (entry.Role != "plain" || entry.Color != ""):
-			icon = a.directoryIconFor(p, entry.Icon)
-			if tinted, ok := parseHexColor(entry.Color, 0xff); ok {
+			if entry.Icon == "folder" && entry.Color != "" {
+				// Use monochrome vector folder icon so custom colors tint the icon directly
+				// instead of falling back to the hardcoded-grey multi-color folder SVG.
+				icon = icons.Folder
+			} else {
+				icon = a.directoryIconFor(p, entry.Icon)
+			}
+			if tinted, ok := readableTreeTint(entry.Color, a.colors.Dark); ok {
 				iconTint = tinted
 			}
 		case p.tree.isModuleRoot(n):
@@ -231,9 +238,9 @@ func (a *App) drawTreeContent(c ui.C, p *project, row gfx.ID, n *treeNode) {
 		if hasMeta {
 			if entry.Excluded {
 				textColor = a.colors.Subtle
-			} else if entry.TintText && entry.Color != "" {
+			} else if entry.Color != "" && (n.dir || entry.TintText) {
 				if _, hasGit := p.git.tree[n.path]; !hasGit {
-					if tinted, ok := parseHexColor(entry.Color, 0xff); ok {
+					if tinted, ok := readableTreeTint(entry.Color, a.colors.Dark); ok {
 						textColor = tinted
 					}
 				}
@@ -243,10 +250,14 @@ func (a *App) drawTreeContent(c ui.C, p *project, row gfx.ID, n *treeNode) {
 		if n.dir && !p.indexing.hideTags && hasMeta && entry.Tag != "" {
 			tagFg := a.colors.Subtle
 			tagBg := a.colors.Hover
-			if tinted, ok := parseHexColor(entry.Color, 0xff); ok {
+			if tinted, ok := readableTreeTint(entry.Color, a.colors.Dark); ok {
 				tagFg = tinted
 			}
-			if bg, ok := parseHexColor(entry.Color, 34); ok {
+			bgAlpha := uint8(42)
+			if a.colors.Dark {
+				bgAlpha = 56
+			}
+			if bg, ok := parseHexColor(entry.Color, bgAlpha); ok {
 				tagBg = bg
 			}
 			ui.Row(c).Shrink(0).PadSides(1, 5, 1, 5).Radius(3).Background(tagBg).Children(func() {
@@ -255,30 +266,11 @@ func (a *App) drawTreeContent(c ui.C, p *project, row gfx.ID, n *treeNode) {
 		}
 		a.projectTreeMenu(c, p, row, n, name)
 	}
-	var bgTint gfx.Color
-	hasBg := false
-	if !p.indexing.hideBgTint && hasMeta && entry.BgColor != "" && n != p.tree.root {
-		alpha := uint8(26)
-		if a.colors.Dark {
-			alpha = 34
-		}
-		if parsed, ok := parseHexColor(entry.BgColor, alpha); ok {
-			bgTint, hasBg = parsed, true
-		}
-	}
 	if n.dir && !n.empty {
-		if hasBg {
-			ui.Row(c).FillWidth().Items(ui.Center).Gap(c.Theme().Metrics.GapItem).Radius(3).Background(bgTint).Children(content)
-			return
-		}
 		content()
 		return
 	}
-	r := ui.Row(c).Shrink(0).Items(ui.Center).Gap(c.Theme().Metrics.GapItem).PadLeft(treeChevron)
-	if hasBg {
-		r = r.FillWidth().Radius(3).Background(bgTint)
-	}
-	r.Children(content)
+	ui.Row(c).Shrink(0).Items(ui.Center).Gap(c.Theme().Metrics.GapItem).PadLeft(treeChevron).Children(content)
 }
 
 // focusTreeRow gives the keyboard to the row the locate button brought into view, once the row

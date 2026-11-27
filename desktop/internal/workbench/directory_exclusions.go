@@ -107,13 +107,13 @@ type directoryColorSwatch struct {
 
 func directoryColorSwatchesFor(language i18n.Language) []directoryColorSwatch {
 	return []directoryColorSwatch{
-		{label: i18n.Shared(language, "desktop.directoryMarks.color.blue"), hex: "#4e8df5"},
-		{label: i18n.Shared(language, "desktop.directoryMarks.color.green"), hex: "#57ab5a"},
-		{label: i18n.Shared(language, "desktop.directoryMarks.color.amber"), hex: "#e09b3d"},
-		{label: i18n.Shared(language, "desktop.directoryMarks.color.purple"), hex: "#9f7aea"},
-		{label: i18n.Shared(language, "desktop.directoryMarks.color.teal"), hex: "#38b2ac"},
-		{label: i18n.Shared(language, "desktop.directoryMarks.color.rose"), hex: "#e56b6f"},
-		{label: i18n.Shared(language, "desktop.directoryMarks.color.slate"), hex: "#8b949e"},
+		{label: i18n.Shared(language, "desktop.directoryMarks.color.blue"), hex: "#3b82f6"},
+		{label: i18n.Shared(language, "desktop.directoryMarks.color.green"), hex: "#2ea043"},
+		{label: i18n.Shared(language, "desktop.directoryMarks.color.amber"), hex: "#d97706"},
+		{label: i18n.Shared(language, "desktop.directoryMarks.color.purple"), hex: "#8b5cf6"},
+		{label: i18n.Shared(language, "desktop.directoryMarks.color.teal"), hex: "#0d9488"},
+		{label: i18n.Shared(language, "desktop.directoryMarks.color.rose"), hex: "#e11d48"},
+		{label: i18n.Shared(language, "desktop.directoryMarks.color.slate"), hex: "#64748b"},
 	}
 }
 
@@ -679,6 +679,27 @@ func parseHexColor(hexStr string, alpha uint8) (gfx.Color, bool) {
 		return gfx.Color{}, false
 	}
 	return gfx.RGBA(uint8(v>>16), uint8((v>>8)&0xff), uint8(v&0xff), float32(alpha)/255.0), true
+}
+
+// readableTreeTint returns a saturated, high-contrast tint for directory icons and names.
+// On light surfaces it deepens bright colors slightly so folder names and icons never look washed out.
+func readableTreeTint(hexStr string, dark bool) (gfx.Color, bool) {
+	if len(hexStr) != 7 || hexStr[0] != '#' {
+		return gfx.Color{}, false
+	}
+	v, err := strconv.ParseUint(hexStr[1:], 16, 32)
+	if err != nil {
+		return gfx.Color{}, false
+	}
+	r := uint8(v >> 16)
+	g := uint8((v >> 8) & 0xff)
+	b := uint8(v & 0xff)
+	if !dark {
+		r = uint8(float32(r) * 0.80)
+		g = uint8(float32(g) * 0.80)
+		b = uint8(float32(b) * 0.80)
+	}
+	return gfx.RGBA(r, g, b, 1), true
 }
 
 // defaultArchiveDirectoryType returns the starter removable custom directory type for

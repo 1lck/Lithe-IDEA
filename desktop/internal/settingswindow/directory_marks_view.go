@@ -87,7 +87,7 @@ var settingsDirIcons = []string{
 }
 
 var settingsDirColorHexes = []string{
-	"#4e8df5", "#57ab5a", "#e09b3d", "#9f7aea", "#38b2ac", "#e56b6f", "#8b949e",
+	"#3b82f6", "#2ea043", "#d97706", "#8b5cf6", "#0d9488", "#e11d48", "#64748b",
 }
 
 func settingsDirColorOptions(language i18n.Language) []struct {
@@ -98,13 +98,13 @@ func settingsDirColorOptions(language i18n.Language) []struct {
 		label string
 		hex   string
 	}{
-		{i18n.Shared(language, "desktop.directoryMarks.color.blue"), "#4e8df5"},
-		{i18n.Shared(language, "desktop.directoryMarks.color.green"), "#57ab5a"},
-		{i18n.Shared(language, "desktop.directoryMarks.color.amber"), "#e09b3d"},
-		{i18n.Shared(language, "desktop.directoryMarks.color.purple"), "#9f7aea"},
-		{i18n.Shared(language, "desktop.directoryMarks.color.teal"), "#38b2ac"},
-		{i18n.Shared(language, "desktop.directoryMarks.color.rose"), "#e56b6f"},
-		{i18n.Shared(language, "desktop.directoryMarks.color.slate"), "#8b949e"},
+		{i18n.Shared(language, "desktop.directoryMarks.color.blue"), "#3b82f6"},
+		{i18n.Shared(language, "desktop.directoryMarks.color.green"), "#2ea043"},
+		{i18n.Shared(language, "desktop.directoryMarks.color.amber"), "#d97706"},
+		{i18n.Shared(language, "desktop.directoryMarks.color.purple"), "#8b5cf6"},
+		{i18n.Shared(language, "desktop.directoryMarks.color.teal"), "#0d9488"},
+		{i18n.Shared(language, "desktop.directoryMarks.color.rose"), "#e11d48"},
+		{i18n.Shared(language, "desktop.directoryMarks.color.slate"), "#64748b"},
 	}
 }
 
@@ -175,7 +175,7 @@ func settingsDirVectorIcon(name string, dark bool) gfx.Icon {
 	case "database":
 		return icons.Server
 	default:
-		return fileicons.ForDirectoryIconName("folder", dark)
+		return icons.Folder
 	}
 }
 
@@ -757,24 +757,12 @@ func (w *window) dirIconTile(c ui.C, iconName string, active bool, activeColor g
 }
 
 func (w *window) dirLivePreview(c ui.C, ct core.CustomDirectoryType, dark bool) {
-	alpha := float32(0.11)
-	if dark {
-		alpha = 0.14
-	}
 	accent, hasColor := parseDirHexColor(ct.Color, 1)
-	bgTint, hasBg := parseDirHexColor(ct.Color, alpha)
-	tagBg, _ := parseDirHexColor(ct.Color, 0.16)
+	tagBg, _ := parseDirHexColor(ct.Color, 0.20)
 
 	ui.Column(c).FillWidth().Radius(6).Stroke(1, w.pal.line).Background(w.pal.sidebar).Clip().Children(func() {
-		// Row 1: folder row.
-		r1 := ui.Row(c).FillWidth().Height(26).PadSides(0, 10, 0, 10).Items(ui.Center).Gap(6)
-		if ct.TintBg && hasBg {
-			r1 = r1.Background(bgTint)
-		}
-		r1.Children(func() {
-			if ct.TintBg && hasColor {
-				ui.Row(c).Width(2).FillHeight().Background(accent).Shrink(0)
-			}
+		// Row 1: folder row with directly tinted icon, folder name and role badge.
+		ui.Row(c).FillWidth().Height(26).PadSides(0, 10, 0, 10).Items(ui.Center).Gap(6).Children(func() {
 			ui.Icon(c, icons.ChevronDown).Size(12, 12).Color(w.bp.faint).Shrink(0)
 			icTint := w.bp.sub
 			if hasColor {
@@ -784,7 +772,7 @@ func (w *window) dirLivePreview(c ui.C, ct core.CustomDirectoryType, dark bool) 
 			nameCol := w.pal.text
 			if ct.ExcludeIndexing {
 				nameCol = w.bp.faint
-			} else if ct.TintText && hasColor {
+			} else if hasColor {
 				nameCol = accent
 			}
 			ui.Text(c, "example-folder").FontSize(12.5).Color(nameCol).Shrink(0)
@@ -799,12 +787,8 @@ func (w *window) dirLivePreview(c ui.C, ct core.CustomDirectoryType, dark bool) 
 			}
 		})
 
-		// Row 2: child file row (shows background inheritance).
-		r2 := ui.Row(c).FillWidth().Height(26).PadSides(0, 10, 0, 32).Items(ui.Center).Gap(6)
-		if ct.TintBg && ct.InheritBg && hasBg {
-			r2 = r2.Background(bgTint)
-		}
-		r2.Children(func() {
+		// Row 2: child file row.
+		ui.Row(c).FillWidth().Height(26).PadSides(0, 10, 0, 32).Items(ui.Center).Gap(6).Children(func() {
 			ui.Icon(c, icons.FileText).Size(14, 14).Color(w.bp.sub).Shrink(0)
 			fileCol := w.pal.text
 			if ct.ExcludeIndexing {
