@@ -151,22 +151,30 @@ Agent Notes 不是只写给 AI 的提示词，也不是源码的镜像。团队�
 
 ## 看板与发布
 
-看板不是第二份文档，而是由当前 `.agents/notes/` 生成的只读视图。需要本地
-查看时运行：
+工程看板是由当前 `.agents/notes/` 和 GitHub 上的 PR、Issue 生成的只读视图，
+不保存第二份决策内容。决策原因见
+`.agents/notes/implemented/process/2026-11-28-engineering-board-prs-issues-and-release-snapshots.md`。
+
+本地查看实时状态（打开的 PR 的评审、CI、冲突每 10 分钟刷新，保存 Note 立即重建）：
 
 ```bash
-node scripts/agent-notes/build-agent-notes-board.mjs --init .artifacts/agent-notes-board.html "Lithe 工程决策看板"
+node scripts/agent-notes/serve-agent-notes-board.mjs --open
 ```
 
-需要生成包含完整 Note 正文的静态页面时运行：
+生成与 Pages 相同的静态站点（默认输出 `.artifacts/agent-notes-board/site`；
+`--offline` 只用已有缓存，不访问 GitHub）：
 
 ```bash
-node scripts/agent-notes/build-agent-notes-board.mjs \
-  --bundle .agents/notes .artifacts/agent-notes-board/index.html "Lithe 工程决策看板"
+node scripts/agent-notes/build-agent-notes-board.mjs
 ```
 
-`.github/workflows/deploy-agent-notes-board.yml` 会在 `main` 分支提交时
-先校验 Note，再重新生成 Pages artifact；不要提交生成的 `index.html`。
+读取 GitHub 时依次使用 `GITHUB_TOKEN`、`GH_TOKEN` 和 `gh auth token` 中
+找到的第一个令牌。没有令牌时，本地服务只显示 Note 和已有缓存并在页面上提示；
+构建脚本直接失败（`--offline` 除外），避免生成没有 PR 和 Issue 的站点。
+
+`.github/workflows/deploy-agent-notes-board.yml` 在 `Desktop Release` 成功后
+发布 Pages，也可以手动运行；不要提交生成的站点或
+`.artifacts/agent-notes-board/cache/` 下的缓存。
 
 ## 代码入口绑定
 
