@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"testing"
 	"time"
@@ -113,26 +112,32 @@ func TestWorkspaceWatchUsesNativeEventsAndReleasesOwnedSubscriptions(t *testing.
 			}
 			// Disposal is scoped to the plugin and exact backend session.
 			service.resources.dispose(pluginhost.Caller{PluginID: plugin, SessionID: "replacement-session"}, id)
-			if err := os.WriteFile(filepath.Join(root, created), []byte("first"), 0o600); err != nil {
-				t.Fatal(err)
+			// A root move on Windows can fail while the Core is projecting a pending
+			// content event and has a descendant open. Cover content changes in the
+			// other endings and replace the root here without pending content events.
+			if ending != "root-replacement" {
+				if err := os.WriteFile(filepath.Join(root, created), []byte("first"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				await("nested creation", created)
+				if err := os.Rename(filepath.Join(root, staging), filepath.Join(root, replaced)); err != nil {
+					t.Fatal(err)
+				}
+				await("atomic replacement", replaced)
+				if err := os.Remove(filepath.Join(root, removed)); err != nil {
+					t.Fatal(err)
+				}
+				await("deletion", removed)
+				// A replace-and-remove burst can coalesce to a single change.
+				if err := os.Rename(filepath.Join(root, next), filepath.Join(root, burst)); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Remove(filepath.Join(root, burst)); err != nil {
+					t.Fatal(err)
+				}
+				await("replacement and deletion burst", burst)
 			}
-			await("nested creation", created)
-			if err := os.Rename(filepath.Join(root, staging), filepath.Join(root, replaced)); err != nil {
-				t.Fatal(err)
-			}
-			await("atomic replacement", replaced)
-			if err := os.Remove(filepath.Join(root, removed)); err != nil {
-				t.Fatal(err)
-			}
-			await("deletion", removed)
-			// A replace-and-remove burst can coalesce to a single change.
-			if err := os.Rename(filepath.Join(root, next), filepath.Join(root, burst)); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.Remove(filepath.Join(root, burst)); err != nil {
-				t.Fatal(err)
-			}
-			await("replacement and deletion burst", burst)
+			var movedRoot string
 			switch ending {
 			case "dispose":
 				params, _ := json.Marshal(map[string]string{"subscriptionID": id})
@@ -144,13 +149,9 @@ func TestWorkspaceWatchUsesNativeEventsAndReleasesOwnedSubscriptions(t *testing.
 			case "session":
 				service.resources.releaseSession(session.Session.ID)
 			case "root-replacement":
-				if runtime.GOOS == "windows" {
-					// ReadDirectoryChangesW keeps an open directory handle that blocks root replacement
-					// across parents or misses self-rename resync on Windows (1lck/Lithe-IDEA#2374).
-					t.Skip("ReadDirectoryChangesW keeps an open directory handle that blocks root replacement or misses self-rename resync on Windows (#2374)")
-				}
 				// Reusing the same path must not keep the old directory's stream alive.
-				if err := os.Rename(root, filepath.Join(t.TempDir(), "old-root")); err != nil {
+				movedRoot = filepath.Join(t.TempDir(), "old-root")
+				if err := os.Rename(root, movedRoot); err != nil {
 					t.Fatal(err)
 				}
 				if err := os.Mkdir(root, 0o700); err != nil {
@@ -168,6 +169,11 @@ func TestWorkspaceWatchUsesNativeEventsAndReleasesOwnedSubscriptions(t *testing.
 			service.resources.mu.Unlock()
 			if remaining != 0 {
 				t.Fatalf("%s left %d native subscriptions", ending, remaining)
+			}
+			if movedRoot != "" {
+				if err := os.RemoveAll(movedRoot); err != nil {
+					t.Fatalf("remove moved workspace after release: %v", err)
+				}
 			}
 		})
 	}

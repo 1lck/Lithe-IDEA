@@ -512,7 +512,7 @@ func TestKeptSettingsArePruned(t *testing.T) {
 		}
 	}
 
-	a.pruneUpdateSnapshots(kept, oldest)
+	a.pruneUpdateSnapshots(context.Background(), kept, oldest)
 	want := []string{names[7], names[6], names[5], names[4], names[3], oldest}
 	if left := updateSnapshotFiles(kept.Dir()); !slices.Equal(left, want) {
 		t.Fatalf("kept %v, want %v", left, want)

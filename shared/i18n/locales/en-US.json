@@ -904,6 +904,7 @@
     "desktop.credentials.importLegacyNone": "The earlier Lithe app saved no plugin credentials.",
     "desktop.credentials.importLegacyTitle": "Import Plugin Credentials",
     "desktop.debug.adapter": "Debug adapter",
+    "desktop.debug.adapterExecutableUnavailable": "The configured debugger executable cannot run on this computer. Choose a valid local executable in the plugin settings.",
     "desktop.debug.attachHost": "Host",
     "desktop.debug.attachInvalid": "Enter a host name and a port from 1 to 65535.",
     "desktop.debug.attachPort": "Port",

@@ -904,6 +904,7 @@
     "desktop.credentials.importLegacyNone": "旧版 Lithe 没有保存插件凭据。",
     "desktop.credentials.importLegacyTitle": "导入插件凭据",
     "desktop.debug.adapter": "调试适配器",
+    "desktop.debug.adapterExecutableUnavailable": "配置的调试适配器可执行文件无法在本机运行。请在插件设置中选择有效的本地可执行文件。",
     "desktop.debug.attachHost": "主机",
     "desktop.debug.attachInvalid": "请输入主机名和 1 到 65535 之间的端口。",
     "desktop.debug.attachPort": "端口",

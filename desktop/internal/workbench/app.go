@@ -76,7 +76,6 @@ type Kernel interface {
 	EditBuildIgnoredPaths(ctx context.Context, request core.BuildIgnoredPathsEditRequest) (core.BuildIgnoredPathsEdit, error)
 	IDEHostOpen(ctx context.Context, request core.IDEHostOpenRequest) (core.IDEHostOpenResult, error)
 	IDEHostPoll(ctx context.Context, hostID string) (core.IDEHostPollResult, error)
-	IDEHostClaim(ctx context.Context, hostID, requestID string) (core.IDEHostClaimResult, error)
 	IDEHostRespond(ctx context.Context, hostID, requestID string, result any) (core.IDEHostRespondResult, error)
 	IDEHostClose(ctx context.Context, hostID string) (core.IDEHostCloseResult, error)
 	IDEHostValidate(ctx context.Context, name string, arguments any, permissions core.IDEPermissions, toolExposure []core.IDEToolExposure) (core.IDEHostValidateResult, error)
@@ -763,6 +762,8 @@ type App struct {
 	consoleEncodings atomic.Pointer[settingswindow.ConsoleEncodings]
 
 	settingsSubscription *settingsSubscription
+	settingsPublication  *editorPreferencesPublication
+	settingsDiskWriter   func(*store.Store, settings) (string, error)
 	// plugins is the plugin stack, nil when the window was built without a plugin
 	// kernel or without a writable plugin root.
 	plugins *pluginservice.Service
@@ -1006,10 +1007,22 @@ func New(options Options) *App {
 	if options.first == nil {
 		_, restoreErr = restorePendingSettings(a.store, buildinfo.InstalledChannel(), options.Version)
 	}
-	_, settingsErr := a.store.Load(settingsFile, &a.settings)
+	var settingsErr error
+	var queued *settings
+	var queuedGeometry settingsGeometry
+	if options.first != nil {
+		a.settingsPublication = options.first.settingsPublication
+		queued, queuedGeometry = a.settingsPublication.queuedSettings()
+	}
+	if queued != nil {
+		a.settings = queued.clone()
+	} else {
+		_, settingsErr = a.store.Load(settingsFile, &a.settings)
+	}
 	if settingsErr != nil {
 		a.settings = settings{}
 	}
+	queuedGeometry.apply(&a.settings)
 	consoleEncoding := a.settings.ConsoleEncoding
 	a.consoleEncoding.Store(&consoleEncoding)
 	// A value of a shape this version cannot take leaves only its own setting on the default;
@@ -1160,7 +1173,7 @@ func (a *App) openPlugins(options Options) {
 	}
 	service.RuntimeIssue = a.recordPluginRuntimeIssue
 	service.ContextIssue = func(ctx context.Context, err error) {
-		a.backgroundFailedIn(ctx, "plugin_workspace_context_notification", err)
+		a.backgroundFailedIn(ctx, "plugin_workspace_context_refresh", err)
 	}
 	service.SetRuntimeLanguage(a.language().Code())
 	if err := service.AttachWorkbench(pluginWorkbench{app: a}); err != nil {
@@ -1567,22 +1580,12 @@ func (a *App) setTheme(choice themeChoice) {
 	a.saveSettings()
 }
 
-func (a *App) saveSettings() {
-	// The background is the window's, which another tab may have changed since this one loaded.
-	a.settings.WorkbenchBackground = a.savedBackgroundState()
-	a.updates.store(&a.settings)
-	backup, err := a.saveSettingsSnapshot()
-	a.reportSettingsSave(backup, err)
-}
-
 func (a *App) reportSettingsSave(backup string, err error) {
 	if backup != "" {
 		a.noticeSettingsBackup(backup)
 	}
 	if err != nil {
-		a.operationFailed("settings_save", documentLogError(err))
 		a.notifyError(a.text.Errors.SaveFailed(err.Error()))
-		return
 	}
 }
 
