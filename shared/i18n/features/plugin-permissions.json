@@ -247,6 +247,13 @@
       ]
     },
     {
+      "id": "desktop.marketplace.permissionWorkspaceDirectoryMarks",
+      "description": "Plugin permission list: what workspace.directoryMarks allows",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.marketplace.permissionNetworkRequest",
       "description": "Plugin permission list: what network.request allows",
       "platforms": [
@@ -291,6 +298,7 @@
       "desktop.marketplace.permissionClipboardRead": "Read text from your system clipboard",
       "desktop.marketplace.permissionClipboardWrite": "Write text to your system clipboard",
       "desktop.marketplace.permissionWorkspaceReveal": "Reveal workspace files in the file manager",
+      "desktop.marketplace.permissionWorkspaceDirectoryMarks": "Mark folders in the project tree with folder types, and leave folders out of indexing and search",
       "desktop.marketplace.permissionNetworkRequest": "Send HTTP requests with the host’s proxy and certificate settings"
     },
     "zh-CN": {
@@ -329,6 +337,7 @@
       "desktop.marketplace.permissionClipboardRead": "读取系统剪贴板中的文本",
       "desktop.marketplace.permissionClipboardWrite": "向系统剪贴板写入文本",
       "desktop.marketplace.permissionWorkspaceReveal": "在文件管理器中显示工作区文件",
+      "desktop.marketplace.permissionWorkspaceDirectoryMarks": "在项目树中为文件夹标记目录类型，并把文件夹排除在索引和搜索之外",
       "desktop.marketplace.permissionNetworkRequest": "使用宿主的代理和证书设置发送 HTTP 请求"
     }
   }

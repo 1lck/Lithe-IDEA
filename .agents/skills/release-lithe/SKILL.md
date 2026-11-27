@@ -362,6 +362,15 @@ before committing the notes.
   unless a published desktop release has a higher version, so that
   `releases/latest` and the README download links lead to it. Never pass
   `--latest=false` for the release of the highest desktop version.
+- For a desktop release, confirm before creating the tag that main already
+  caches the staged release Core of all five targets for the
+  `PINNED_CORE_REVISION` of the target commit:
+  `gh cache list --repo 1lck/Lithe-IDEA --ref refs/heads/main --key desktop-core-staged- --limit 50`
+  lists one key per target ending in that revision. Desktop CI and Desktop Core
+  cache save them after main changes the pin. A missing target is compiled by
+  the release itself, which adds up to half an hour. When one is missing, wait
+  for those runs to finish; if they failed, report it before tagging. See
+  `.agents/notes/implemented/process/2026-09-13-ci-build-cache-and-artifact-strategy.md`.
 - Run `actionlint` after changing a GitHub Actions workflow. Run any focused
   packaging or manifest checks required by `develop-lithe` for other release
   changes.

@@ -245,6 +245,7 @@ func TestDesktopSharedCatalogHasNoUnguardedCountPluralMismatches(t *testing.T) {
 		"desktop.buildSettings.listCount":                    true, // build_style.go: total == 1 -> listCountOne
 		"desktop.buildSettings.trustBanner":                  true, // build_style.go: n == 1 -> trustBannerOne
 		"desktop.debug.memoryRowBytes":                       true, // fixed choices: 8, 16, 32, 64 bytes
+		"desktop.directoryMarks.settings.typeCount":          true, // directory_marks_view.go: builtinDirectoryTypes() alone is several types
 		"desktop.files.batchDelete":                          true, // len(nodes) > 1
 		"desktop.files.batchDeletePrompt":                    true, // len(r.paths) > 1
 		"desktop.git.console.queryOutput":                    true, // console_messages.go: n == 1 -> queryOutputOne

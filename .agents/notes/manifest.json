@@ -19,7 +19,7 @@
   "noteFilePattern": "yyyy-mm-dd-topic.md",
   "generatedBoard": {
     "script": "scripts/agent-notes/build-agent-notes-board.mjs",
-    "artifact": ".artifacts/agent-notes-board/index.html"
+    "artifact": ".artifacts/agent-notes-board/site"
   },
   "verification": {
     "script": "scripts/agent-notes/verify-agent-notes.sh"

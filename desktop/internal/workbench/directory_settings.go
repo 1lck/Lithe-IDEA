@@ -99,6 +99,7 @@ func (s appDirectoryMarks) snapshotOf(p *project) settingswindow.DirectoryMarksS
 		GitIgnoreEnabled:    p.indexing.gitIgnore,
 		CustomTypes:         state.CustomTypes,
 		CustomIcons:         state.CustomIcons,
+		PluginTypes:         p.pluginDirectoryTypes(),
 	}
 }
 

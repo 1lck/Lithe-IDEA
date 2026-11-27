@@ -1043,6 +1043,8 @@ func permissionDescription(language i18n.Language, permission string) string {
 		return i18n.Shared(language, "desktop.marketplace.permissionClipboardWrite")
 	case "workspace.reveal":
 		return i18n.Shared(language, "desktop.marketplace.permissionWorkspaceReveal")
+	case "workspace.directoryMarks":
+		return i18n.Shared(language, "desktop.marketplace.permissionWorkspaceDirectoryMarks")
 	case "network.request":
 		return i18n.Shared(language, "desktop.marketplace.permissionNetworkRequest")
 	case "preview.open":

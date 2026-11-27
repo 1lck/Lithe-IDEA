@@ -8,10 +8,12 @@ import (
 	"reflect"
 	"runtime"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 )
@@ -63,7 +65,7 @@ func TestDirectoryMetadataEndToEndWithCore(t *testing.T) {
 	}
 
 	// 3. Resolve presentation including inheritance and Git ignores.
-	res, err := client.ResolveDirectoryPresentation(ctx, rules, nil, []string{"target"}, false, []string{
+	res, err := client.ResolveDirectoryPresentation(ctx, rules, nil, nil, nil, []string{"target"}, false, []string{
 		"src/orders",
 		"src/orders/Order.java",
 		"src/test",
@@ -193,7 +195,10 @@ func TestDirectoryEffectiveIndexingPrecedenceAndGlobs(t *testing.T) {
 		t.Fatalf("upsert custom.legacy: %v", err)
 	}
 
-	policy := resolveEffectiveIndexingPolicy(ctx, client, root, local, shared, false)
+	policy, pluginErr, err := resolveEffectiveIndexingPolicy(ctx, client, root, local, shared, nil, nil, false)
+	if pluginErr != nil || err != nil {
+		t.Fatalf("resolveEffectiveIndexingPolicy: pluginErr=%v err=%v", pluginErr, err)
+	}
 	if slices.Contains(policy.ManualExcludedDirectories, "src/api") {
 		t.Fatalf("local sources mark must override shared exclusion, got %v", policy.ManualExcludedDirectories)
 	}
@@ -358,5 +363,340 @@ func TestDirectoryRelocateRulesWithCore(t *testing.T) {
 	afterDel := core.ParseDirectoryRules(deleted)
 	if len(afterDel.Marks) != 0 || len(afterDel.Colors) != 0 {
 		t.Fatalf("expected marks and colors dropped after delete, got %+v", afterDel)
+	}
+}
+
+func TestDirectoryPluginTypesAndMarksEndToEnd(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	client := core.NewClient()
+	root := t.TempDir()
+	for _, dir := range []string{"db/migrations", "vendor/cache", "manual-override"} {
+		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(dir)), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+
+	pluginTypes := []core.PluginDirectoryType{
+		{
+			PluginID: "com.example.sql",
+			ID:       "plugin.migrations",
+			Name:     "SQL Migrations",
+			Tag:      "migrations",
+			Icon:     "database",
+			Color:    "#0d9488",
+		},
+		{
+			PluginID:        "com.example.cache",
+			ID:              "plugin.cache",
+			Name:            "Cache",
+			Tag:             "cache",
+			Icon:            "archive",
+			Color:           "#64748b",
+			ExcludeIndexing: true,
+			MatchGlob:       "vendor/**",
+		},
+	}
+	pluginMarks := []core.PluginDirectoryMark{
+		{PluginID: "com.example.sql", Path: "db/migrations", Role: "plugin.migrations"},
+		{PluginID: "com.example.cache", Path: "manual-override", Role: "excluded"},
+	}
+
+	// Local user override beats plugin exclusion.
+	rules := core.EmptyDirectoryRules()
+	var err error
+	_, rules, err = client.SetDirectoryRole(ctx, "manual-override", "sources", false, rules)
+	if err != nil {
+		t.Fatalf("SetDirectoryRole: %v", err)
+	}
+
+	res, err := client.ResolveDirectoryPresentation(ctx, rules, nil, pluginTypes, pluginMarks, nil, false, []string{
+		"db/migrations",
+		"vendor/cache",
+		"manual-override",
+	})
+	if err != nil {
+		t.Fatalf("ResolveDirectoryPresentation: %v", err)
+	}
+	if got := res.Entries["db/migrations"]; got.Role != "plugin.migrations" || got.Source != "plugin" || got.PluginID != "com.example.sql" || got.Tag != "migrations" {
+		t.Fatalf("unexpected plugin mark entry: %+v", got)
+	}
+	if got := res.Entries["manual-override"]; got.Role != "sources" || got.Source != "user" || got.Excluded {
+		t.Fatalf("user override must beat plugin exclusion: %+v", got)
+	}
+
+	policy, pluginErr, err := resolveEffectiveIndexingPolicy(ctx, client, root, rules, nil, pluginTypes, pluginMarks, false)
+	if pluginErr != nil || err != nil {
+		t.Fatalf("resolveEffectiveIndexingPolicy: pluginErr=%v err=%v", pluginErr, err)
+	}
+	if !slices.Contains(policy.ManualExcludedDirectories, "vendor/cache") {
+		t.Fatalf("expected plugin glob exclusion vendor/cache in indexing policy, got %v", policy.ManualExcludedDirectories)
+	}
+	if slices.Contains(policy.ManualExcludedDirectories, "manual-override") {
+		t.Fatalf("expected user override to keep manual-override indexed, got %v", policy.ManualExcludedDirectories)
+	}
+}
+
+// A plugin that only marks folders as excluded, with no glob anywhere, has no candidate paths
+// to ask Core about; its exclusions must still reach the indexing policy.
+func TestPluginExclusionMarksReachIndexingWithoutGlobs(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	client := core.NewClient()
+	root := t.TempDir()
+	pluginTypes := []core.PluginDirectoryType{{
+		PluginID:        "com.example.gen",
+		ID:              "plugin.generated-cache",
+		Name:            "Generated cache",
+		Icon:            "generated",
+		Color:           "#64748b",
+		ExcludeIndexing: true,
+	}}
+	pluginMarks := []core.PluginDirectoryMark{
+		{PluginID: "com.example.gen", Path: "gen", Role: "plugin.generated-cache"},
+		{PluginID: "com.example.gen", Path: "vendor", Role: "excluded"},
+	}
+
+	res, err := client.ResolveDirectoryPresentation(ctx, core.EmptyDirectoryRules(), nil, pluginTypes, pluginMarks, nil, false, nil)
+	if err != nil {
+		t.Fatalf("ResolveDirectoryPresentation without paths: %v", err)
+	}
+	if want := []string{"gen", "vendor"}; !slices.Equal(res.ManualExcludedDirectories, want) {
+		t.Fatalf("manualExcludedDirectories = %v, want %v", res.ManualExcludedDirectories, want)
+	}
+
+	policy, pluginErr, err := resolveEffectiveIndexingPolicy(ctx, client, root, core.EmptyDirectoryRules(), nil, pluginTypes, pluginMarks, false)
+	if pluginErr != nil || err != nil {
+		t.Fatalf("resolveEffectiveIndexingPolicy: pluginErr=%v err=%v", pluginErr, err)
+	}
+	if want := []string{"gen", "vendor"}; !slices.Equal(policy.ManualExcludedDirectories, want) {
+		t.Fatalf("policy exclusions = %v, want %v", policy.ManualExcludedDirectories, want)
+	}
+}
+
+// When Core refuses the plugin layers as a whole (more types than it resolves at once, summed
+// over every plugin session), the user's own rules must still apply, and the refusal is
+// reported rather than dropped.
+func TestPluginLayersCoreRefusesLeaveUserRulesInForce(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	client := core.NewClient()
+	root := t.TempDir()
+	rules := core.EmptyDirectoryRules()
+	var err error
+	_, rules, err = client.ExcludeDirectory(ctx, "build", false, rules)
+	if err != nil {
+		t.Fatalf("ExcludeDirectory: %v", err)
+	}
+	var pluginTypes []core.PluginDirectoryType
+	for i := range 257 {
+		pluginTypes = append(pluginTypes, core.PluginDirectoryType{
+			PluginID: "com.example.many",
+			ID:       "plugin.t" + strconv.Itoa(i),
+			Name:     "Type",
+			Icon:     "folder",
+			Color:    "#64748b",
+		})
+	}
+	pluginMarks := []core.PluginDirectoryMark{{PluginID: "com.example.many", Path: "out", Role: "excluded"}}
+
+	policy, pluginErr, err := resolveEffectiveIndexingPolicy(ctx, client, root, rules, nil, pluginTypes, pluginMarks, false)
+	if pluginErr == nil {
+		t.Fatal("expected Core to refuse more than 256 plugin types")
+	}
+	if err != nil {
+		t.Fatalf("resolving without the plugin layers failed: %v", err)
+	}
+	if want := []string{"build"}; !slices.Equal(policy.ManualExcludedDirectories, want) {
+		t.Fatalf("policy exclusions = %v, want only the user's %v", policy.ManualExcludedDirectories, want)
+	}
+
+	res, pluginErr, err := resolveDirectoryLayers(ctx, client, rules, nil, pluginTypes, pluginMarks, nil, []string{"build", "out"})
+	if pluginErr == nil || err != nil {
+		t.Fatalf("resolveDirectoryLayers: pluginErr=%v err=%v", pluginErr, err)
+	}
+	if got := res.Entries["build"]; !got.Excluded || got.Source != "user" {
+		t.Fatalf("user exclusion must still show: %+v", got)
+	}
+	if got := res.Entries["out"]; got.Excluded || got.PluginID != "" {
+		t.Fatalf("refused plugin layers must not show: %+v", got)
+	}
+}
+
+// The same plugin can hold the same type ID or path in two sessions or contexts; the merged
+// list Core and the menus see must come out in the same order every time.
+func TestPluginDirectoryLayersMergeInStableOrder(t *testing.T) {
+	p := &project{}
+	p.indexing.pluginTypesByKey = map[string][]core.PluginDirectoryType{
+		"s2:c1:directoryTypes": {{PluginID: "com.example.a", ID: "plugin.x", Name: "Second"}},
+		"s1:c1:directoryTypes": {{PluginID: "com.example.a", ID: "plugin.x", Name: "First"}},
+		"s3:c1:directoryTypes": {{PluginID: "com.example.0", ID: "plugin.z", Name: "Zero"}},
+	}
+	p.indexing.pluginMarksByKey = map[string][]core.PluginDirectoryMark{
+		"s2:c1:directoryMarks": {{PluginID: "com.example.a", Path: "src", Role: "tests"}},
+		"s1:c1:directoryMarks": {{PluginID: "com.example.a", Path: "src", Role: "sources"}},
+	}
+	for range 50 {
+		types := p.pluginDirectoryTypes()
+		if names := []string{types[0].Name, types[1].Name, types[2].Name}; !slices.Equal(names, []string{"Zero", "First", "Second"}) {
+			t.Fatalf("plugin types order = %v", names)
+		}
+		marks := p.pluginDirectoryMarks()
+		if roles := []string{marks[0].Role, marks[1].Role}; !slices.Equal(roles, []string{"sources", "tests"}) {
+			t.Fatalf("plugin marks order = %v", roles)
+		}
+	}
+}
+
+// A folder created after the policy's directory walk that an excluding plugin glob matches is
+// still searchable; the presentation refresh that shows it must ask for a new policy, once.
+func TestFolderCreatedAfterPolicyAsksOnceForGlobExclusion(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	client := core.NewClient()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "vendor", "old"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	pluginTypes := []core.PluginDirectoryType{{
+		PluginID:        "com.example.cache",
+		ID:              "plugin.cache",
+		Name:            "Cache",
+		Icon:            "archive",
+		Color:           "#64748b",
+		ExcludeIndexing: true,
+		MatchGlob:       "vendor/**",
+	}}
+	rules := core.EmptyDirectoryRules()
+	policy, pluginErr, err := resolveEffectiveIndexingPolicy(ctx, client, root, rules, nil, pluginTypes, nil, false)
+	if pluginErr != nil || err != nil {
+		t.Fatalf("resolveEffectiveIndexingPolicy: pluginErr=%v err=%v", pluginErr, err)
+	}
+	ix := &projectIndexing{}
+	ix.installed(policy.ManualExcludedDirectories)
+	if _, ok := ix.policyExcluded["vendor/old"]; !ok {
+		t.Fatalf("walk at install must exclude vendor/old, got %v", policy.ManualExcludedDirectories)
+	}
+
+	rows := []string{"vendor", "vendor/old"}
+	res, err := client.ResolveDirectoryPresentation(ctx, rules, nil, pluginTypes, nil, nil, false, rows)
+	if err != nil {
+		t.Fatalf("ResolveDirectoryPresentation: %v", err)
+	}
+	if ix.staleGlobExclusions(res.Entries) {
+		t.Fatalf("folders the policy already excludes must not ask again: %+v", res.Entries)
+	}
+
+	rows = append(rows, "vendor/new")
+	res, err = client.ResolveDirectoryPresentation(ctx, rules, nil, pluginTypes, nil, nil, false, rows)
+	if err != nil {
+		t.Fatalf("ResolveDirectoryPresentation: %v", err)
+	}
+	if got := res.Entries["vendor/new"]; got.Source != "glob" || !got.Excluded {
+		t.Fatalf("expected vendor/new to match the excluding glob: %+v", got)
+	}
+	if !ix.staleGlobExclusions(res.Entries) {
+		t.Fatal("a new glob-matched folder must ask for a new policy")
+	}
+	if ix.staleGlobExclusions(res.Entries) {
+		t.Fatal("the same folder must ask only once")
+	}
+	if (&projectIndexing{}).staleGlobExclusions(res.Entries) {
+		t.Fatal("before any policy is installed nothing is stale")
+	}
+
+	// vendor/new now exists; renamed to vendor/b and back, each name must reach the policy.
+	presented := func(rows ...string) map[string]core.ResolvedDirectoryEntry {
+		t.Helper()
+		res, err := client.ResolveDirectoryPresentation(ctx, rules, nil, pluginTypes, nil, nil, false, rows)
+		if err != nil {
+			t.Fatalf("ResolveDirectoryPresentation: %v", err)
+		}
+		return res.Entries
+	}
+	install := func() {
+		t.Helper()
+		policy, pluginErr, err := resolveEffectiveIndexingPolicy(ctx, client, root, rules, nil, pluginTypes, nil, false)
+		if pluginErr != nil || err != nil {
+			t.Fatalf("resolveEffectiveIndexingPolicy: pluginErr=%v err=%v", pluginErr, err)
+		}
+		ix.installed(policy.ManualExcludedDirectories)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "vendor", "new"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	install()
+	if ix.staleGlobExclusions(presented("vendor", "vendor/old", "vendor/new")) {
+		t.Fatal("a folder the new policy covers must not ask again")
+	}
+	if err := os.Rename(filepath.Join(root, "vendor", "new"), filepath.Join(root, "vendor", "b")); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if !ix.staleGlobExclusions(presented("vendor", "vendor/old", "vendor/b")) {
+		t.Fatal("the renamed folder must ask for a new policy")
+	}
+	install()
+	if err := os.Rename(filepath.Join(root, "vendor", "b"), filepath.Join(root, "vendor", "new")); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if !ix.staleGlobExclusions(presented("vendor", "vendor/old", "vendor/new")) {
+		t.Fatal("renamed back after a policy covered it, the folder must ask again")
+	}
+	install()
+
+	// A shown folder no walk finds (gone again before the policy was installed) asks once and,
+	// still uncovered after the installation, must not keep installing policies.
+	if !ix.staleGlobExclusions(presented("vendor", "vendor/gone")) {
+		t.Fatal("a new glob-matched folder must ask for a new policy")
+	}
+	install()
+	if ix.staleGlobExclusions(presented("vendor", "vendor/gone")) {
+		t.Fatal("a folder the installed policy still does not cover must not ask again")
+	}
+}
+
+// A plugin can install a new indexing policy at any moment. The search the user typed must
+// survive it and run again under the new exclusions.
+func TestPluginExclusionRerunsTheSearchAndKeepsItsForm(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.app.searchView.delay = 0
+	root := t.TempDir()
+	for _, dir := range []string{"keep", "vendor"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, dir, "note.txt"), []byte("needle\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.open(root)
+	p := h.app.project
+	h.click(center(h.button(itemFind)))
+	h.app.searchView.query.SetText("needle")
+	h.app.searchView.mask.SetText("*.txt")
+	h.app.searchView.replace.SetText("thread")
+	h.app.searchView.replaceOpen = true
+	h.app.invalidator.Invalidate()
+	if err := h.driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	awaitDocumentState(t, h, func() bool { return !p.search.loading && len(p.search.matches) == 2 })
+
+	w := pluginWorkbench{app: h.app}
+	if err := callOnWindowErr(h, "directory marks", func(ctx context.Context) error {
+		return w.UpdateDirectoryMarks(ctx, root, pluginservice.DirectoryMarksUpdate{
+			ID: "session:context", PluginID: "dev.lithe.test.vendor",
+			Marks: []core.PluginDirectoryMark{{PluginID: "dev.lithe.test.vendor", Path: "vendor", Role: "excluded"}},
+		})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	awaitDocumentState(t, h, func() bool {
+		return !p.search.loading && len(p.search.matches) == 1 && filepath.ToSlash(p.search.matches[0].Path) == "keep/note.txt"
+	})
+	v := &h.app.searchView
+	if v.query.Text() != "needle" || v.mask.Text() != "*.txt" || v.replace.Text() != "thread" || !v.replaceOpen {
+		t.Fatalf("the new policy changed the search form: query=%q mask=%q replace=%q open=%v", v.query.Text(), v.mask.Text(), v.replace.Text(), v.replaceOpen)
 	}
 }
