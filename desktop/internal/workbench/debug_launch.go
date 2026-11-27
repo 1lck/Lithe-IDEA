@@ -23,6 +23,24 @@ type debugSettingsError struct{ cause error }
 func (e *debugSettingsError) Error() string { return e.cause.Error() }
 func (e *debugSettingsError) Unwrap() error { return e.cause }
 
+// debugAdapterExecutableError keeps the native cause for logging without including
+// the configured path in the log message or the localized debug failure.
+type debugAdapterExecutableError struct{ cause error }
+
+func (e *debugAdapterExecutableError) Error() string {
+	var pathError *os.PathError
+	if errors.As(e.cause, &pathError) {
+		return pathError.Err.Error()
+	}
+	var execError *exec.Error
+	if errors.As(e.cause, &execError) {
+		return execError.Err.Error()
+	}
+	return e.cause.Error()
+}
+
+func (e *debugAdapterExecutableError) Unwrap() error { return e.cause }
+
 // debugAdapterUnresolved marks a preparation failure of the adapter's own launch, as opposed
 // to the debuggee's: its settings, plan, program or state directories could not be resolved.
 // Only these end the plugin's adapter start. The text is the cause's.
@@ -35,10 +53,11 @@ func adapterUnresolved(err error) error { return &debugAdapterUnresolved{cause: 
 
 // preparedDebugLaunch contains only Core's plan and verified native executable paths.
 type preparedDebugLaunch struct {
-	Executable    string
-	Arguments     []string
-	Environment   map[string]string
-	Configuration core.DebugLaunchConfiguration
+	Executable               string
+	UsesConfiguredExecutable bool
+	Arguments                []string
+	Environment              map[string]string
+	Configuration            core.DebugLaunchConfiguration
 	// DisabledCapabilities, Features and Defaults are the adapter's declaration
 	// from the launch plan, handed to the debug engine with the session.
 	DisabledCapabilities []string
@@ -120,19 +139,22 @@ func (a *App) resolveAdapterProcess(ctx context.Context, adapter debugAdapter, p
 		if plan.Launch.Kind == pluginhost.LaunchSystemCommand {
 			if path := plan.Launch.ConfiguredExecutable; path != "" {
 				if !filepath.IsAbs(path) {
-					return "", nil, nil, &exec.Error{Name: path, Err: exec.ErrNotFound}
+					return "", nil, nil, &debugAdapterExecutableError{cause: errors.New("configured executable path is not absolute on this platform")}
 				}
 				executable, err = exec.LookPath(path)
+				if err != nil {
+					return "", nil, nil, &debugAdapterExecutableError{cause: err}
+				}
 				// Windows can append a PATHEXT suffix even to an absolute path.
-				if err == nil && executable != path {
-					err = &exec.Error{Name: path, Err: exec.ErrNotFound}
+				if executable != path {
+					return "", nil, nil, &debugAdapterExecutableError{cause: errors.New("configured executable lookup substituted a different extension")}
 				}
 			} else {
 				lookup := a.installedCommands().Lookup(adapter.PluginID, func(name string) (string, error) { return debugLookupCommand(ctx, name) })
 				executable, err = pluginhost.ResolveCommand(plan.Launch.Commands, lookup)
-			}
-			if err != nil {
-				return "", nil, nil, err
+				if err != nil {
+					return "", nil, nil, err
+				}
 			}
 		}
 	}
@@ -277,10 +299,11 @@ func (a *App) prepareDebugLaunch(ctx context.Context, start debugStart, stateDir
 		}
 	}
 	prepared := preparedDebugLaunch{
-		Executable:    executable,
-		Arguments:     processArguments,
-		Environment:   environment,
-		Configuration: core.DebugLaunchConfiguration{Name: adapter.Declaration.DisplayName, Request: start.request, Arguments: planned.Arguments},
+		Executable:               executable,
+		UsesConfiguredExecutable: !hosted && plan.Launch.Kind == pluginhost.LaunchSystemCommand && plan.Launch.ConfiguredExecutable != "",
+		Arguments:                processArguments,
+		Environment:              environment,
+		Configuration:            core.DebugLaunchConfiguration{Name: adapter.Declaration.DisplayName, Request: start.request, Arguments: planned.Arguments},
 	}
 	if descriptor := plan.DebugAdapter; descriptor != nil {
 		prepared.DisabledCapabilities = descriptor.DisabledCapabilities

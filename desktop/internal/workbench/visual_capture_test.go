@@ -563,6 +563,51 @@ func TestVisualDebugAnnouncedAdapterExitedFirst(t *testing.T) {
 	}
 }
 
+// TestVisualDebugConfiguredAdapterUnavailable captures the failure shown when the
+// user starts a synthetic debugger with a path from another operating system.
+func TestVisualDebugConfiguredAdapterUnavailable(t *testing.T) {
+	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
+	if out == "" {
+		t.Skip("set LITHE_VISUAL_OUTPUT_DIR")
+	}
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, theme := range []string{"dark", "light"} {
+		for _, language := range []string{"zh-Hans", "en-US"} {
+			t.Run(theme+"-"+language, func(t *testing.T) {
+				var session *headless.Session
+				options := debugConfiguredAdapterOptions(t, theme, language)
+				h := newHarnessWithDriver(t, options, func(config app.Config) (*app.Driver, func(), error) {
+					config.Width, config.Height = 1200, 760
+					var err error
+					session, err = headless.Open(config, nil, headless.Options{})
+					if err != nil {
+						return nil, nil, err
+					}
+					return session.Driver(), session.Close, nil
+				})
+				p := openHostedPanel(t, h, t.TempDir())
+				setDebugAdapterPath(t, h, p, debugAdapterPathForAnotherOS())
+				h.clickNamed(h.app.text.Debug.Start)
+				awaitStateWithin(t, h, 5*time.Second, "the configured executable error", func() bool {
+					return p.debug.activeSession() == nil && p.debug.failure != ""
+				})
+				if want := i18n.Shared(h.app.language(), "desktop.debug.adapterExecutableUnavailable"); p.debug.failure != want {
+					t.Fatalf("failure = %q; want %q", p.debug.failure, want)
+				}
+				if err := h.driver.Move(800, 150); err != nil {
+					t.Fatal(err)
+				}
+				h.settle()
+				if err := session.Screenshot(filepath.Join(out, "debug-configured-adapter-"+theme+"-"+language+".png")); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
+	}
+}
+
 // TestVisualRowMenuPastTheName captures the context menu of a project tree row and of a Git
 // reference row, each opened by a right-click on the empty part of the row past its name: the
 // name labels its row, so the whole row carries the menu. It needs only LITHE_VISUAL_OUTPUT_DIR.

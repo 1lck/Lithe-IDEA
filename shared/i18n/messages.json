@@ -8141,6 +8141,13 @@
       ]
     },
     {
+      "id": "desktop.debug.adapterExecutableUnavailable",
+      "description": "Debug start failure when the configured adapter executable cannot run locally",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.debug.addWatch",
       "description": "Button that adds the typed expression to the watch list.",
       "platforms": [
