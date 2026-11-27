@@ -152,6 +152,35 @@ func (c *Client) DeleteCustomDirectoryIcon(ctx context.Context, id string, rules
 	return c.reduceDirectoryAction(ctx, ".", map[string]any{"kind": "deleteCustomIcon", "id": id}, false, rules)
 }
 
+// RelocateDirectoryRules migrates directory marks, previous roles, include exceptions and
+// color overrides after a rename/move (when destination is non-empty) or drops them after a
+// delete (when destination is empty).
+func (c *Client) RelocateDirectoryRules(ctx context.Context, source, destination string, caseInsensitive bool, rules json.RawMessage) (json.RawMessage, error) {
+	if len(rules) == 0 {
+		rules = emptyDirectoryRules
+	}
+	payload := struct {
+		Source          string          `json:"source"`
+		Destination     *string         `json:"destination,omitempty"`
+		CaseInsensitive bool            `json:"caseInsensitive,omitempty"`
+		Rules           json.RawMessage `json:"rules"`
+	}{
+		Source:          source,
+		CaseInsensitive: caseInsensitive,
+		Rules:           rules,
+	}
+	if destination != "" {
+		payload.Destination = &destination
+	}
+	var response struct {
+		Rules json.RawMessage `json:"rules"`
+	}
+	if err := c.Execute(ctx, "workspace.relocateDirectoryRules", payload, &response); err != nil {
+		return nil, err
+	}
+	return response.Rules, nil
+}
+
 // ResolveDirectoryPresentation computes deterministic per-path presentation and effective
 // manual exclusions across user rules, optional shared project rules, glob matches and Git ignores.
 func (c *Client) ResolveDirectoryPresentation(ctx context.Context, rules, sharedRules json.RawMessage, gitExcluded []string, caseInsensitive bool, paths []string) (DirectoryPresentationResult, error) {

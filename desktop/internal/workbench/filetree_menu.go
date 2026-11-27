@@ -437,6 +437,7 @@ func (a *App) renameTreeItem(p *project) {
 		a.renamedLocalHistory(p, oldFull, newFull, before)
 		a.performed("workspace.file.rename", surfaceButton)
 		a.moveOpenDocuments(p, oldFull, newFull)
+		a.relocateDirectoryRules(p, oldRel, newRel)
 		a.listTree(p, path.Dir(oldRel))
 		a.loadGit(p)
 	})
@@ -539,6 +540,9 @@ func (a *App) directoryMarkMenu(c ui.C, p *project, n *treeNode, menu *ui.MenuIt
 	entry, hasMeta := p.indexing.presentation[n.path]
 	rulesState := core.ParseDirectoryRules(p.indexing.rules)
 	excluded := p.directoryExcluded(n.path)
+	// Cancel Exclusion only reverses built-in "excluded" marks or VCS (.gitignore) exclusions;
+	// custom-type exclusions (e.g. custom.archive) are cleared via Unmark Directory or role switch.
+	canCancelExclusion := (hasMeta && entry.Excluded && (entry.Role == "excluded" || entry.Source == "vcs")) || (!hasMeta && excluded)
 
 	menu.Sub(i18n.Shared(language, "desktop.directoryMarks.menuTitle"), func(sub *ui.MenuItems) {
 		sub.WidthRange(212, 320)
@@ -561,7 +565,7 @@ func (a *App) directoryMarkMenu(c ui.C, p *project, n *treeNode, menu *ui.MenuIt
 				c.After(func() { a.setDirectoryRole(p, n.path, role) })
 			}
 		}
-		if excluded {
+		if canCancelExclusion {
 			if sub.Item(i18n.Shared(language, "indexing.cancelExclusion")).Icon(directoryIcon("excluded", a.colors.Dark)).Checked(true).Clicked() {
 				c.After(func() { a.excludeFromSearch(p, n.path, true) })
 			}

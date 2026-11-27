@@ -6,10 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 )
 
@@ -111,5 +114,249 @@ func TestDirectoryMetadataEndToEndWithCore(t *testing.T) {
 	compiled := a.directoryIconFor(p, "icon.rocket")
 	if reflect.DeepEqual(compiled, directoryIcon("folder", false)) {
 		t.Fatal("expected compiled custom SVG icon rather than folder fallback")
+	}
+}
+
+func TestDirectorySharedConfigRejectsSymlinkEscape(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires elevated privileges on Windows")
+	}
+	root := t.TempDir()
+	outside := t.TempDir()
+	secret := filepath.Join(outside, "secret.json")
+	if err := os.WriteFile(secret, []byte(`{"schemaVersion":1,"rules":{"marks":{}}}`), 0o644); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".lithe"), 0o755); err != nil {
+		t.Fatalf("mkdir .lithe: %v", err)
+	}
+	// 1. Symlinked file inside workspace pointing outside.
+	if err := os.Symlink(secret, filepath.Join(root, ".lithe", "directories.json")); err != nil {
+		t.Fatalf("symlink file: %v", err)
+	}
+	if _, _, err := readSharedDirectoryRules(root, ".lithe/directories.json"); err == nil {
+		t.Fatal("expected symlinked shared config file to be rejected")
+	}
+	if err := writeSharedDirectoryRules(root, ".lithe/directories.json", core.EmptyDirectoryRules()); err == nil {
+		t.Fatal("expected write through symlinked shared config file to be rejected")
+	}
+
+	// 2. Symlinked parent directory pointing outside with a non-existent target leaf.
+	if err := os.Symlink(outside, filepath.Join(root, "escape-dir")); err != nil {
+		t.Fatalf("symlink dir: %v", err)
+	}
+	if err := writeSharedDirectoryRules(root, "escape-dir/new.json", core.EmptyDirectoryRules()); err == nil {
+		t.Fatal("expected write through symlinked parent directory to be rejected")
+	}
+}
+
+func TestDirectoryEffectiveIndexingPrecedenceAndGlobs(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	client := core.NewClient()
+	root := t.TempDir()
+	for _, dir := range []string{"src/api", "legacy/old-v1", "shared-only"} {
+		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(dir)), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+
+	// Shared rules exclude src/api and shared-only.
+	shared := core.EmptyDirectoryRules()
+	var err error
+	_, shared, err = client.ExcludeDirectory(ctx, "src/api", false, shared)
+	if err != nil {
+		t.Fatalf("shared exclude src/api: %v", err)
+	}
+	_, shared, err = client.ExcludeDirectory(ctx, "shared-only", false, shared)
+	if err != nil {
+		t.Fatalf("shared exclude shared-only: %v", err)
+	}
+
+	// Local rules override src/api to sources and define a glob-excluding custom type for legacy/**.
+	local := core.EmptyDirectoryRules()
+	_, local, err = client.SetDirectoryRole(ctx, "src/api", "sources", false, local)
+	if err != nil {
+		t.Fatalf("local setRole src/api: %v", err)
+	}
+	_, local, err = client.UpsertCustomDirectoryType(ctx, core.CustomDirectoryType{
+		ID:              "custom.legacy",
+		Name:            "Legacy",
+		Tag:             "legacy",
+		Icon:            "archive",
+		Color:           "#8b949e",
+		ExcludeIndexing: true,
+		MatchGlob:       "legacy/**",
+	}, local)
+	if err != nil {
+		t.Fatalf("upsert custom.legacy: %v", err)
+	}
+
+	policy := resolveEffectiveIndexingPolicy(ctx, client, root, local, shared, false)
+	if slices.Contains(policy.ManualExcludedDirectories, "src/api") {
+		t.Fatalf("local sources mark must override shared exclusion, got %v", policy.ManualExcludedDirectories)
+	}
+	if !slices.Contains(policy.ManualExcludedDirectories, "shared-only") {
+		t.Fatalf("expected shared-only to remain excluded, got %v", policy.ManualExcludedDirectories)
+	}
+	if !slices.Contains(policy.ManualExcludedDirectories, "legacy/old-v1") {
+		t.Fatalf("expected glob-matched legacy/old-v1 to be excluded from indexing, got %v", policy.ManualExcludedDirectories)
+	}
+}
+
+func TestDirectorySettingsGuardsWorkspaceConflictAndUnreadable(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	client := core.NewClient()
+	st := store.At(t.TempDir())
+	rootA := t.TempDir()
+	rootB := t.TempDir()
+
+	// Seed a valid private config for project A.
+	if err := st.Save(directoryRulesName(rootA), directoryRulesFile{
+		Root:              rootA,
+		Rules:             core.EmptyDirectoryRules(),
+		CustomTypesSeeded: true,
+	}); err != nil {
+		t.Fatalf("seed project A rules: %v", err)
+	}
+	fpA, err := directoryRulesFingerprint(st.Dir(), rootA)
+	if err != nil {
+		t.Fatalf("fingerprint A: %v", err)
+	}
+
+	projA := &project{
+		root: rootA,
+		indexing: projectIndexing{
+			rules:             core.EmptyDirectoryRules(),
+			loaded:            true,
+			gitIgnore:         true,
+			configFingerprint: fpA,
+		},
+	}
+	a := &App{
+		kernel:  client,
+		store:   st,
+		project: projA,
+	}
+	src := appDirectoryMarks{app: a}
+	runDrained := func(fn func() (settingswindow.DirectoryMarksSnapshot, error)) (settingswindow.DirectoryMarksSnapshot, error) {
+		type res struct {
+			snap settingswindow.DirectoryMarksSnapshot
+			err  error
+		}
+		ch := make(chan res, 1)
+		go func() {
+			snap, err := fn()
+			ch <- res{snap: snap, err: err}
+		}()
+		ticker := time.NewTicker(time.Millisecond)
+		defer ticker.Stop()
+		for {
+			a.drain()
+			select {
+			case out := <-ch:
+				return out.snap, out.err
+			case <-ticker.C:
+			}
+		}
+	}
+
+	snapA, err := runDrained(func() (settingswindow.DirectoryMarksSnapshot, error) {
+		return src.Load(ctx)
+	})
+	if err != nil {
+		t.Fatalf("Load A: %v", err)
+	}
+	if snapA.WorkspaceRoot != rootA || snapA.ConfigFingerprint != fpA {
+		t.Fatalf("unexpected snapshot metadata: root=%q fp=%q", snapA.WorkspaceRoot, snapA.ConfigFingerprint)
+	}
+
+	// 1. Switching active project to B must reject saving A's stale draft.
+	a.project = &project{
+		root: rootB,
+		indexing: projectIndexing{
+			rules:             core.EmptyDirectoryRules(),
+			loaded:            true,
+			gitIgnore:         true,
+			configFingerprint: "missing",
+		},
+	}
+	if _, err := runDrained(func() (settingswindow.DirectoryMarksSnapshot, error) {
+		return src.Save(ctx, snapA)
+	}); err == nil {
+		t.Fatal("expected Save with mismatched WorkspaceRoot to fail")
+	}
+
+	// 2. External edit on disk must be rejected instead of silently overwritten.
+	a.project = projA
+	if err := st.Save(directoryRulesName(rootA), directoryRulesFile{
+		Root:              rootA,
+		Rules:             core.EmptyDirectoryRules(),
+		HideTags:          true,
+		CustomTypesSeeded: true,
+	}); err != nil {
+		t.Fatalf("external edit project A: %v", err)
+	}
+	if _, err := runDrained(func() (settingswindow.DirectoryMarksSnapshot, error) {
+		return src.Save(ctx, snapA)
+	}); err == nil {
+		t.Fatal("expected Save after external disk edit to fail")
+	}
+
+	// 3. Unreadable rules must block ImportIcon BEFORE writing any SVG file.
+	projA.indexing.unreadable = true
+	svgPath := filepath.Join(t.TempDir(), "badge.svg")
+	if err := os.WriteFile(svgPath, []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="currentColor"/></svg>`), 0o644); err != nil {
+		t.Fatalf("write svg: %v", err)
+	}
+	if _, err := runDrained(func() (settingswindow.DirectoryMarksSnapshot, error) {
+		return src.ImportIcon(ctx, settingswindow.DirectoryMarksSnapshot{WorkspaceRoot: rootA}, svgPath)
+	}); err == nil {
+		t.Fatal("expected ImportIcon to fail when rules are unreadable")
+	}
+	entries, _ := os.ReadDir(filepath.Join(st.Dir(), customDirectoryIconsDir))
+	if len(entries) != 0 {
+		t.Fatalf("expected no SVG file written on rejected ImportIcon, found %d", len(entries))
+	}
+}
+
+func TestDirectoryRelocateRulesWithCore(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	client := core.NewClient()
+	rules := core.EmptyDirectoryRules()
+	var err error
+	_, rules, err = client.SetDirectoryRole(ctx, "src/orders", "sources", false, rules)
+	if err != nil {
+		t.Fatalf("setRole: %v", err)
+	}
+	_, rules, err = client.SetDirectoryColor(ctx, "src/orders", "#4e8df5", false, rules)
+	if err != nil {
+		t.Fatalf("setColor: %v", err)
+	}
+
+	moved, err := client.RelocateDirectoryRules(ctx, "src/orders", "src/billing", false, rules)
+	if err != nil {
+		t.Fatalf("RelocateDirectoryRules move: %v", err)
+	}
+	state := core.ParseDirectoryRules(moved)
+	if state.Marks["src/billing"] != "sources" || state.Colors["src/billing"] != "#4e8df5" {
+		t.Fatalf("expected mark and color moved to src/billing, got %+v", state)
+	}
+	if _, exists := state.Marks["src/orders"]; exists {
+		t.Fatalf("expected old key removed, got %+v", state.Marks)
+	}
+
+	deleted, err := client.RelocateDirectoryRules(ctx, "src/billing", "", false, moved)
+	if err != nil {
+		t.Fatalf("RelocateDirectoryRules delete: %v", err)
+	}
+	afterDel := core.ParseDirectoryRules(deleted)
+	if len(afterDel.Marks) != 0 || len(afterDel.Colors) != 0 {
+		t.Fatalf("expected marks and colors dropped after delete, got %+v", afterDel)
 	}
 }

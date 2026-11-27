@@ -21,6 +21,8 @@ import (
 // the unified "Appearance & Behavior › Directory Marks & Colors" settings page.
 type DirectoryMarksSnapshot struct {
 	HasWorkspace        bool
+	WorkspaceRoot       string
+	ConfigFingerprint   string
 	LocalConfigPath     string
 	SharedConfigEnabled bool
 	SharedConfigPath    string
@@ -35,13 +37,14 @@ type DirectoryMarksSnapshot struct {
 type DirectoryMarksSource interface {
 	Load(ctx context.Context) (DirectoryMarksSnapshot, error)
 	Save(ctx context.Context, next DirectoryMarksSnapshot) (DirectoryMarksSnapshot, error)
-	ImportIcon(ctx context.Context, sourcePath string) (DirectoryMarksSnapshot, error)
-	DeleteIcon(ctx context.Context, id string) (DirectoryMarksSnapshot, error)
+	ImportIcon(ctx context.Context, base DirectoryMarksSnapshot, sourcePath string) (DirectoryMarksSnapshot, error)
+	DeleteIcon(ctx context.Context, base DirectoryMarksSnapshot, id string) (DirectoryMarksSnapshot, error)
 	OpenFile(path string)
 }
 
 type directoryMarksWork struct {
 	source     DirectoryMarksSource
+	base       DirectoryMarksSnapshot
 	save       *DirectoryMarksSnapshot
 	importPath string
 	deleteIcon string
@@ -212,9 +215,9 @@ func (w *window) startDirectoryMarks(work *directoryMarksWork) {
 			}
 			switch {
 			case req.importPath != "":
-				return req.source.ImportIcon(ctx, req.importPath)
+				return req.source.ImportIcon(ctx, req.base, req.importPath)
 			case req.deleteIcon != "":
-				return req.source.DeleteIcon(ctx, req.deleteIcon)
+				return req.source.DeleteIcon(ctx, req.base, req.deleteIcon)
 			case req.save != nil:
 				return req.source.Save(ctx, *req.save)
 			default:
@@ -223,6 +226,7 @@ func (w *window) startDirectoryMarks(work *directoryMarksWork) {
 		}).Sequential()
 	}
 	work.source = w.ctrl.opts.DirectoryMarks
+	work.base = cloneDirectoryMarksSnapshot(d.snapshot)
 	d.work = work
 	d.busy = true
 	d.failure = ""
@@ -244,9 +248,15 @@ func (w *window) takeDirectoryMarks() {
 		w.reportEssentialsFailure("directory_marks", err)
 		return
 	}
+	wasImport := d.work != nil && d.work.importPath != ""
 	wasIconMutation := d.work != nil && (d.work.importPath != "" || d.work.deleteIcon != "")
+	if wasImport {
+		d.iconImportField.SetText("")
+	}
 	d.snapshot = cloneDirectoryMarksSnapshot(result)
 	if wasIconMutation && d.dirty {
+		d.working.WorkspaceRoot = result.WorkspaceRoot
+		d.working.ConfigFingerprint = result.ConfigFingerprint
 		d.working.CustomIcons = append([]core.CustomDirectoryIcon(nil), result.CustomIcons...)
 		if d.work.deleteIcon != "" {
 			for i := range d.working.CustomTypes {
@@ -254,9 +264,6 @@ func (w *window) takeDirectoryMarks() {
 					d.working.CustomTypes[i].Icon = "folder"
 				}
 			}
-		}
-		if d.work.importPath != "" {
-			d.iconImportField.SetText("")
 		}
 	} else {
 		d.working = cloneDirectoryMarksSnapshot(result)

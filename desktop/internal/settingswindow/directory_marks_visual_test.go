@@ -27,7 +27,7 @@ func (s *visualDirectoryMarksSource) Save(_ context.Context, next DirectoryMarks
 	return cloneDirectoryMarksSnapshot(s.snap), nil
 }
 
-func (s *visualDirectoryMarksSource) ImportIcon(_ context.Context, sourcePath string) (DirectoryMarksSnapshot, error) {
+func (s *visualDirectoryMarksSource) ImportIcon(_ context.Context, _ DirectoryMarksSnapshot, sourcePath string) (DirectoryMarksSnapshot, error) {
 	s.snap.CustomIcons = append(s.snap.CustomIcons, core.CustomDirectoryIcon{
 		ID:   "icon.custom",
 		Name: filepath.Base(sourcePath),
@@ -36,7 +36,7 @@ func (s *visualDirectoryMarksSource) ImportIcon(_ context.Context, sourcePath st
 	return cloneDirectoryMarksSnapshot(s.snap), nil
 }
 
-func (s *visualDirectoryMarksSource) DeleteIcon(_ context.Context, id string) (DirectoryMarksSnapshot, error) {
+func (s *visualDirectoryMarksSource) DeleteIcon(_ context.Context, _ DirectoryMarksSnapshot, id string) (DirectoryMarksSnapshot, error) {
 	next := make([]core.CustomDirectoryIcon, 0, len(s.snap.CustomIcons))
 	for _, ci := range s.snap.CustomIcons {
 		if ci.ID != id {
