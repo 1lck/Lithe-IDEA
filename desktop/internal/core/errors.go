@@ -12,6 +12,8 @@ import (
 type ErrorCode string
 
 const (
+	// CodeRecentProjectTagsChanged means the project or its tags changed since the editor opened.
+	CodeRecentProjectTagsChanged ErrorCode = "recent_project_tags_changed"
 	// CodeInvalidRequest means the envelope, payload, path or operation name is invalid.
 	CodeInvalidRequest ErrorCode = "invalid_request"
 	// CodeWorkspaceNotFound means the workspace or repository root does not exist.

@@ -30,6 +30,7 @@ type settingsSubscription struct {
 	// Shared by live native windows and project tabs using the same directory.
 	editorPreferences *editorPreferencesPublication
 	editorGeneration  uint64
+	recentRevision    uint64
 }
 
 func (a *App) subscribeSettings() {
@@ -139,6 +140,7 @@ func (a *App) drainSettings() {
 	}
 	a.drainEditorPreferencesWatch()
 	a.drainEditorPreferences()
+	a.drainRecentChange(sub)
 	// Capture this frame's bounded batch; concurrent publishers request another wake.
 	count := len(sub.notices)
 	for i := 0; i < count; i++ {

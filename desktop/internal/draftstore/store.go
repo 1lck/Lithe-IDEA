@@ -197,3 +197,86 @@ func (s *Store) Remove(root, path string) error {
 	}
 	return err
 }
+
+// MigrateRoot moves non-scratch recovery drafts stored under fromRoot to toRoot
+// whenever toRoot does not already hold a draft for the same relative file.
+func (s *Store) MigrateRoot(fromRoot, toRoot string) error {
+	if fromRoot == "" || toRoot == "" || fromRoot == toRoot {
+		return nil
+	}
+	recoveryIO.Lock()
+	defer recoveryIO.Unlock()
+	files, err := s.files()
+	if err != nil || len(files) == 0 {
+		return err
+	}
+	existing := make(map[string]bool)
+	type candidate struct {
+		filePath string
+		newPath  string
+	}
+	var candidates []candidate
+	for _, file := range files {
+		if file.IsDir() || filepath.Ext(file.Name()) != ".draft" {
+			continue
+		}
+		filePath := filepath.Join(s.dir, file.Name())
+		entry, ok, err := s.read(filePath, false)
+		if err != nil {
+			return err
+		}
+		if !ok || entry.Scratch {
+			continue
+		}
+		switch entry.Root {
+		case toRoot:
+			existing[entry.Path] = true
+		case fromRoot:
+			rel, err := filepath.Rel(fromRoot, entry.Path)
+			if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+				continue
+			}
+			candidates = append(candidates, candidate{
+				filePath: filePath,
+				newPath:  filepath.Join(toRoot, rel),
+			})
+		}
+	}
+	for _, c := range candidates {
+		if existing[c.newPath] {
+			continue
+		}
+		entry, found, err := s.read(c.filePath, true)
+		if err != nil {
+			return err
+		}
+		if !found {
+			continue
+		}
+		entry.Root = toRoot
+		entry.Path = c.newPath
+		header, err := json.Marshal(entry)
+		if err != nil {
+			return err
+		}
+		header = append(header, '\n')
+		if len(header) > maxHeaderBytes {
+			return errors.New("recovery metadata exceeds limit")
+		}
+		targetFile := s.filename(toRoot, c.newPath)
+		if err := atomicfile.WriteWith(targetFile, 0o600, func(w io.Writer) error {
+			if _, err := w.Write(header); err != nil {
+				return err
+			}
+			_, err := io.WriteString(w, entry.Text)
+			return err
+		}); err != nil {
+			return err
+		}
+		if err := os.Remove(c.filePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		existing[c.newPath] = true
+	}
+	return nil
+}

@@ -20888,6 +20888,55 @@
       ]
     },
     {
+      "id": "desktop.welcome.allTags",
+      "description": "Desktop welcome: allTags",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.welcome.editTags",
+      "description": "Desktop welcome: editTags",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.welcome.filterTags",
+      "description": "Desktop welcome: filterTags",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.welcome.recoveredRecentHistory",
+      "description": "Desktop welcome: report that a fresh recent project list was started and the original history file was kept",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.welcome.recentSSHTargetChanged",
+      "description": "Explain why an older SSH recent project cannot reopen through the saved connection",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.welcome.tagsChanged",
+      "description": "Explain a conflict while saving a recent project tag draft",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.welcome.tagsInput",
+      "description": "Desktop welcome: tagsInput",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.welcome.menuPin",
       "description": "Desktop welcome: MenuPin",
       "platforms": [

@@ -165,7 +165,7 @@ func (a *App) askRemoveUnavailableRecent(path string) {
 		onAnswer: func(choice *int) {
 			if choice != nil && *choice == 1 {
 				a.performed("workspace.recent.remove", surfaceButton)
-				a.reduceRecent(a.recent, core.RemoveRecent(path), true)
+				a.changeRecent(core.RemoveRecent(path), nil)
 			}
 		},
 	})

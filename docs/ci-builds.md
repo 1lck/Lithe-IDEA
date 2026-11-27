@@ -68,7 +68,9 @@ macOS 的本地手动打包可用 `package-desktop.sh --ad-hoc-sign` 生成有�
 
 ### 独立工作树的本地编译
 
-编辑器显示偏好仍存放在 `<os.UserConfigDir()>/Lithe Desktop/settings.json`。同目录的 `.settings.lock` 由原生设置存储持有，只协调各客户端进程的读取与原子保存；关闭事务句柄或进程退出即释放 OS 锁，空文件留在用户配置目录避免锁身份变化。每个进程对该目录最多保留一个非递归原生观察器，最后一个工作台关闭时释放。它们属于用户运行时状态，不跨工作树复制，不写应用安装目录，不影响代码签名或增量更新基线。
+最近项目存放在用户配置目录 `<os.UserConfigDir()>/Lithe Desktop/recent-projects-v2.json`。首次更新前读取旧版 `recent-projects.json`，旧版与新版此后各自写入自己的文件。旧 JSON 损坏时保留旧文件，首次成功写入建立新版历史。同目录的 `recent-projects-v2.json.lock` 由最近项目存储在首次更改时创建，写入完成或进程退出后释放系统锁，空锁文件留在原处供后续进程使用。两者属于用户运行时状态，无论版本、平台或工具链都不跨工作树复制，也不写入安装目录。安装包原样检查覆盖锁文件和历史写入，代码签名与增量更新基线保持一致。起始页截图由 `LITHE_VISUAL_OUTPUT_DIR` 写在当前检出的构建产物目录，绑定本次源码、Core/Viva 修订、平台、语言和主题，由测试执行者清理。
+
+编辑器显示偏好仍存放在 `<os.UserConfigDir()>/Lithe Desktop/settings.json`。同目录的 `.settings.lock` 由原生设置存储持有，只协调各客户端进程的读取与原子保存；关闭事务句柄或进程退出即释放 OS 锁，空文件留在用户配置目录避免锁身份变化。每个进程对该目录最多保留一个非递归原生观察器，编辑器偏好和最近项目共用该注册，最后一个工作台关闭时释放。它们属于用户运行时状态，不跨工作树复制，不写应用安装目录，不影响代码签名或增量更新基线。
 
 标题栏远程连接状态的链条和断链图标由 `scripts/desktop/generate-desktop-icons.sh` 从固定的 Lucide 0.469.0 下载 SVG，用 `desktop/go.mod` 固定的 Viva 编译器生成 `desktop/internal/icons/icons.go`；生成数据由 Git 管理。SVG 和编译器仅在本次生成器的临时目录中存活，退出即删除，不作为跨工作树缓存复制。运行期只读取编译进程序的图标，不下载、不生成文件，不改变安装包签名或增量更新基线。`TestVisualRemoteWorkspace` 的主机下拉和切换文件夹截图可写入本检出的 `.artifacts/visual/remote-host-switcher/`；截图绑定本次源码、Core/Viva 修订、平台、语言和主题，不跨检出复制、不进入发行包，由开发者或 CI 清理。
 

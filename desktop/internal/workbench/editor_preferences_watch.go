@@ -12,7 +12,7 @@ import (
 )
 
 // One native directory registration per preferences directory observes atomic
-// settings-file replacements made by independently launched client processes.
+// settings and recent history replacements made by independently launched clients.
 func (a *App) startEditorPreferencesWatch(state *editorPreferencesPublication) {
 	dir := a.store.Dir()
 	state.Lock()
@@ -61,6 +61,8 @@ func (a *App) drainEditorPreferencesWatch() {
 		return
 	}
 	changes := watch.Changes(nil)
+	initial := !state.watchReady
+	state.watchReady = !changes.Resync
 	if changes.Resync {
 		// Resync can mean the watched directory was replaced or the stream
 		// ended. Register a fresh stream before its initial full reload.
@@ -71,16 +73,26 @@ func (a *App) drainEditorPreferencesWatch() {
 		a.startEditorPreferencesWatch(state)
 		return
 	}
-	if !ready && !state.readAgain && !slices.Contains(changes.Names, settingsFile) {
+	recentChanged := initial || slices.Contains(changes.Names, recentFile) || slices.Contains(changes.Names, legacyRecentFile)
+	readSettings := initial || ready || state.readAgain || slices.Contains(changes.Names, settingsFile)
+	if !recentChanged && !readSettings {
 		state.Unlock()
 		return
 	}
-	state.reading = true
-	state.readAgain = false
+	if readSettings {
+		state.reading = true
+		state.readAgain = false
+	}
 	generation := state.latest.generation
 	savedSerial := state.savedSerial
 	dir := a.store.Dir()
 	state.Unlock()
+	if recentChanged {
+		state.publishRecentChange()
+	}
+	if !readSettings {
+		return
+	}
 	a.background(nil, kernelCallTimeout, func(ctx context.Context) func(*App) {
 		var next settings
 		_, err := store.At(dir).Load(settingsFile, &next)

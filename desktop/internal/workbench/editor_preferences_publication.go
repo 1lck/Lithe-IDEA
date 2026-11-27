@@ -19,6 +19,8 @@ type editorPreferencesPublication struct {
 	pendingEditor           bool
 	watch                   *documentWatch
 	watchDirty              atomic.Bool
+	watchReady              bool
+	recentRevision          atomic.Uint64
 	reading                 bool
 	readAgain               bool
 	pendingSave             *settingsSaveBatch

@@ -55,6 +55,7 @@ func (a *App) welcomePanel(c ui.C) {
 			a.updateArrow(c)
 		})
 	})
+	a.welcomeTagsDialog(c.Part("project-tags"))
 }
 
 func (a *App) welcomeSidebar(c ui.C) {
@@ -137,27 +138,21 @@ func (a *App) welcomeProjects(c ui.C) {
 		})
 		return
 	}
-	query := w.needle()
-	// shown lists the recent entries the filter keeps, by their place in a.recent.
-	shown := make([]int, 0, len(a.recent))
-	for i := range a.recent {
-		row := w.row(a.recent[i].Path, len(a.recent))
-		if query == "" || strings.Contains(row.needle, query) {
-			shown = append(shown, i)
-		}
-	}
+	projection := a.welcomeProjection()
+	a.welcomeTagFilter(c.Part("tag-filter"), projection.Tags)
+	shown := projection.Visible
 	if len(shown) == 0 {
 		ui.Text(c, a.text.Welcome.NoMatches).Muted().TextCenter().PadY(24)
 		return
 	}
 	w.list.Key = func(i int) int { return w.rowID(a.recent[shown[i]].Path) }
-	w.list.Label = func(i int) string { return w.row(a.recent[shown[i]].Path, len(a.recent)).name }
+	w.list.Label = func(i int) string { return w.entryRow(a.recent[shown[i]], len(a.recent)).name }
 	// open is acted on after the list is declared: opening a project replaces the recent
 	// list, which this loop is still reading.
 	open := ""
 	ui.List(c, &w.list, len(shown), func(row ui.ListRow) {
 		entry := &a.recent[shown[row.Index]]
-		info := w.row(entry.Path, len(a.recent))
+		info := w.entryRow(*entry, len(a.recent))
 		// A project whose folder is gone stays clickable, so opening it can say why
 		// it did not open; the mark only warns beforehand.
 		missing := ""
@@ -169,10 +164,21 @@ func (a *App) welcomeProjects(c ui.C) {
 		if branch != "" {
 			rowHeight += 20
 		}
+		if len(entry.Tags) != 0 {
+			rowHeight += 16
+		}
 		item := row.Element.FillWidth().Height(rowHeight).Items(ui.Center).Gap(12).PadX(12).
 			Radius(a.theme.Metrics.RadiusItem()).
-			Hover(ui.Look{}.Background(a.colors.Hover)).
 			Pressed(ui.Look{}.Background(a.colors.Active))
+		if row.Selected() {
+			item.Background(a.colors.Selection)
+		} else {
+			if entry.Pinned {
+				// Pinned rows use a subtle background tint (similar to WeChat pinned chats) instead of an icon sub-row.
+				item.Background(a.colors.Hover.WithAlpha(0.55))
+			}
+			item.Hover(ui.Look{}.Background(a.colors.Hover))
+		}
 		path := entry.Path
 		ui.ContextMenu(row.C, row.Element, a.welcomeMenuItems(row.C, path))
 		item.Children(func() {
@@ -186,12 +192,8 @@ func (a *App) welcomeProjects(c ui.C) {
 			ui.Column(row.C).Grow(1).PadSides(8, 0, 0, 0).Children(func() {
 				ui.Text(row.C, info.name).Ellipsis()
 				ui.Text(row.C, info.path).Ellipsis().Muted().FontSize(a.theme.Metrics.FontSizeS)
-				if entry.Pinned {
-					// Pinned projects come first; the mark says why this one is up there.
-					ui.Row(row.C).Height(14).Items(ui.Center).Gap(4).Children(func() {
-						ui.Icon(row.C, icons.Pin).Size(12, 12).Shrink(0).Color(a.colors.Subtle)
-						ui.Text(row.C, a.text.Welcome.Pinned).FontSize(a.theme.Metrics.FontSizeS).Muted()
-					})
+				if len(entry.Tags) != 0 {
+					ui.Text(row.C, strings.Join(entry.Tags, ", ")).Ellipsis().Muted().FontSize(a.theme.Metrics.FontSizeS)
 				}
 				if branch != "" {
 					ui.Row(row.C).Height(16).Items(ui.Center).Gap(4).Children(func() {
@@ -241,7 +243,7 @@ func (a *App) welcomeProjects(c ui.C) {
 		w.menuPath, w.menuOpen = "", false
 		c.After(func() {
 			a.performed("workspace.recent.open", surfaceButton)
-			a.openProject(open)
+			a.openRecent(open)
 		})
 	}
 }
@@ -252,22 +254,23 @@ func (a *App) welcomeProjects(c ui.C) {
 func (a *App) welcomeMenuItems(c ui.C, path string) func(*ui.MenuItems) {
 	return func(menu *ui.MenuItems) {
 		menu.WidthRange(220, 220)
+		remote := false
+		pinned := false
+		for _, entry := range a.recent {
+			if entry.Path == path {
+				pinned, remote = entry.Pinned, entry.Remote != nil
+				break
+			}
+		}
 		if !a.missing[path] {
 			if menu.Item(a.text.Welcome.MenuOpen).Clicked() {
 				c.After(func() {
 					a.performed("workspace.recent.open", surfaceContextMenu)
-					a.openProject(path)
+					a.openRecent(path)
 				})
 			}
-			if menu.Item(a.welcomeRevealLabel()).Clicked() {
+			if !remote && menu.Item(a.welcomeRevealLabel()).Clicked() {
 				c.After(func() { a.revealRecent(path) })
-			}
-		}
-		// Pinned projects are listed first by Core; the entry flips the pin of this project only.
-		pinned := false
-		for _, entry := range a.recent {
-			if entry.Path == path {
-				pinned = entry.Pinned
 			}
 		}
 		pinLabel := a.text.Welcome.MenuPin
@@ -277,13 +280,20 @@ func (a *App) welcomeMenuItems(c ui.C, path string) func(*ui.MenuItems) {
 		if menu.Item(pinLabel).Clicked() {
 			c.After(func() {
 				a.performed("workspace.recent.pin", surfaceContextMenu)
-				a.reduceRecent(a.recent, core.TogglePinnedRecent(path), true)
+				a.changeRecent(core.SetPinnedRecent(path, !pinned), func(result core.RecentProjectsResult, err error) {
+					if err == nil && len(result.Entries) > 0 && result.Entries[0].Pinned && result.Entries[0].Path == path {
+						a.welcome.list.ScrollTo(0, ui.ListStart)
+					}
+				})
 			})
+		}
+		if menu.Item(i18n.Shared(a.language(), "desktop.welcome.editTags")).Clicked() {
+			c.After(func() { a.editWelcomeTags(path) })
 		}
 		if menu.Item(a.text.Welcome.MenuRemove).Clicked() {
 			c.After(func() {
 				a.performed("workspace.recent.remove", surfaceContextMenu)
-				a.reduceRecent(a.recent, core.RemoveRecent(path), true)
+				a.changeRecent(core.RemoveRecent(path), nil)
 			})
 		}
 	}

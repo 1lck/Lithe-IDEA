@@ -533,7 +533,7 @@ type settings struct {
 
 const (
 	settingsFile = "settings.json"
-	recentFile   = "recent-projects.json"
+	recentFile   = "recent-projects-v2.json"
 )
 
 // project is an open project. A project is replaced, never reused: background work
@@ -871,8 +871,9 @@ type App struct {
 	projectToolLists func(context.Context, []string) (map[string]toolList, error)
 	projectCommand   func(context.Context, string) (projectgen.Command, error)
 	// pendingOpen is what a generator asked to open once its project is open.
-	pendingOpen pendingOpenFiles
-	recent      []core.RecentProject
+	pendingOpen  pendingOpenFiles
+	recent       []core.RecentProject
+	recentWrites recentWrites
 	// missing marks recent projects whose folder was gone when the list last changed.
 	missing map[string]bool
 
@@ -1101,7 +1102,9 @@ func New(options Options) *App {
 		a.openPlugins(options)
 	}
 	a.settingsWindow = a.newSettingsWindow()
-	if !a.documentOnly {
+	if options.first != nil {
+		a.refreshRecent()
+	} else if !a.documentOnly {
 		a.loadRecent()
 	}
 	a.loadChrome()
@@ -1686,45 +1689,6 @@ func (a *App) hidePanel(s slot) {
 	}
 }
 
-// loadRecent reads the recent project list and lets the kernel order and bound it.
-func (a *App) loadRecent() {
-	var entries []core.RecentProject
-	if _, err := a.store.Load(recentFile, &entries); err != nil {
-		a.storedStateFailed("recent_projects", err)
-		a.notifyError(a.text.Errors.Core(err.Error()))
-		entries = nil
-	}
-	a.reduceRecent(entries, core.NormalizeRecent(), false)
-}
-
-// reduceRecent sends one change of the recent project list to the kernel and keeps
-// the result, saving it when save is set.
-func (a *App) reduceRecent(entries []core.RecentProject, action core.RecentAction, save bool) {
-	ctx, cancel := context.WithTimeout(a.operationContext(context.Background()), kernelCallTimeout)
-	defer cancel()
-	result, err := a.kernel.ReduceRecentProjects(ctx, entries, action, 0)
-	if err != nil {
-		a.operationFailed("workspace_recent_reduce", documentLogError(err))
-		a.notifyError(a.text.Errors.Core(err.Error()))
-		return
-	}
-	if save {
-		if err := a.store.Save(recentFile, result.Entries); err != nil {
-			a.operationFailed("workspace_recent_save", documentLogError(err))
-			a.notifyError(a.text.Errors.SaveFailed(err.Error()))
-			return
-		}
-	}
-	a.recent = result.Entries
-	clear(a.missing)
-	for _, entry := range a.recent {
-		if info, err := os.Stat(entry.Path); err != nil || !info.IsDir() {
-			a.missing[entry.Path] = true
-		}
-	}
-	a.refreshWelcomeBranches()
-}
-
 // chooseProject asks for a project folder and opens it; surface is where the user asked.
 // The system dialog runs off the window thread so the window keeps painting behind it.
 func (a *App) chooseProject(surface actionSurface) {
@@ -1769,7 +1733,7 @@ func (a *App) openProjectHere(path string) {
 // code allowed to run when trusted and in safe mode otherwise (workspace_trust.go).
 func (a *App) openProjectWithTrust(root string, trusted bool) {
 	a.requestCloseProject(func() {
-		a.reduceRecent(a.recent, core.RecordRecent(root, a.now()), true)
+		a.changeRecent(core.RecordRecent(root, a.now()), nil)
 		p := &project{root: root, name: filepath.Base(root), commit: newCommitState()}
 		p.trust.codeAllowed.Store(trusted)
 		// Every Git command the project runs is kept in the Git console, and in safe mode Core
@@ -1856,6 +1820,7 @@ func (a *App) finishCloseProject(p *project, after func()) {
 	} else {
 		// A project closed on its own leaves its tab when the window has others.
 		a.sessions.leave(a)
+		a.sessions.active.refreshRecent()
 	}
 }
 
