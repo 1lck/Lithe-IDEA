@@ -542,19 +542,20 @@ func (r *renderer) toggle(c ui.C, n *Node, key NodeKey) {
 // readOnlySettingRow follows the settings form's two-column layout, including its
 // narrow-window wrap. Use the same field, help button and small action as editable rows.
 func (r *renderer) readOnlySettingRow(c ui.C, field, action Node) {
+	width := float32(r.s.Width())
 	uistyle.SettingsRow(c).Children(func() {
 		uistyle.SettingsLine(c).Children(func() {
-			uistyle.SettingsTitle(c).Children(func() {
+			uistyle.SettingsTitle(c).MinWidth(min(120, width)).Children(func() {
 				ui.Text(c, field.Label).FontSize(12).Weight(gfx.WeightSemibold).Color(r.host.Palette.Text).Shrink(1).MinWidth(0).Ellipsis()
 				r.info(c, field.Info)
 			})
-			ui.Row(c.Part("value")).Basis(0).Grow(3).Shrink(0).MinWidth(260).Items(ui.Center).Gap(8).Children(func() {
+			ui.Flow(c.Part("value")).Basis(0).Grow(3).Shrink(1).MinWidth(min(260, width)).Items(ui.Center).Gap(8).LineGap(6).Children(func() {
 				value := field.stringValue()
-				input := ui.TextField(c.Key(field.ID), &value, field.Label, field.Placeholder).ReadOnly(true).Grow(1).MinWidth(0).Height(30)
+				input := ui.TextField(c.Key(field.ID), &value, field.Label, field.Placeholder).ReadOnly(true).Grow(1).MinWidth(min(80, width)).Height(30)
 				if field.Mono {
 					input.Mono()
 				}
-			r.button(c.Key(action.ID), &action, true)
+				r.button(c.Key(action.ID), &action, true)
 			})
 		})
 	})
