@@ -124,6 +124,7 @@ func TestVisualDirectoryMarks(t *testing.T) {
 					time.Sleep(10 * time.Millisecond)
 				}
 				w.dirMarksDraft.iconPickerOpen = true
+				w.inv.Invalidate()
 				d.pump()
 				d.pump()
 				if err := session.Screenshot(filepath.Join(out, "directory-marks-picker-"+language.Code()+"-"+theme+".png")); err != nil {
