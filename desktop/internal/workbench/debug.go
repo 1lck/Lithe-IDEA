@@ -1027,16 +1027,25 @@ func (a *App) finishDebugError(p *project, session *debugSession, err error) {
 		a.endDebugSession(p, session)
 		return
 	}
-	message := a.launchFailureText(err)
-	var settingsError *debugSettingsError
-	if errors.As(err, &settingsError) {
-		message = i18n.Shared(a.language(), "desktop.debug.settingsUnreadable")
-	}
+	message := a.debugFailureText(err)
 	a.operationFailed("debug", err)
 	a.endDebugSession(p, session)
 	p.debug.failure = message
 	if p.debug.activeSession() != nil {
 		p.debug.status = a.text.Debug.Failed
+	}
+}
+
+func (a *App) debugFailureText(err error) string {
+	var settingsError *debugSettingsError
+	var executableError *debugAdapterExecutableError
+	switch {
+	case errors.As(err, &settingsError):
+		return i18n.Shared(a.language(), "desktop.debug.settingsUnreadable")
+	case errors.As(err, &executableError):
+		return i18n.Shared(a.language(), "desktop.debug.adapterExecutableUnavailable")
+	default:
+		return a.launchFailureText(err)
 	}
 }
 

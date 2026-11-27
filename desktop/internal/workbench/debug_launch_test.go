@@ -4,25 +4,174 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
-
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginsettings"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginstate"
 )
+
+const debugConfiguredAdapterManifest = `{
+  "schemaVersion": 0,
+  "id": "dev.lithe.test.debug-configured",
+  "displayName": "Configured Debugger Fixture",
+  "version": "1.0.0",
+  "pluginAPIVersion": 0,
+  "requires": {"debugAdapters": 0, "settings": 0},
+  "vendor": {"id": "dev.lithe.test", "displayName": "Test", "signatureRequirement": "publisherPackage"},
+  "permissions": ["debug.launch"],
+  "activationEvents": ["onDebug:fixture"],
+  "settings": [{"id":"adapterPath", "type":"file", "title":"Adapter path", "default":"", "effect":"nextRun"}],
+  "debugAdapters": [{
+    "id":"fixture", "displayName":"Fixture DAP",
+    "launch": {
+      "executableSetting":"adapterPath",
+      "process":{"launch":{"kind":"systemCommand", "commands":["lithe-test-configured-adapter-missing"]}},
+      "transport":"stdio"
+    }
+  }]
+}`
+
+func debugConfiguredAdapterOptions(t *testing.T, theme, language string) Options {
+	t.Helper()
+	options := debugPluginOptions(t, "dev.lithe.test.debug-configured", debugConfiguredAdapterManifest, false, &testKernel{Client: core.NewClient()}, theme)
+	options.Languages = []string{language}
+	return options
+}
+
+func setDebugAdapterPath(t *testing.T, h *harness, p *project, path string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	settings := pluginsettings.New(h.app.kernel, h.store.Dir())
+	snapshot, err := settings.Load(ctx, p.debug.adapters[0].Manifest, p.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := json.Marshal(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := settings.Save(ctx, snapshot, "global", []core.PluginSettingEdit{{ID: "adapterPath", Value: value}}, nil)
+	if err != nil || !saved.Committed {
+		t.Fatalf("save adapter path: %+v, %v", saved, err)
+	}
+}
+
+func debugAdapterPathForAnotherOS() string {
+	if buildPlatform() == "windows" {
+		return "/usr/local/private-fixture/adapter"
+	}
+	return `C:\private-fixture\adapter.exe`
+}
+
+func TestDebugStartExplainsUnavailableConfiguredAdapterPath(t *testing.T) {
+	const configuredMessage = "The configured debugger executable cannot run on this computer. Choose a valid local executable in the plugin settings."
+	invalid := filepath.Join(t.TempDir(), "private-invalid.exe")
+	if err := os.WriteFile(invalid, []byte("invalid program"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, path, want string }{
+		{"foreign path", debugAdapterPathForAnotherOS(), configuredMessage},
+		{"missing file", filepath.Join(t.TempDir(), "private-missing.exe"), configuredMessage},
+		{"invalid executable", invalid, configuredMessage},
+		{"automatic lookup", "", "lithe-test-configured-adapter-missing not found. Install it in Settings > Plugins, or add it to PATH."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarnessWithOptions(t, debugConfiguredAdapterOptions(t, "dark", "en-US"))
+			p := openHostedPanel(t, h, t.TempDir())
+			if tc.path != "" {
+				setDebugAdapterPath(t, h, p, tc.path)
+			}
+			h.app.startDebug(p)
+			awaitStateWithin(t, h, 5*time.Second, "the debug failure message", func() bool {
+				return p.debug.activeSession() == nil && p.debug.failure != ""
+			})
+			if p.debug.failure != tc.want {
+				t.Fatalf("debug failure = %q; want %q", p.debug.failure, tc.want)
+			}
+		})
+	}
+}
+
+func TestConfiguredDebugAdapterLogKeepsNativeCauseWithoutPath(t *testing.T) {
+	const privatePath = "/private-fixture/adapter"
+	pathError := &os.PathError{Op: "fork/exec", Path: privatePath, Err: syscall.EACCES}
+	for _, cause := range []error{
+		&exec.Error{Name: privatePath, Err: pathError},
+		fmt.Errorf("start %s: %w", privatePath, pathError),
+	} {
+		fields := operationFailedFields("debug", adapterUnresolved(&debugAdapterExecutableError{cause: cause}))
+		if fields["error"] != syscall.EACCES.Error() || fields["error_code"] != int(syscall.EACCES) || fields["error_domain"] != "posix" {
+			t.Fatalf("debug log fields = %v, want only the native reason and code", fields)
+		}
+	}
+}
 
 // countedDebugCreate observes whether native preparation reached the engine.
 type countedDebugCreate struct {
 	Kernel
 	creates atomic.Int32
+}
+
+func TestDebugAdapterExecutableOverride(t *testing.T) {
+	directory := t.TempDir()
+	command := "example-dap"
+	suffix := ""
+	if buildPlatform() == "windows" {
+		suffix = ".exe"
+		t.Setenv("PATHEXT", ".EXE")
+	}
+	onPath := filepath.Join(directory, command+suffix)
+	configured := filepath.Join(t.TempDir(), "custom adapter"+suffix)
+	missing := filepath.Join(t.TempDir(), "missing adapter"+suffix)
+	neighbor := filepath.Join(t.TempDir(), "adjacent adapter")
+	for _, path := range []string{onPath, configured, neighbor + ".exe"} {
+		if err := os.WriteFile(path, nil, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", directory)
+	a := &App{}
+	for _, tc := range []struct {
+		name, path, want string
+	}{
+		{"default", "", onPath},
+		{"override", configured, configured},
+		{"missing", missing, ""},
+		{"no extension substitution", neighbor, ""},
+		{"relative", command, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := json.Marshal(map[string]any{
+				"launch": map[string]any{
+					"kind": "systemCommand", "commands": []string{command}, "configuredExecutable": tc.path,
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var plan core.PluginBackendPlan
+			if err := json.Unmarshal(data, &plan); err != nil {
+				t.Fatal(err)
+			}
+			got, _, _, err := a.resolveAdapterProcess(context.Background(), debugAdapter{Directory: directory}, plan, directory, directory)
+			if got != tc.want || (err != nil) != (tc.want == "") {
+				t.Fatalf("adapter lookup = %q, %v; want %q", got, err, tc.want)
+			}
+		})
+	}
 }
 
 func (k *countedDebugCreate) CreateDebugSession(ctx context.Context, request core.DebugCreateSessionRequest) (core.DebugUpdate, error) {

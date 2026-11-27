@@ -43,26 +43,13 @@ type IDEHostRequest struct {
 	RequestID string          `json:"requestID"`
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments"`
+	// Older Core revisions report the remaining enqueue budget only on event-driven claim.
+	RemainingMilliseconds *int64 `json:"remainingMilliseconds,omitempty"`
 }
 
 // IDEHostPollResult lists requests delivered by poll. Poll returns at most one.
 type IDEHostPollResult struct {
 	Requests []IDEHostRequest `json:"requests"`
-}
-
-// IDEHostClaimResult carries a nil Request when the request expired, was
-// cancelled or was already claimed.
-type IDEHostClaimResult struct {
-	Request *IDEHostClaimedRequest `json:"request"`
-}
-
-// IDEHostClaimedRequest is a claimed request with the remaining deadline in
-// milliseconds.
-type IDEHostClaimedRequest struct {
-	RequestID             string          `json:"requestID"`
-	Name                  string          `json:"name"`
-	Arguments             json.RawMessage `json:"arguments"`
-	RemainingMilliseconds int64           `json:"remainingMilliseconds"`
 }
 
 // IDEHostRespondResult reports whether the broker still accepted the reply. A
@@ -108,22 +95,11 @@ func (c *Client) IDEHostOpen(ctx context.Context, request IDEHostOpenRequest) (I
 	return result, err
 }
 
-// IDEHostPoll returns the next queued request for one connection, if any.
+// IDEHostPoll atomically claims and returns the next live request, if any.
+// Pass that request to the dispatcher and reply with IDEHostRespond.
 func (c *Client) IDEHostPoll(ctx context.Context, hostID string) (IDEHostPollResult, error) {
 	var result IDEHostPollResult
 	raw, err := c.IDEHostControl(ctx, "poll", map[string]string{"hostID": hostID})
-	if err != nil {
-		return result, err
-	}
-	err = json.Unmarshal(raw, &result)
-	return result, err
-}
-
-// IDEHostClaim atomically claims one unexpired, unclaimed request. Call it
-// immediately before executing the application action.
-func (c *Client) IDEHostClaim(ctx context.Context, hostID, requestID string) (IDEHostClaimResult, error) {
-	var result IDEHostClaimResult
-	raw, err := c.IDEHostControl(ctx, "claim", map[string]string{"hostID": hostID, "requestID": requestID})
 	if err != nil {
 		return result, err
 	}
