@@ -82,8 +82,14 @@ type backend struct {
 	resize func(cols, rows int)
 	// wait blocks until the program has ended and returns its exit status.
 	wait func() (status int, err error)
-	// hangup asks the program to end; kill makes sure it does.
-	hangup, kill func()
+	// hangup asks the program to end; kill makes sure it does. inputReady
+	// reports that the terminal is in the shell line editor's input mode.
+	// interruptInput abandons that input, and closeAtInput invokes the shell's
+	// close key sequence once a fresh prompt has replaced it.
+	hangup, kill   func()
+	inputReady     func() bool
+	interruptInput func()
+	closeAtInput   func()
 	// busy reports that a program other than the shell runs in the terminal. It is
 	// called from any goroutine, also after the shell ended, and answers false when
 	// it cannot tell.
@@ -91,8 +97,6 @@ type backend struct {
 	// promptToken is the token of the prompt marks the shell prints when it was
 	// started with integration (see integration_scripts.go), else empty.
 	promptToken string
-	// retryHangupAtPrompt is set by the Unix backend for integrated Bash.
-	retryHangupAtPrompt bool
 }
 
 // ExitError is why a shell ended with a nonzero status. It has the same
@@ -136,6 +140,10 @@ type Shell struct {
 	lastMark    byte
 	prompted    bool
 	promptShown chan struct{}
+
+	// promptCount counts finished primary prompts. closeThroughInput waits for
+	// the one produced by interrupting the input that was active at close.
+	promptCount int
 }
 
 // Kind is the family of the shell this session runs, Unknown when the program is
@@ -456,26 +464,100 @@ func (shell *Shell) hangUp() {
 		return
 	default:
 	}
-	shell.b.hangup()
-	kill := time.AfterFunc(killGrace, shell.b.kill)
-	var retry *time.Timer
-	if shell.b.retryHangupAtPrompt {
-		shell.mu.Lock()
-		atPrompt := shell.lastMark == 'B'
-		shell.mu.Unlock()
-		if atPrompt {
-			// Bash can print the prompt before Readline is ready to handle
-			// SIGHUP. Give the shell another chance to forward it to its jobs.
-			retry = time.AfterFunc(hangupRetryDelay, shell.b.hangup)
-		}
+	shell.mu.Lock()
+	atPrompt := shell.lastMark == 'B'
+	shell.mu.Unlock()
+	controlled := atPrompt && shell.b.inputReady != nil
+	if controlled {
+		go shell.hangupWhenInputReady()
+	} else {
+		shell.b.hangup()
 	}
+	grace := killGrace
+	if controlled {
+		// The controlled close first waits for the input mode. Give
+		// that wait the same promptGrace a shell between commands already
+		// gets before the forced-exit deadline starts.
+		grace += 2 * promptGrace
+	}
+	kill := time.AfterFunc(grace, shell.b.kill)
 	go func() {
 		<-shell.done
 		kill.Stop()
-		if retry != nil {
-			retry.Stop()
-		}
 	}()
+}
+
+// hangupWhenInputReady waits the short input-mode transition after Bash draws
+// its prompt. Readline puts the terminal into noncanonical no-echo mode only
+// once it owns input, which is when the controlled close can safely discard the
+// input line. Without the transition the plain hangup remains the fallback.
+func (shell *Shell) hangupWhenInputReady() {
+	deadline := time.NewTimer(promptGrace)
+	defer deadline.Stop()
+	poll := time.NewTicker(5 * time.Millisecond)
+	defer poll.Stop()
+	for {
+		if shell.b.inputReady() {
+			shell.closeThroughInput()
+			return
+		}
+		select {
+		case <-shell.done:
+			return
+		case <-deadline.C:
+			shell.b.hangup()
+			return
+		case <-poll.C:
+		}
+	}
+}
+
+// closeThroughInput abandons whatever input Readline holds, including the
+// continuation of a multiline command, then waits for the fresh prompt before
+// invoking the close key sequence. The wait is ordered by inputReady: once the
+// shell is reading this input, no newer primary prompt can already be on its
+// way. If the interrupt is lost, the plain-hangup fallback remains.
+func (shell *Shell) closeThroughInput() {
+	shell.mu.Lock()
+	target := shell.promptCount + 1
+	shell.mu.Unlock()
+	shell.b.interruptInput()
+	deadline := time.NewTimer(promptGrace)
+	defer deadline.Stop()
+	poll := time.NewTicker(5 * time.Millisecond)
+	defer poll.Stop()
+	for {
+		shell.mu.Lock()
+		ready := shell.promptCount >= target
+		shell.mu.Unlock()
+		if ready {
+			shell.b.closeAtInput()
+			go shell.hangupAfterControlledClose()
+			return
+		}
+		select {
+		case <-shell.done:
+			return
+		case <-deadline.C:
+			shell.b.hangup()
+			return
+		case <-poll.C:
+		}
+	}
+}
+
+// hangupAfterControlledClose covers shells whose Readline cannot bind the
+// controlled close, or whose user startup replaced the binding. The close
+// command normally leaves long before this; when it did not, the shell is in
+// the same input state in which a plain hangup is the best remaining shutdown.
+func (shell *Shell) hangupAfterControlledClose() {
+	delay := time.NewTimer(controlledCloseFallbackDelay)
+	defer delay.Stop()
+	select {
+	case <-shell.done:
+	case <-delay.C:
+		shell.b.hangup()
+	}
 }
 
 // sawMark records a prompt mark the reader found in the output.
@@ -486,6 +568,7 @@ func (shell *Shell) sawMark(kind byte) {
 	if kind != 'B' {
 		return
 	}
+	shell.promptCount++
 	shell.prompted = true
 	if shell.promptShown != nil {
 		close(shell.promptShown)
@@ -493,8 +576,9 @@ func (shell *Shell) sawMark(kind byte) {
 	}
 }
 
-// hangupRetryDelay lets Readline finish entering its input loop after the prompt.
-const hangupRetryDelay = 100 * time.Millisecond
+// controlledCloseFallbackDelay lets a working close key binding finish before
+// the plain-hangup fallback is tried.
+const controlledCloseFallbackDelay = 100 * time.Millisecond
 
 // killGrace is how long a shell gets to leave after a hangup before it is killed.
 const killGrace = 500 * time.Millisecond
