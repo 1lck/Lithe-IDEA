@@ -97,7 +97,7 @@ func (a *App) reloadPluginBuildModels(p *project, id string) {
 		if instance.PluginID != id || instance.ModelSource == "" {
 			continue
 		}
-		instance.modelLoaded = false
+		p.unloadBuildModel(instance)
 		instance.modelError, instance.modelStopped = "", false
 		if instance.modelLoading {
 			instance.modelReloadPending = true
