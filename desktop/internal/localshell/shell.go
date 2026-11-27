@@ -516,7 +516,8 @@ func (shell *Shell) hangupWhenInputReady() {
 // continuation of a multiline command, then waits for the fresh prompt before
 // invoking the close key sequence. The wait is ordered by inputReady: once the
 // shell is reading this input, no newer primary prompt can already be on its
-// way. If the interrupt is lost, the plain-hangup fallback remains.
+// way. If the interrupt has not changed that input state, retry it once
+// within the same deadline before falling back to a plain hangup.
 func (shell *Shell) closeThroughInput() {
 	shell.mu.Lock()
 	target := shell.promptCount + 1
@@ -524,6 +525,8 @@ func (shell *Shell) closeThroughInput() {
 	shell.b.interruptInput()
 	deadline := time.NewTimer(promptGrace)
 	defer deadline.Stop()
+	retry := time.NewTimer(inputInterruptRetryDelay)
+	defer retry.Stop()
 	poll := time.NewTicker(5 * time.Millisecond)
 	defer poll.Stop()
 	for {
@@ -541,6 +544,13 @@ func (shell *Shell) closeThroughInput() {
 		case <-deadline.C:
 			shell.b.hangup()
 			return
+		case <-retry.C:
+			shell.mu.Lock()
+			samePrompt := shell.promptCount < target && shell.lastMark == 'B'
+			shell.mu.Unlock()
+			if samePrompt && shell.b.inputReady() {
+				shell.b.interruptInput()
+			}
 		case <-poll.C:
 		}
 	}
@@ -575,6 +585,10 @@ func (shell *Shell) sawMark(kind byte) {
 		shell.promptShown = nil
 	}
 }
+
+// inputInterruptRetryDelay gives Bash time to advance from its current prompt
+// before the terminal retries an interrupt that had no observable effect.
+const inputInterruptRetryDelay = 100 * time.Millisecond
 
 // controlledCloseFallbackDelay lets a working close key binding finish before
 // the plain-hangup fallback is tried.

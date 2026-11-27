@@ -259,7 +259,7 @@ func TestClosingAnIntegratedShellHangsUpTheShellAndItsJobs(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			s := startHangupShell(t, name, nil)
 			s.run("sleep 300 & echo job=$!\r", 1, "\r\njob=")
-			job := jobOf(t, s)
+			job := jobOf(t, s.output)
 			closeAndAwaitEnd(t, s.shell)
 			awaitProcessEnd(t, job)
 		})
@@ -286,7 +286,7 @@ func TestClosingAnIntegratedShellRightAfterACommandHangsUpItsJobs(t *testing.T) 
 			s := startHangupShell(t, test.shell, test.env)
 			s.shell.Write([]byte("sleep 300 & echo job=$!\r"))
 			s.await("the job's pid", func() bool { return jobPattern.MatchString(s.output) })
-			job := jobOf(t, s)
+			job := jobOf(t, s.output)
 			closeAndAwaitEnd(t, s.shell)
 			awaitProcessEnd(t, job)
 		})
@@ -321,7 +321,7 @@ func TestClosingAnIntegratedBashHangsUpTheWholeJob(t *testing.T) {
 func TestClosingAnIntegratedBashHangsUpAStoppedJob(t *testing.T) {
 	s := startHangupShell(t, "bash", nil)
 	s.run("sleep 300 & job=$(jobs -p); echo job=$job; kill -STOP $job\r", 1, "\r\njob=")
-	job := jobOf(t, s)
+	job := jobOf(t, s.output)
 
 	closeAndAwaitEnd(t, s.shell)
 	awaitProcessEnd(t, job)
@@ -333,7 +333,7 @@ func TestClosingAnIntegratedBashHangsUpAStoppedJob(t *testing.T) {
 func TestClosingAnIntegratedBashWithUnfinishedInputHangsUpItsJobs(t *testing.T) {
 	s := startHangupShell(t, "bash", nil)
 	s.run("sleep 300 & echo job=$!\r", 1, "\r\njob=")
-	job := jobOf(t, s)
+	job := jobOf(t, s.output)
 	marker := filepath.Join(t.TempDir(), "was-run")
 	s.shell.Write([]byte("touch " + strconv.Quote(marker) + " \\\ncontinued-input"))
 	s.await("the unfinished input", func() bool { return strings.Contains(s.output, "continued-input") })
@@ -354,7 +354,7 @@ func TestClosingAnIntegratedViBashHangsUpItsJobs(t *testing.T) {
 	}
 	s := startHangupShell(t, "bash", []string{"INPUTRC=" + inputrc})
 	s.run("sleep 300 & echo job=$!\r", 1, "\r\njob=")
-	job := jobOf(t, s)
+	job := jobOf(t, s.output)
 	// Escape moves vi editing to command mode. Both modes must carry the close binding.
 	s.shell.Write([]byte{0x1b})
 	closeAndAwaitEnd(t, s.shell)
@@ -378,11 +378,66 @@ func TestClosingAnIntegratedBashAfterAFailedCommandExitsSuccessfully(t *testing.
 func TestClosingAnIntegratedBashLeavesDisownedJobs(t *testing.T) {
 	s := startHangupShell(t, "bash", nil)
 	s.run("sleep 300 & job=$(jobs -p); echo job=$job; disown\r", 1, "\r\njob=")
-	job := jobOf(t, s)
+	job := jobOf(t, s.output)
 
 	closeAndAwaitEnd(t, s.shell)
-	if err := syscall.Kill(job, 0); err != nil {
-		t.Fatalf("the disowned job %d did not survive the closed terminal: %v", job, err)
+	assertJobSurvived(t, job)
+}
+
+// disown -h marks a job exempt from SIGHUP without removing it from jobs -p.
+// Close must end an ordinary job in the same shell and leave this one running.
+func TestClosingAnIntegratedBashLeavesHangupExemptJobs(t *testing.T) {
+	for _, test := range []struct {
+		name, shell, setup string
+		dropInterrupt      bool
+	}{
+		{name: "default HUP", shell: "bash"},
+		{name: "ignored HUP in the shell", shell: "bash", setup: "trap '' HUP && "},
+		{name: "lost input interrupt", shell: "bash", setup: "trap '' HUP && ", dropInterrupt: true},
+		{name: "system Bash", shell: "/bin/bash"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			s := startHangupShell(t, test.shell, nil)
+			s.run("sleep 300 & echo job=$(jobs -p %1)\r", 1, "\r\njob=")
+			ordinary := jobOf(t, s.output)
+			before := len(s.output)
+			s.run("sleep 300 & echo job=$(jobs -p %2)\r", 1, "")
+			exempt := jobOf(t, s.output[before:])
+
+			// Apply the optional trap after the jobs start so they do not
+			// inherit an ignored SIGHUP.
+			s.run("disown -h %2 && "+test.setup+"echo marked=$(jobs -p %2)\r",
+				1, "marked="+strconv.Itoa(exempt)+"\r\n")
+
+			if test.dropInterrupt {
+				// Drop the first interrupt at the PTY boundary. The close
+				// must recover even when Bash ignores an external hangup.
+				interrupt := s.shell.b.interruptInput
+				first := true
+				s.shell.b.interruptInput = func() {
+					if first {
+						first = false
+						return
+					}
+					interrupt()
+				}
+			}
+			closeAndAwaitEnd(t, s.shell)
+			awaitProcessEnd(t, ordinary)
+			assertJobSurvived(t, exempt)
+		})
+	}
+}
+
+// Unlike signal 0 alone, ps distinguishes a running job from an unreaped zombie.
+func assertJobSurvived(t *testing.T, pid int) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	state, err := exec.CommandContext(ctx, "ps", "-o", "stat=", "-p", strconv.Itoa(pid)).Output()
+	status := strings.TrimSpace(string(state))
+	if err != nil || status == "" || strings.HasPrefix(status, "Z") {
+		t.Fatalf("the job %d did not survive the closed terminal: state=%q, err=%v", pid, state, err)
 	}
 }
 
@@ -420,14 +475,23 @@ func startHangupShell(t *testing.T, name string, env []string) *integrated {
 var jobPattern = regexp.MustCompile(`\r\njob=(\d+)\r\n`)
 
 // jobOf is the pid the shell printed as job=<pid>; the job is killed when the test ends.
-func jobOf(t *testing.T, s *integrated) int {
+func jobOf(t *testing.T, output string) int {
 	t.Helper()
-	match := jobPattern.FindStringSubmatch(s.output)
+	match := jobPattern.FindStringSubmatch(output)
 	if match == nil {
-		t.Fatalf("no job pid in %q", s.output)
+		t.Fatalf("no job pid in %q", output)
 	}
 	job, _ := strconv.Atoi(match[1])
-	t.Cleanup(func() { _ = syscall.Kill(job, syscall.SIGKILL) })
+	process, err := os.FindProcess(job)
+	if err != nil {
+		t.Fatalf("find job process %d: %v", job, err)
+	}
+	t.Cleanup(func() {
+		defer process.Release()
+		if process.Kill() == nil {
+			awaitProcessEnd(t, job)
+		}
+	})
 	return job
 }
 
