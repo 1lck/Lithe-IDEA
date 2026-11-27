@@ -11783,7 +11783,8 @@
     "desktop.directoryMarks.settings.localStoredBadge": "本地存储",
     "desktop.directoryMarks.settings.livePreview": "实时预览",
     "desktop.directoryMarks.settings.visualSemantics": "视觉与语义行为",
-    "desktop.directoryMarks.settings.enabledShort": "已启用"
+    "desktop.directoryMarks.settings.enabledShort": "已启用",
+    "desktop.directoryMarks.preset.archiveName": "归档与只读"
   },
   "overrides": {
     "macos": {

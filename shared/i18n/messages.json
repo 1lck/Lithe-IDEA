@@ -110893,6 +110893,13 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.directoryMarks.preset.archiveName",
+      "description": "Default removable custom directory type for archived read-only folders",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

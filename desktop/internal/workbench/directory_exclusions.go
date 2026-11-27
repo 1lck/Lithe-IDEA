@@ -42,6 +42,9 @@ type directoryRulesFile struct {
 	// HideBgTint and HideTags default to false so background tinting and tags show out of the box.
 	HideBgTint bool `json:"hideBgTint,omitempty"`
 	HideTags   bool `json:"hideTags,omitempty"`
+	// CustomTypesSeeded records that default starter custom types were already offered once,
+	// so deleting them stays deleted across restarts.
+	CustomTypesSeeded bool `json:"customTypesSeeded,omitempty"`
 }
 
 // sharedDirectoryRulesFile is the optional workspace-relative team-shared file (.lithe/directories.json).
@@ -59,6 +62,7 @@ type projectIndexing struct {
 	sharedConfigPath    string
 	hideBgTint          bool
 	hideTags            bool
+	customTypesSeeded   bool
 	gitIgnore           bool
 	loaded              bool
 	unreadable          bool // saved rules could not be decoded; do not replace their file
@@ -127,7 +131,8 @@ func (a *App) installIndexing(p *project, refresh bool) {
 	generation, root, owner, s := ix.generation, p.root, ix.owner, a.store
 	loaded, rules, gitIgnore := ix.loaded, ix.rules, ix.gitIgnore
 	sharedEnabled, sharedPath, sharedRules := ix.sharedConfigEnabled, ix.sharedConfigPath, ix.sharedRules
-	hideBgTint, hideTags := ix.hideBgTint, ix.hideTags
+	hideBgTint, hideTags, seeded := ix.hideBgTint, ix.hideTags, ix.customTypesSeeded
+	lang := a.language()
 	a.background(p, kernelCallTimeout, func(ctx context.Context) func(*App) {
 		var readFailure error
 		if !loaded {
@@ -145,9 +150,20 @@ func (a *App) installIndexing(p *project, refresh bool) {
 				sharedPath = stored.SharedConfigPath
 				hideBgTint = stored.HideBgTint
 				hideTags = stored.HideTags
+				seeded = stored.CustomTypesSeeded
 			} else {
 				rules, gitIgnore = nil, true
 				readFailure = err
+			}
+			if !seeded && readFailure == nil {
+				if meta, ok := a.kernel.(directoryMetaKernel); ok {
+					if len(core.ParseDirectoryRules(rules).CustomTypes) == 0 {
+						if _, next, uerr := meta.UpsertCustomDirectoryType(ctx, defaultArchiveDirectoryType(lang), rules); uerr == nil {
+							rules = next
+						}
+					}
+				}
+				seeded = true
 			}
 			if sharedPath == "" {
 				sharedPath = defaultSharedDirectoryRulesPath
@@ -175,7 +191,7 @@ func (a *App) installIndexing(p *project, refresh bool) {
 			if !loaded && !ix.loaded {
 				ix.rules, ix.gitIgnore, ix.loaded = rules, gitIgnore, true
 				ix.sharedConfigEnabled, ix.sharedConfigPath, ix.sharedRules = sharedEnabled, sharedPath, sharedRules
-				ix.hideBgTint, ix.hideTags = hideBgTint, hideTags
+				ix.hideBgTint, ix.hideTags, ix.customTypesSeeded = hideBgTint, hideTags, seeded
 				ix.unreadable = readFailure != nil
 				if readFailure != nil {
 					a.storedStateFailed("directory_rules", readFailure)
@@ -437,6 +453,7 @@ func (a *App) changeIndexingRules(p *project, reduce func(context.Context, json.
 				SharedConfigPath:    sharedPath,
 				HideBgTint:          hideBgTint,
 				HideTags:            hideTags,
+				CustomTypesSeeded:   true,
 			})
 		}
 		return func(a *App) {
@@ -488,6 +505,22 @@ func parseHexColor(hexStr string, alpha uint8) (gfx.Color, bool) {
 		return gfx.Color{}, false
 	}
 	return gfx.RGBA(uint8(v>>16), uint8((v>>8)&0xff), uint8(v&0xff), float32(alpha)/255.0), true
+}
+
+// defaultArchiveDirectoryType returns the starter removable custom directory type for
+// archived / read-only folders.
+func defaultArchiveDirectoryType(language i18n.Language) core.CustomDirectoryType {
+	return core.CustomDirectoryType{
+		ID:              "custom.archive",
+		Name:            i18n.Shared(language, "desktop.directoryMarks.preset.archiveName"),
+		Tag:             "archive",
+		Icon:            "archive",
+		Color:           "#8b949e",
+		TintBg:          true,
+		InheritBg:       true,
+		ExcludeIndexing: true,
+		ReadOnlyHint:    true,
+	}
 }
 
 // directoryRoleDisplayName returns the localized label of a built-in role or custom type ID.
