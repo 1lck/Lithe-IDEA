@@ -71,13 +71,16 @@ func agentToolMissing(err error) bool {
 }
 
 // notifyAgentToolMissing says the agent's CLI is missing; its button opens the agent's plugin in
-// Plugins, where its command installer is offered.
+// Plugins, where its command installer is offered. The toast has room for one short line, so the
+// explanation goes in the detail that the notification history wraps.
 func (a *App) notifyAgentToolMissing(agent agents.CatalogAgent) {
 	lang := a.language()
 	pluginID := agent.PluginID
-	a.notifyAction(
+	a.notifyActions(
 		i18n.SharedFormat(lang, "desktop.agents.cliMissing", map[string]string{"agent": agent.DisplayName}),
+		i18n.Shared(lang, "desktop.agents.cliMissingDetail"),
 		ui.ToastError, i18n.Shared(lang, "desktop.agents.cliOpenPlugins"),
 		func(a *App) { a.openInstalledPluginSettings(surfaceNotification, pluginID) },
+		"", nil,
 	)
 }

@@ -69,8 +69,10 @@ func TestVisualAgents(t *testing.T) {
 			v.conversations = []*agentConversation{sampleConversation(v.catalog[0])}
 			h.click(center(h.button(itemAgents)))
 
+			// The scenes change the window's state directly, so each one asks for a frame first.
 			shot := func(scene string) {
 				t.Helper()
+				h.redraw()
 				h.settleChain()
 				if err := session.Screenshot(filepath.Join(out, "agents-"+scene+"-"+look.theme+"-"+look.language+".png")); err != nil {
 					t.Fatal(err)
@@ -86,6 +88,23 @@ func TestVisualAgents(t *testing.T) {
 				{Agent: "dev.lithe.test.agent/sample", PluginID: "dev.lithe.test.agent", AgentID: "sample", SessionID: "s3", Cwd: root, Title: "Explain the checkout flow", UpdatedAtMs: now - 86_400_000},
 			}}
 			shot("history")
+
+			v.history.record = &agentRecord{
+				agent: "dev.lithe.test.agent/sample", pluginID: "dev.lithe.test.agent", agentID: "sample", sessionID: "s1",
+				title: "Order total rounding", path: "s1.jsonl", size: 4096, next: 4096, done: true,
+				messages: []agents.RecordedMessage{
+					{Role: "user", Text: "Why does the order total lose a cent on large carts?", AtMs: now - 600_000},
+					{Role: "assistant", Text: "Total adds prices as float64, so each addition can round. Summing integer cents keeps every cart exact.", AtMs: now - 590_000},
+					{Role: "tool", ToolName: "Read", Text: "src/order.go", AtMs: now - 585_000},
+					{Role: "assistant", Text: "Changed Total to sum cents and added a test with a 10,000-item cart.", AtMs: now - 420_000},
+				},
+			}
+			shot("record")
+
+			v.history.record = nil
+			v.tab = agentsTabChat
+			h.app.notifyAgentToolMissing(v.catalog[1])
+			shot("cli-missing")
 		})
 	}
 }

@@ -203,6 +203,9 @@ func TestAMissingAgentCLILeadsToItsPluginInPlugins(t *testing.T) {
 	if entry.text != want || entry.actLabel != i18n.Shared(i18n.English, "desktop.agents.cliOpenPlugins") || entry.act == nil {
 		t.Fatalf("notification = %q with %q, want %q with the Plugins action", entry.text, entry.actLabel, want)
 	}
+	if entry.detail != i18n.Shared(i18n.English, "desktop.agents.cliMissingDetail") {
+		t.Fatalf("notification detail = %q, want the explanation of the Plugins action", entry.detail)
+	}
 
 	h.app.finishConversationStart(h.app.project, agent, "", 0, &toolchain.UnavailableError{Terminal: true, Tool: agent.Tool, Code: "toolchain.pinnedUnavailable"})
 	if entry := h.app.notifications.list[0]; entry.act != nil || entry.text == want {

@@ -219,7 +219,11 @@ Core 定义一套与具体 Agent 无关的会话事件，两种模式都翻译�
 | `desktop/internal/agents/` | `agents.*`、`agentSessions.*` 命令的客户端；把会话事件合并成有上限的对话记录；按清单和用户同意算出授予的权限；会话目录用到的环境变量 |
 | `desktop/internal/pluginservice/agents.go`、`hostmethods.go` | 从已安装插件读出 `agents[]` 和权限；按需启动 Agent 的插件后端；把 `agents/*` 宿主方法交给 Core |
 | `desktop/internal/workbench/agents.go`、`agents_view.go` | 右侧 Agent 工具窗口：对话与历史两个页签、多会话、权限请求、计划、用量状态行、终端打开、CLI 更新确认；远程工作区不显示，安全模式先请求信任 |
-| `desktop/internal/workbench/settings_agents.go`、`desktop/internal/settingswindow/agents_*.go` | 设置 › AI › Agent：逐个插件同意读取本机会话记录；撤销同意时清掉已缓存的记录 |
+| `desktop/internal/workbench/agents_record.go` | 历史页打开一条已记录的会话：用 `agentSessions.read` 按整行分页读取，从头或从搜索命中处开始；文件变了或单行过长时说明原因 |
+| `desktop/internal/workbench/agents_install.go`、`command_installers.go` | CLI 找不到时提示，并打开插件管理里该插件的 `commandInstallers`；受管安装目录参与 CLI 解析。宿主不自己安装 |
+| `desktop/internal/workbench/agents_records_sync.go` | 配置完成后和窗口重新激活时（最多每分钟一次）在后台同步已同意 Agent 的会话记录，`lithe/host/agents/usage` 读到的是最近一次同步 |
+| `desktop/internal/workbench/ide_api_sessions.go` | IDE 连接的两个只读工具 `lithe_sessions_search`、`lithe_sessions_read`：IDE 连接开着、单独的会话搜索开关开着、Agent 已同意才列出；结果有上限，日志只记工具名、条数和耗时 |
+| `desktop/internal/workbench/settings_agents.go`、`desktop/internal/settingswindow/agents_*.go` | 设置 › AI › Agent：逐个插件同意读取本机会话记录，撤销同意时清掉已缓存的记录；“允许 MCP 客户端搜索本地会话”开关 |
 
 配置有先后：插件重新加载和设置里改同意都会重新配置 Core。每次配置在窗口线程领一个序号，后台执行时如果更新的配置已经送到 Core，旧的就不再发送，避免旧授权盖住新授权。
 
@@ -230,7 +234,11 @@ Core 定义一套与具体 Agent 无关的会话事件，两种模式都翻译�
 3. **桌面端界面**。
 4. **插件**：通用管理插件 `lithe-plugin-agent-hub`、Claude Code `lithe-plugin-claude-code`（原生 `-p` 加终端形态）、Codex `lithe-plugin-codex`（`app-server`）。反重力（原生或 ACP，不开放）以后再做。
 
-进度（2026-11-28）：第 1 期已合入 Core；第 2 期在 Core Draft PR Lithe-IDEA/Lithe-core-rust#216；第 3 期在桌面端 Draft PR，固定 #216 的 Core 提交。桌面端还没做的：对话文字的选择与复制（Viva 的 `ui` 门面没有可选择文本）、MCP 会话搜索开关、CLI 安装入口（现在只有更新）。
+进度（2026-11-28）：
+
+- 第 1 期、第 2 期的原生模式已合入 Core（#216）。用量的速度排行、会话按整行分页读取、CLI 安装方式和 IDE 连接的会话搜索在 Core Draft PR Lithe-IDEA/Lithe-core-rust#217，属于 `agents` 0 内的补充。ACP 客户端还没做（#2487），目前没有只提供 ACP 的 Agent 插件。
+- 第 3 期在桌面端 Draft PR #2492，固定 #217 的 Core 提交，#217 合入后换成 main 上的合入提交。第 7 节表里的功能都已实现：对话文字可选择复制，历史页可查看已记录会话，CLI 缺失时引导安装，MCP 会话搜索开关，会话记录后台同步。两端原生整机验收还没做。
+- 第 4 期三个插件已在各自仓库实现：`lithe-plugin-agent-hub` 0.1.0、`lithe-plugin-claude-code` 0.2.0、`lithe-plugin-codex` 0.3.0，依赖未发布的宿主能力，都只能发预发布版，不进 Store。管理插件仓库的宿主端到端测试用真实 Core 和三个插件包，从隔离 HOME 里的 Claude Code、Codex 会话文件一路读到用量、速度和额度的界面。插件界面文字的多语言在 #2493。
 
 ### 9. 契约细节（v0）
 
