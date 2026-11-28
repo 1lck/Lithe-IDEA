@@ -330,11 +330,11 @@ func (a *App) agentPending(c ui.C, p *project, conversation *agentConversation) 
 					ui.Wrap(c, title).FontSize(small).Mono().Color(a.colors.Text).FillWidth()
 					for i, place := range places {
 						if i == agentPermissionPlaces {
-							ui.Text(c.KeyInt(i), i18n.SharedFormat(lang, "desktop.agents.permission.morePlaces",
+							ui.Text(c, i18n.SharedFormat(lang, "desktop.agents.permission.morePlaces",
 								map[string]string{"count": strconv.Itoa(len(places) - i)})).FontSize(small).Color(a.colors.Subtle)
 							break
 						}
-						ui.Text(c.KeyInt(i), agentShownPath(p, place.Path)).FontSize(small).Color(a.colors.Subtle).Ellipsis().FillWidth()
+						ui.Text(c, agentShownPath(p, place.Path)).FontSize(small).Color(a.colors.Subtle).Ellipsis().FillWidth()
 					}
 				})
 			})
@@ -472,7 +472,7 @@ func (a *App) agentPlan(c ui.C, conversation *agentConversation) {
 			}
 			for i, entry := range plan {
 				if i == agentPlanLines {
-					ui.Text(c.KeyInt(i), i18n.SharedFormat(lang, "desktop.agents.plan.more",
+					ui.Text(c, i18n.SharedFormat(lang, "desktop.agents.plan.more",
 						map[string]string{"count": strconv.Itoa(len(plan) - i)})).FontSize(small).Color(a.colors.Subtle).PadX(28).PadY(2)
 					break
 				}
