@@ -119,9 +119,10 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 		headerRow.Children(func() {
 			// The Commit tool window's first tab carries its name, so a project's Commit tool
 			// window shows its tabs without the title, which would only repeat it.
+			// So do the Agent tool window's Chat and History tabs.
 			if tool.id == itemCommit && p != nil {
 				a.commitTabs(c)
-			} else {
+			} else if tool.id != itemAgents || !a.agentsTabsShown(p) {
 				ui.Text(c, tool.label(a.text)).Color(a.colors.Text).Weight(gfx.WeightBold).Ellipsis()
 			}
 			if tabbed {
@@ -141,6 +142,9 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 				// The Problems window's File and Project tabs come before the spacer.
 				a.problemsScopeTabs(c)
 				ui.Spacer(c)
+			case tool.id == itemAgents && a.agentsTabsShown(p):
+				a.agentsTabs(c, p)
+				ui.Spacer(c)
 			default:
 				ui.Spacer(c)
 			}
@@ -152,6 +156,9 @@ func (a *App) shellPanel(c ui.C, s slot, index int, hidden *slot) ui.Box {
 			}
 			if tool.id == itemBuild && p != nil {
 				a.buildToolActions(c, p)
+			}
+			if tool.id == itemAgents && a.agentsTabsShown(p) {
+				a.agentsToolActions(c, p)
 			}
 			if tool.id == itemNotifications {
 				a.notificationClearButton(hk)
@@ -241,6 +248,8 @@ func (a *App) toolBody(c ui.C, tool item, p *project) {
 			a.problemsPanel(c, p)
 		case itemBuild:
 			a.buildToolView(c, p)
+		case itemAgents:
+			a.agentsPanel(c, p)
 		case itemOutput:
 			a.pluginOutputView(c, p)
 		case itemRun:

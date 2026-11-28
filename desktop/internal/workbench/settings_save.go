@@ -313,6 +313,7 @@ func (s settings) clone() settings {
 	s.Network.PasswordIdentity = cloneSetting(s.Network.PasswordIdentity)
 	s.LocalHistory.IgnorePatterns = slices.Clone(s.LocalHistory.IgnorePatterns)
 	s.LocalHistory.IgnoreRegexes = slices.Clone(s.LocalHistory.IgnoreRegexes)
+	s.AgentSessionConsent = maps.Clone(s.AgentSessionConsent)
 	return s
 }
 

@@ -149,17 +149,20 @@ func (s slot) zone() zone {
 // Stable identifiers of the catalog items. They are persisted in the layout file, so
 // a value never changes once released.
 const (
-	itemProject       = "project"
-	itemCommit        = "commit"
-	itemStructure     = "structure"
-	itemFind          = "find"
-	itemGit           = "git"
-	itemTerminal      = "terminal"
-	itemProblems      = "problems"
-	itemReferences    = "references"
-	itemRun           = "run"
-	itemOutput        = "output"
-	itemBuild         = "build"
+	itemProject    = "project"
+	itemCommit     = "commit"
+	itemStructure  = "structure"
+	itemFind       = "find"
+	itemGit        = "git"
+	itemTerminal   = "terminal"
+	itemProblems   = "problems"
+	itemReferences = "references"
+	itemRun        = "run"
+	itemOutput     = "output"
+	itemBuild      = "build"
+	// itemAgents is the Agent tool window: conversations with the agent CLIs plugins declare
+	// and the sessions they recorded (agents.go).
+	itemAgents        = "agents"
 	itemTests         = "tests"
 	itemSecurity      = "security"
 	itemDebug         = "debug"
@@ -220,6 +223,8 @@ type item struct {
 	// remote reports that the item exists only in a remote workspace: in any other window its
 	// button is left out, its tool window does not open and no command shows it.
 	remote bool
+	// local reports that the item exists only in a local workspace, the other way round.
+	local bool
 }
 
 // stripeLucideStroke is the stroke, in Lucide's 24 unit view box, of a Lucide icon drawn in a
@@ -259,6 +264,7 @@ var catalog = []item{
 	{id: itemPorts, zone: zoneBottomLeft, icon: stripeLucide(icons.ArrowLeftRight), label: func(m *i18n.Messages) string { return m.Tools.Ports }, panel: true, remote: true},
 
 	{id: itemBuild, zone: zoneRightTop, icon: &toolicons.Build, label: func(m *i18n.Messages) string { return m.Tools.Build }, panel: true},
+	{id: itemAgents, zone: zoneRightTop, icon: stripeLucide(icons.Bot), label: func(m *i18n.Messages) string { return m.Tools.Agents }, panel: true, local: true},
 	{id: itemNotifications, zone: zoneRightTop, icon: &toolicons.Notifications, label: func(m *i18n.Messages) string { return m.Tools.Notifications }, panel: true},
 
 	{id: itemBackground, zone: zoneBottomRight, icon: stripeLucide(icons.Image), label: func(m *i18n.Messages) string { return m.Tools.Background }},
@@ -324,7 +330,7 @@ type chromeState struct {
 	// open is the catalog index of the open tool window of each slot, -1 for none.
 	open [slotCount]int
 	// remote is set while the window's project is a remote workspace, whose items (item.remote)
-	// are shown only then.
+	// are shown only then, and the items of a local one (item.local) only otherwise.
 	remote bool
 
 	// ids is the identity each button was declared with in the last paint, which the drag
@@ -507,11 +513,18 @@ func (c *chromeState) apply(layout core.ChromeLayout) {
 }
 
 // present reports whether catalog item index exists in the window now: an item of a remote
-// workspace exists only while the project is one.
-func (c *chromeState) present(index int) bool { return c.remote || !c.catalog[index].remote }
+// workspace exists only while the project is one, an item of a local workspace only while it
+// is not.
+func (c *chromeState) present(index int) bool {
+	it := c.catalog[index]
+	if c.remote {
+		return !it.local
+	}
+	return !it.remote
+}
 
-// setRemote shows the items of a remote workspace while remote is set, and leaves them out
-// otherwise, keeping the arrangement.
+// setRemote shows the items of a remote workspace while remote is set, and those of a local
+// one otherwise, keeping the arrangement.
 func (c *chromeState) setRemote(remote bool) {
 	if c.remote == remote {
 		return

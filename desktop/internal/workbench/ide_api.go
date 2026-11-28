@@ -42,6 +42,8 @@ type ideAPIConnection struct {
 	configuration json.RawMessage
 	cancel        context.CancelFunc
 	done          chan struct{}
+	// cursorKey signs the session cursors the connection answers (ide_api_sessions.go).
+	cursorKey [32]byte
 }
 
 // ideAPIState is the project's connection. Enable and close run on the window thread;
@@ -55,6 +57,9 @@ type ideAPIState struct {
 	current       *ideAPIOperation
 	epoch         string
 	nextOperation int
+	// closes counts the times the connection was taken down, so a reconnect that finds the
+	// user disabled the connection meanwhile leaves it off. It is guarded by mu.
+	closes uint64
 }
 
 // ideAPIDirectory is the private directory the Core keeps connection descriptors and
@@ -92,7 +97,7 @@ func (a *App) ideAPIEnable(p *project, permissions core.IDEPermissions, helperPa
 	}
 	ctx, cancel := context.WithTimeout(p.ctx, ideAPICallTimeout)
 	defer cancel()
-	exposure := ideAPIToolExposure()
+	exposure := ideAPIToolExposure(a.ideAPISessionsDeclared.Load())
 	queueEmptyAt := time.Now() // the descriptor cannot accept calls before open
 	opened, err := a.kernel.IDEHostOpen(ctx, core.IDEHostOpenRequest{
 		Directory:    a.ideAPIDirectory(),
@@ -115,6 +120,13 @@ func (a *App) ideAPIEnable(p *project, permissions core.IDEPermissions, helperPa
 		cancel:        loopCancel,
 		done:          make(chan struct{}),
 	}
+	if _, err := rand.Read(conn.cursorKey[:]); err != nil {
+		loopCancel()
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), ideAPICallTimeout)
+		defer closeCancel()
+		_, _ = a.kernel.IDEHostClose(closeCtx, opened.HostID)
+		return nil, err
+	}
 	p.ideAPI.mu.Lock()
 	p.ideAPI.conn = conn
 	p.ideAPI.mu.Unlock()
@@ -135,6 +147,7 @@ func (a *App) ideAPIDisable(p *project) {
 	p.ideAPI.mu.Lock()
 	conn := p.ideAPI.conn
 	p.ideAPI.conn = nil
+	p.ideAPI.closes++
 	p.ideAPI.mu.Unlock()
 	if conn == nil {
 		return
@@ -143,16 +156,24 @@ func (a *App) ideAPIDisable(p *project) {
 	a.tasks.running.Add(1)
 	go func() {
 		defer a.tasks.running.Done()
-		timer := time.NewTimer(ideAPIStopTimeout)
-		defer timer.Stop()
-		select {
-		case <-conn.done:
-		case <-timer.C:
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), ideAPICallTimeout)
-		defer cancel()
-		_, _ = a.kernel.IDEHostClose(ctx, conn.hostID)
+		a.ideAPIStop(conn)
 	}()
+}
+
+// ideAPIStop stops a connection's loop, waiting at most ideAPIStopTimeout, and then closes the
+// connection in the Core, which releases its descriptor lock. It blocks; the caller runs it off
+// the window thread.
+func (a *App) ideAPIStop(conn *ideAPIConnection) {
+	conn.cancel()
+	timer := time.NewTimer(ideAPIStopTimeout)
+	defer timer.Stop()
+	select {
+	case <-conn.done:
+	case <-timer.C:
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), ideAPICallTimeout)
+	defer cancel()
+	_, _ = a.kernel.IDEHostClose(ctx, conn.hostID)
 }
 
 // ideAPILoop serves one connection until it closes. Core's poll atomically takes an

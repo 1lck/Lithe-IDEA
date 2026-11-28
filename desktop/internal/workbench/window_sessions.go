@@ -172,6 +172,8 @@ func (s *windowSessions) config() app.Config {
 			s.active.refreshRecent()
 			s.active.resumeUpdateCheck()
 			s.active.resumePluginAutoUpdates()
+			// Sessions a CLI wrote in a terminal meanwhile reach the usage views.
+			s.active.resumeAgentRecordSync()
 		}
 	}
 	window.OnFrameChange = func(frame gfx.Rect) {

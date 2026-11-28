@@ -152,6 +152,14 @@ type Capabilities map[string][]int
 //   - vcsProviders: each provider's roots get a version control tool window
 //     with status, check-in, rollback, Diff and whatever else the provider
 //     negotiated; its session starts when the window first needs it.
+//   - agents: the Agent tool window starts native sessions of the agents a
+//     plugin declares, in trusted local workspaces only, shows their messages,
+//     tool calls, plans, usage and permission requests, sends prompts and
+//     answers; a terminal-form agent opens in the Terminal tool window, and
+//     an agent's CLI updates there after the user confirms. Its History tab
+//     lists, searches and resumes the recorded sessions. The Agents settings
+//     page grants agents.sessions.read per plugin. Core answers the agents/*
+//     backend methods itself, agents/usage included.
 //
 // Not presented yet (the plugin installs, the part has no surface):
 //
@@ -163,6 +171,8 @@ type Capabilities map[string][]int
 //   - build provider model inputs, native configuration, inline test reports
 //     and runtime debug; build system instance options and task preparations.
 //   - ui commands that belong to no tool window.
+//   - agents in ACP mode: Core does not run an ACP client yet, so an agent
+//     without native mode cannot start (agents.noNativeMode).
 //   - VCS provider annotation, file history, file operations, metadata
 //     watching, authentication, history entry diffs, status in the project tree
 //     and the editor gutter, and lithe/vcs/execution console output.
@@ -172,6 +182,7 @@ type Capabilities map[string][]int
 // not offered for installation.
 func Declared() Capabilities {
 	baseline := []string{
+		"agents",
 		"backend",
 		"beforeLaunchTasks",
 		"buildProviders",

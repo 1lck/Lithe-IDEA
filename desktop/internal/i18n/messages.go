@@ -129,6 +129,7 @@ type ToolMessages struct {
 	References    string
 	Run           string
 	Build         string
+	Agents        string
 	Tests         string
 	Security      string
 	Debug         string
@@ -590,6 +591,7 @@ type SettingsMessages struct {
 	SearchPage         string
 	AI                 string
 	IDEAPI             string
+	Agents             string
 	// PageLater is the body of a page the new desktop client does not offer yet.
 	PageLater string
 

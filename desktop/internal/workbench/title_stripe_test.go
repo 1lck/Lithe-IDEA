@@ -30,7 +30,7 @@ func TestTitleButtonsDragOntoTheStripesAndBack(t *testing.T) {
 	right := h.app.chrome.zoneRects[zoneRightTop]
 	h.drag(center(h.button(itemTitleSettings)), gfx.Point{X: right.X + right.Width/2, Y: right.Y + right.Height - 2})
 	h.settle()
-	if got := h.zoneItems(zoneRightTop); !slices.Equal(got, []string{itemBuild, itemNotifications, itemTitleSettings}) {
+	if got := h.zoneItems(zoneRightTop); !slices.Equal(got, []string{itemBuild, itemAgents, itemNotifications, itemTitleSettings}) {
 		t.Fatalf("top right zone = %v, want the settings button after the notifications button", got)
 	}
 	if got := h.zoneItems(zoneTitle); slices.Contains(got, itemTitleSettings) {
@@ -78,7 +78,7 @@ func TestTitleButtonsDragOntoTheStripesAndBack(t *testing.T) {
 	if got := h.zoneItems(zoneTitle); len(got) == 0 || got[0] != itemTitleSettings {
 		t.Fatalf("title bar = %v, want the settings button back first", got)
 	}
-	if got := h.zoneItems(zoneRightTop); !slices.Equal(got, []string{itemBuild, itemNotifications}) {
+	if got := h.zoneItems(zoneRightTop); !slices.Equal(got, []string{itemBuild, itemAgents, itemNotifications}) {
 		t.Fatalf("top right zone = %v, want the settings button gone", got)
 	}
 	if settings := h.button(itemTitleSettings); settings.Y >= titleBarHeight {

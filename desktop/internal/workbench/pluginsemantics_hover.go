@@ -247,15 +247,7 @@ func (a *App) highlightHover(p *project, page *hoverPage) {
 	if p == nil {
 		return
 	}
-	var blocks []hoverCodeBlock
-	for _, block := range page.doc.Blocks {
-		if block.Kind != markdown.Code {
-			continue
-		}
-		if language := hoverCodeLanguage(block.Info, page.fallback); language != "" {
-			blocks = append(blocks, hoverCodeBlock{language: language, text: block.Text})
-		}
-	}
+	blocks := markdownCodeBlocks(&page.doc, page.fallback)
 	if len(blocks) == 0 {
 		return
 	}
@@ -268,6 +260,22 @@ func (a *App) highlightHover(p *project, page *hoverPage) {
 			}
 		}
 	})
+}
+
+// markdownCodeBlocks is the code blocks of doc in a language: the one their info string names,
+// or fallback for a block without one.
+func markdownCodeBlocks(doc *markdown.Document, fallback string) []hoverCodeBlock {
+	var blocks []hoverCodeBlock
+	for i := range doc.Blocks {
+		block := &doc.Blocks[i]
+		if block.Kind != markdown.Code {
+			continue
+		}
+		if language := hoverCodeLanguage(block.Info, fallback); language != "" {
+			blocks = append(blocks, hoverCodeBlock{language: language, text: block.Text})
+		}
+	}
+	return blocks
 }
 
 // hoverCodeTokens highlights every line of blocks whose language the registry knows.
@@ -302,9 +310,16 @@ func hoverCodeTokens(registry *syntax.Registry, blocks []hoverCodeBlock) map[hov
 }
 
 // hoverCodeRuns is the page's MarkdownStyle.Highlight: the colored stretches of one code line,
-// from the tokens the background found. A token in the plain text color is left plain.
+// from the tokens the background found.
 func (a *App) hoverCodeRuns(page *hoverPage, info, line string, dst []components.MarkdownCodeRun) []components.MarkdownCodeRun {
-	tokens := page.tokens[hoverCodeKey{language: hoverCodeLanguage(info, page.fallback), line: line}]
+	return a.markdownCodeRuns(page.tokens, page.fallback, info, line, dst)
+}
+
+// markdownCodeRuns is a MarkdownStyle.Highlight over tokens found by hoverCodeTokens: the colored
+// stretches of one code line, in the hover palette's classes. A token in the plain text color is
+// left plain, and so is a line no token was found for.
+func (a *App) markdownCodeRuns(found map[hoverCodeKey][]syntax.Token, fallback, info, line string, dst []components.MarkdownCodeRun) []components.MarkdownCodeRun {
+	tokens := found[hoverCodeKey{language: hoverCodeLanguage(info, fallback), line: line}]
 	if len(tokens) == 0 {
 		return dst
 	}

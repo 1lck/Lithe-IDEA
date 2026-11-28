@@ -91,6 +91,8 @@ type shownTab struct {
 	view *viewerTab
 	// lsp is the LSP Logs tab (lsp_status.go).
 	lsp bool
+	// agent is the conversation an Agent tab shows (agents_tab.go).
+	agent *agentConversation
 }
 
 // member is the name the group lists the tab's terminal, file or diff under.
@@ -104,6 +106,8 @@ func (s shownTab) member() string {
 		return viewerMember(s.view.id)
 	case s.lsp:
 		return lspLogMember
+	case s.agent != nil:
+		return agentMember(s.agent.tab)
 	}
 	return terminalMember(s.term.id)
 }
@@ -205,6 +209,10 @@ func (a *App) groupTabs(group string) ([]shownTab, string) {
 			}
 		} else if member == lspLogMember {
 			shown = append(shown, shownTab{lsp: true})
+		} else if id, ok := memberAgent(member); ok {
+			if conversation := a.agentsView.tabConversation(id); conversation != nil {
+				shown = append(shown, shownTab{agent: conversation})
+			}
 		}
 	}
 	return shown, g.Selected
@@ -229,6 +237,10 @@ func (a *App) tabWidth(canvas *gfx.Canvas, s shownTab) float32 {
 	}
 	if s.lsp {
 		return tabChrome + canvas.TextWidth(a.tabLabel(s), size)
+	}
+	if s.agent != nil {
+		width := tabChrome + canvas.TextWidth(a.tabLabel(s), size)
+		return min(max(width, terminalChipMinWidth), terminalChipMaxWidth)
 	}
 	width := tabChrome + canvas.TextWidth(a.terminalTitle(s.term), size)
 	return min(max(width, terminalChipMinWidth), terminalChipMaxWidth)
@@ -487,6 +499,8 @@ func (a *App) selectTab(t shownTab) {
 		a.selectViewer(a.project, t.view.id)
 	case t.lsp:
 		a.selectLSPLog(a.project)
+	case t.agent != nil:
+		a.selectAgentTab(a.project, t.agent.tab)
 	default:
 		a.selectTerminal(a.project, t.term.id)
 	}
@@ -503,6 +517,8 @@ func (a *App) closeTab(t shownTab) {
 		a.closeViewer(a.project, t.view.id)
 	case t.lsp:
 		a.closeLSPLog(a.project)
+	case t.agent != nil:
+		a.closeAgentTab(a.project, t.agent)
 	default:
 		a.requestCloseTerminal(a.project, t.term.id)
 	}
@@ -609,6 +625,8 @@ func (a *App) tabLabel(t shownTab) string {
 		return t.view.name
 	case t.lsp:
 		return i18n.Shared(a.language(), "logs.language.tabTitle")
+	case t.agent != nil:
+		return agentConversationTitle(t.agent)
 	}
 	return a.terminalTitle(t.term)
 }
@@ -626,6 +644,8 @@ func (a *App) tabIcon(t shownTab) gfx.Icon {
 		return icons.File
 	case t.lsp:
 		return icons.FileText
+	case t.agent != nil:
+		return a.agentIcon(t.agent.agent.Key())
 	}
 	return icons.SquareTerminal
 }

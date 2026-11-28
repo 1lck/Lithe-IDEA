@@ -390,6 +390,7 @@ func (a *App) reloadPluginLanguages() {
 			l.finish()
 		}
 	}
+	agentTicket := a.agentConfigureTicket()
 	a.background(nil, pluginStateTimeout, func(ctx context.Context) func(*App) {
 		if a.pluginReloadGeneration.Load() != generation {
 			return nil
@@ -480,11 +481,13 @@ func (a *App) reloadPluginLanguages() {
 		if stale {
 			return nil
 		}
+		agentCatalog := a.configureAgents(ctx, snapshot, agentTicket)
 		return func(a *App) {
 			if a.pluginReloadGeneration.Load() != generation {
 				return
 			}
 			a.applyHiddenDirectories(hidden)
+			a.applyAgentCatalog(agentCatalog)
 			if p := a.project; p != nil && !p.everywhereSymbols.discovering {
 				p.everywhereSymbols.discoveryStarted = false
 				if a.everywhereView.open && everywhereShowsSymbols(p.everywhere.scope) {
@@ -562,6 +565,10 @@ type pluginManifestFacts struct {
 		ID          string `json:"id"`
 		DisplayName string `json:"displayName"`
 	} `json:"vcsProviders"`
+	Agents []struct {
+		ID          string `json:"id"`
+		DisplayName string `json:"displayName"`
+	} `json:"agents"`
 	UI struct {
 		ToolWindows []struct {
 			ID    string `json:"id"`
@@ -725,6 +732,11 @@ func describeManifest(item *settingswindow.PluginFacts, manifest pluginManifestF
 	for _, provider := range manifest.VcsProviders {
 		item.Capabilities = append(item.Capabilities, settingswindow.PluginCapability{
 			Kind: settingswindow.CapabilityVersionControl, ID: provider.ID, Title: provider.DisplayName,
+		})
+	}
+	for _, agent := range manifest.Agents {
+		item.Capabilities = append(item.Capabilities, settingswindow.PluginCapability{
+			Kind: settingswindow.CapabilityAgent, ID: agent.ID, Title: agent.DisplayName,
 		})
 	}
 }

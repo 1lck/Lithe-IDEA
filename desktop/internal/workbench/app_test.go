@@ -361,7 +361,7 @@ func TestWorkbenchDefaultLayout(t *testing.T) {
 		zoneLeftTop:     {itemProject, itemCommit, itemStructure, itemFind},
 		zoneLeftBottom:  nil,
 		zoneBottomLeft:  {itemGit, itemTerminal, itemProblems, itemReferences, itemOutput, itemRun, itemTests, itemSecurity, itemDebug},
-		zoneRightTop:    {itemBuild, itemNotifications},
+		zoneRightTop:    {itemBuild, itemAgents, itemNotifications},
 		zoneRightBottom: nil,
 		zoneBottomRight: {itemBackground},
 		zoneTitle:       {itemRunConfig, itemTitleRun, itemTitleDebug, itemTitleSearch, itemTitleSettings},

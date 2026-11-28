@@ -138,6 +138,10 @@ func (a *App) groupBody(c ui.C, id string, doc *document) {
 		a.lspLogView(c)
 		return
 	}
+	if conversation := a.selectedAgentTab(id); conversation != nil {
+		a.agentChatBody(c, a.project, conversation, true)
+		return
+	}
 	if t := a.project.terms.selected(id); t != nil {
 		a.terminalView(c, t)
 	}
