@@ -79,7 +79,9 @@ func TestShellSeesItsDirectoryAsTheHostSpelledIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	shell, wakes := start(t, Config{Dir: link})
-	shell.Write([]byte("echo dir=$(pwd)\n"))
+	if !shell.Write([]byte("echo dir=$(pwd)\n")) {
+		t.Fatal("Write refused")
+	}
 	until(t, shell, wakes, "dir="+link+"\r\n")
 }
 

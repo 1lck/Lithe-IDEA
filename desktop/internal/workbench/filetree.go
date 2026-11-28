@@ -51,11 +51,12 @@ type fileTree struct {
 	anchor  string
 	targets []string
 	// removal is the Delete dialog, open while the user chooses between the trash and deleting
-	// for good (filetree_batch.go). removing counts the confirmed roots still being deleted;
-	// removalWaiters are close callbacks waiting for those writes to finish.
-	removal        treeRemoval
-	removing       map[string]int
-	removalWaiters []func()
+	// for good (filetree_batch.go). removing guards the roots of confirmed deletions.
+	removal  treeRemoval
+	removing map[string]int
+	// Project close waits for filesystem and metadata writes, not refreshes or reads.
+	pendingWrites int
+	writeWaiters  []func()
 	// rowRefs maps the identity of each row the last paint declared (view.RowID, which the row's
 	// name labels) to its node, so a drag or drop finds the paths it names (filetree_dnd.go);
 	// clip is the cut or copied items.
@@ -112,7 +113,9 @@ type fileTree struct {
 	// listings again.
 	expandingAll bool
 	expandSeen   map[int]bool
-	refreshing   bool
+	// expandReadsLeft belongs to one Expand All. Empty results never refund reads.
+	expandReadsLeft int
+	refreshing      bool
 	// prompt is the open New File, New Directory or Rename dialog of a row
 	// (see filetree_menu.go).
 	prompt treePrompt
@@ -155,7 +158,8 @@ func (t *fileTree) forgetNode(n *treeNode) {
 
 // replaceChildren keeps the identities and loaded descendants of entries that still exist.
 // The rows are laid out again after it, which moves a selection whose node went away.
-func (t *fileTree) replaceChildren(parent *treeNode, entries []core.WorkspaceNode) {
+func (p *project) replaceChildren(parent *treeNode, entries []core.WorkspaceNode) {
+	t := &p.tree
 	old := make(map[string]*treeNode, len(parent.children))
 	for _, child := range parent.children {
 		old[child.path] = child
@@ -170,13 +174,17 @@ func (t *fileTree) replaceChildren(parent *treeNode, entries []core.WorkspaceNod
 			}
 			child = t.node(entry, parent.depth+1)
 		} else {
-			child.name, child.empty = entry.Name, entry.Leaf
-			if child.empty {
+			child.name = entry.Name
+			if entry.Leaf {
+				child.empty = true
 				child.listed = true
 				for _, descendant := range child.children {
 					t.forgetNode(descendant)
 				}
 				child.children = nil
+			} else if child.empty && !child.expanded && !t.recursiveWatch && t.watches[child.path] == nil && !p.remoteWatching() {
+				// A collapsed directory without a watch may have changed since its last read.
+				child.empty, child.listed = false, false
 			}
 		}
 		if t.byPath != nil {
@@ -297,7 +305,12 @@ func (a *App) pumpTreeListings(p *project) {
 				}
 				if listing, ok := byPath[path]; ok {
 					n.linked = listing.Linked
-					t.replaceChildren(n, listing.Children)
+					p.replaceChildren(n, listing.Children)
+					if n != t.root && !n.listed && len(n.children) == 0 {
+						n.expanded = false
+						// A deferred probe found no rows to open. Another folder can use its slot.
+						delete(t.expandSeen, n.id)
+					}
 					n.listed, n.empty = true, len(n.children) == 0
 					if n == t.root {
 						t.failed = ""

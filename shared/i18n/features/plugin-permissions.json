@@ -259,6 +259,34 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.marketplace.permissionAgentsRun",
+      "description": "Plugin permission list: what the agents.run permission allows.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionAgentsNative",
+      "description": "Plugin permission list: what the agents.native permission allows.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionAgentsSessionsRead",
+      "description": "Plugin permission list: what the agents.sessions.read permission allows.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.permissionAgentsUsageRead",
+      "description": "Plugin permission list: what the agents.usage.read permission allows.",
+      "platforms": [
+        "desktop"
+      ]
     }
   ],
   "locales": {
@@ -299,7 +327,11 @@
       "desktop.marketplace.permissionClipboardWrite": "Write text to your system clipboard",
       "desktop.marketplace.permissionWorkspaceReveal": "Reveal workspace files in the file manager",
       "desktop.marketplace.permissionWorkspaceDirectoryMarks": "Mark folders in the project tree with folder types, and leave folders out of indexing and search",
-      "desktop.marketplace.permissionNetworkRequest": "Send HTTP requests with the host’s proxy and certificate settings"
+      "desktop.marketplace.permissionNetworkRequest": "Send HTTP requests with the host’s proxy and certificate settings",
+      "desktop.marketplace.permissionAgentsRun": "Run the agent tool when you start a session or confirm an update",
+      "desktop.marketplace.permissionAgentsNative": "Write input and report events for this plugin’s native agent sessions",
+      "desktop.marketplace.permissionAgentsSessionsRead": "Read agent session files with your approval",
+      "desktop.marketplace.permissionAgentsUsageRead": "Read usage totals and model names for agents with usage recording enabled"
     },
     "zh-CN": {
       "desktop.marketplace.permissionVcs": "为项目运行版本控制工具",
@@ -338,7 +370,11 @@
       "desktop.marketplace.permissionClipboardWrite": "向系统剪贴板写入文本",
       "desktop.marketplace.permissionWorkspaceReveal": "在文件管理器中显示工作区文件",
       "desktop.marketplace.permissionWorkspaceDirectoryMarks": "在项目树中为文件夹标记目录类型，并把文件夹排除在索引和搜索之外",
-      "desktop.marketplace.permissionNetworkRequest": "使用宿主的代理和证书设置发送 HTTP 请求"
+      "desktop.marketplace.permissionNetworkRequest": "使用宿主的代理和证书设置发送 HTTP 请求",
+      "desktop.marketplace.permissionAgentsRun": "在你启动会话或确认更新后运行 Agent 工具",
+      "desktop.marketplace.permissionAgentsNative": "向此插件的原生 Agent 会话写入输入并报告事件",
+      "desktop.marketplace.permissionAgentsSessionsRead": "经你同意后读取 Agent 会话文件",
+      "desktop.marketplace.permissionAgentsUsageRead": "读取已开启用量记录的 Agent 的用量汇总和模型名称"
     }
   }
 }

@@ -989,6 +989,14 @@ func capabilityDetail(language i18n.Language, capability PluginCapability) strin
 // returns "" and shows only its name.
 func permissionDescription(language i18n.Language, permission string) string {
 	switch permission {
+	case "agents.run":
+		return i18n.Shared(language, "desktop.marketplace.permissionAgentsRun")
+	case "agents.native":
+		return i18n.Shared(language, "desktop.marketplace.permissionAgentsNative")
+	case "agents.sessions.read":
+		return i18n.Shared(language, "desktop.marketplace.permissionAgentsSessionsRead")
+	case "agents.usage.read":
+		return i18n.Shared(language, "desktop.marketplace.permissionAgentsUsageRead")
 	case "languageServer.launch":
 		return i18n.Shared(language, "native.startALanguageServerWhenYouOpenFilesOfItsLanguage")
 	case "backend.launch":
@@ -1019,14 +1027,6 @@ func permissionDescription(language i18n.Language, permission string) string {
 		return i18n.Shared(language, "desktop.marketplace.permissionRuntimesInstall")
 	case "toolchains.provide":
 		return i18n.Shared(language, "desktop.marketplace.permissionToolchainsProvide")
-	case "agents.run":
-		return i18n.Shared(language, "desktop.agents.grant.run")
-	case "agents.native":
-		return i18n.Shared(language, "desktop.agents.grant.native")
-	case "agents.sessions.read":
-		return i18n.Shared(language, "desktop.agents.grant.sessionsRead")
-	case "agents.usage.read":
-		return i18n.Shared(language, "desktop.agents.grant.usageRead")
 	case "ui.contribute":
 		return i18n.Shared(language, "native.addToolWindowsAndCommandsToTheWorkbench")
 	case "ui.web":

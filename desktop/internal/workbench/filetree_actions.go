@@ -3,6 +3,7 @@ package workbench
 import (
 	"strings"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/ui"
@@ -26,6 +27,20 @@ const (
 // listing and more rows on every frame, so in a project with more folders it opens the ones
 // nearest the root and says the rest stayed closed.
 const treeExpandAllLimit = 512
+
+// Allow one extra batch to find populated siblings after empty probes release slots.
+const treeExpandAllReadLimit = treeExpandAllLimit + treeListingBatch
+
+const (
+	treeExpansionLimitedEvent = "app.workspace.tree_expansion_limited"
+	treeExpansionLimitedLevel = core.LevelWarn
+	treeExpansionLimitField   = "limit"
+	treeExpansionReadsField   = "reads"
+)
+
+func treeExpansionLimitedFields(limit string, reads int) map[string]any {
+	return map[string]any{treeExpansionLimitField: limit, treeExpansionReadsField: reads}
+}
 
 // projectTreeActions declares the buttons of the Project tool window's header. They wait for
 // the root's listing, but refresh also asks again for a root that could not be listed.
@@ -196,6 +211,7 @@ func (a *App) retryProjectTree(p *project) {
 func (a *App) expandProjectTree(p *project) {
 	t := &p.tree
 	t.expandingAll, t.expandSeen = true, make(map[int]bool)
+	t.expandReadsLeft = treeExpandAllReadLimit
 	a.stepTreeExpandAll(p)
 }
 
@@ -219,10 +235,11 @@ func (a *App) stepTreeExpandAll(p *project) {
 			if t.expandSeen[n.id] {
 				continue
 			}
-			if len(t.expandSeen) >= treeExpandAllLimit {
+			if t.expandReadsLeft == 0 || len(t.expandSeen) >= treeExpandAllLimit {
 				limited = true
-				continue
+				break
 			}
+			t.expandReadsLeft--
 			t.expandSeen[n.id] = true
 			n.expanded, t.rowsDirty = true, true
 			ask = append(ask, n.path)
@@ -234,12 +251,19 @@ func (a *App) stepTreeExpandAll(p *project) {
 	if len(ask) != 0 {
 		a.listTree(p, ask...)
 	}
-	switch {
-	case limited:
-		t.expandingAll, t.expandSeen = false, nil
+	// Outstanding listings may discover empty folders and release expansion slots.
+	if t.reading || len(t.pending) != 0 {
+		return
+	}
+	t.expandingAll, t.expandSeen = false, nil
+	if limited {
+		reason := "folder_limit"
+		if t.expandReadsLeft == 0 {
+			reason = "read_limit"
+		}
+		a.emit(treeExpansionLimitedLevel, treeExpansionLimitedEvent,
+			treeExpansionLimitedFields(reason, treeExpandAllReadLimit-t.expandReadsLeft))
 		a.notify(i18n.Shared(a.language(), "desktop.project.expandAllIncomplete"))
-	case len(ask) == 0 && !t.reading && len(t.pending) == 0:
-		t.expandingAll, t.expandSeen = false, nil
 	}
 }
 
