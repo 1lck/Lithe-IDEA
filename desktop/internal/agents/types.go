@@ -252,6 +252,7 @@ type ByteRange struct {
 type ListQuery struct {
 	Agents        []string `json:"agents,omitempty"`
 	Cwd           string   `json:"cwd,omitempty"`
+	SessionID     string   `json:"sessionID,omitempty"`
 	ActiveSinceMs int64    `json:"activeSinceMs,omitempty"`
 	Offset        int      `json:"offset"`
 	Limit         int      `json:"limit,omitempty"`
@@ -260,9 +261,12 @@ type ListQuery struct {
 
 // RecordedSession is one recorded session.
 type RecordedSession struct {
-	Agent           string `json:"agent"`
-	SessionID       string `json:"sessionID"`
-	Path            string `json:"path"`
+	Agent     string `json:"agent"`
+	SessionID string `json:"sessionID"`
+	Path      string `json:"path"`
+	// ReadBytes is how many bytes of Path the cache has read, where a read of the whole record
+	// ends.
+	ReadBytes       uint64 `json:"readBytes"`
 	FileCount       int    `json:"fileCount"`
 	ParentSessionID string `json:"parentSessionID,omitempty"`
 	Cwd             string `json:"cwd,omitempty"`
@@ -294,10 +298,12 @@ type SearchHit struct {
 }
 
 // ReadResult is agentSessions.read's answer. Changed reports that the file no longer holds the
-// range as recorded.
+// range as recorded. End is where the next page starts: the range's end, or the start of the line
+// the range cut; it equals the range's start when the range lies inside one line.
 type ReadResult struct {
 	Changed  bool              `json:"changed"`
 	Messages []RecordedMessage `json:"messages"`
+	End      uint64            `json:"end"`
 }
 
 // RecordedMessage is one message of a recorded session.

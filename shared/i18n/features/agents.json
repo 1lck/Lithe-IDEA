@@ -659,6 +659,103 @@
       ]
     },
     {
+      "id": "desktop.agents.history.view",
+      "description": "Button that shows the messages of a recorded session",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.record.back",
+      "description": "Button that leaves a recorded session and returns to the session list",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.record.loading",
+      "description": "Message while the messages of a recorded session are read",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.record.loadMore",
+      "description": "Button that reads the next messages of a recorded session",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.record.fromStart",
+      "description": "Button that shows a recorded session opened at a search hit from its first message",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.record.messages",
+      "description": "Accessibility label of the message list of a recorded session",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.record.tool",
+      "description": "Caption of a tool call in a recorded session",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.record.agent",
+      "description": "Caption of a message the agent wrote in a recorded session",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.record.failed",
+      "description": "Message when the messages of a recorded session could not be read",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.agents.record.changed",
+      "description": "Message when a recorded session's file changed after Lithe read it",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.record.limit",
+      "description": "Message when a recorded session has more messages than the viewer shows",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.agents.record.tooLong",
+      "description": "Message when a recorded session holds a line too long to read",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.record.empty",
+      "description": "Message when the read part of a recorded session holds no messages",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.agents.settings.title",
       "description": "Settings page title for agent session reading",
       "platforms": [
@@ -801,6 +898,19 @@
       "desktop.agents.history.noConsent": "Lithe reads the session files of an agent's CLI only after you allow it in Settings.",
       "desktop.agents.history.openSettings": "Open Settings",
       "desktop.agents.history.unsupported": "No installed agent records its sessions.",
+      "desktop.agents.history.view": "View",
+      "desktop.agents.record.back": "Back to History",
+      "desktop.agents.record.loading": "Reading the session…",
+      "desktop.agents.record.loadMore": "Load More",
+      "desktop.agents.record.fromStart": "View from the Start",
+      "desktop.agents.record.messages": "Session messages",
+      "desktop.agents.record.tool": "Tool",
+      "desktop.agents.record.agent": "Agent",
+      "desktop.agents.record.failed": "Could not read the session: {reason}",
+      "desktop.agents.record.changed": "The session file changed since Lithe read it. Read the sessions again to see it.",
+      "desktop.agents.record.limit": "Showing the first {count} messages.",
+      "desktop.agents.record.tooLong": "The rest of the session has a record line too long to show.",
+      "desktop.agents.record.empty": "This part of the session holds no messages.",
       "desktop.agents.settings.title": "Agents",
       "desktop.agents.settings.intro": "Agent plugins can let Lithe read the session files their CLIs write, to list, search and resume past conversations. Lithe keeps what it reads in its cache and sends none of it anywhere.",
       "desktop.agents.settings.readSessions": "Read session files",
@@ -895,6 +1005,19 @@
       "desktop.agents.history.noConsent": "只有在设置中允许后，Lithe 才会读取 Agent CLI 的会话文件。",
       "desktop.agents.history.openSettings": "打开设置",
       "desktop.agents.history.unsupported": "已安装的 Agent 都不记录会话。",
+      "desktop.agents.history.view": "查看",
+      "desktop.agents.record.back": "返回历史",
+      "desktop.agents.record.loading": "正在读取会话内容…",
+      "desktop.agents.record.loadMore": "加载更多",
+      "desktop.agents.record.fromStart": "从头查看",
+      "desktop.agents.record.messages": "会话消息",
+      "desktop.agents.record.tool": "工具",
+      "desktop.agents.record.agent": "Agent",
+      "desktop.agents.record.failed": "无法读取会话内容：{reason}",
+      "desktop.agents.record.changed": "会话文件在 Lithe 读取后发生了变化。重新读取会话后再查看。",
+      "desktop.agents.record.limit": "只显示前 {count} 条消息。",
+      "desktop.agents.record.tooLong": "会话后面有一行记录太长，无法显示。",
+      "desktop.agents.record.empty": "这部分会话没有消息。",
       "desktop.agents.settings.title": "Agent",
       "desktop.agents.settings.intro": "Agent 插件可以让 Lithe 读取其 CLI 写下的会话文件，用来列出、搜索和继续以前的对话。Lithe 只把读到的内容保存在本机缓存中，不会发送到任何地方。",
       "desktop.agents.settings.readSessions": "读取会话文件",

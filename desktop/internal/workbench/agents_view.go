@@ -622,6 +622,13 @@ func (a *App) agentsHistoryPanel(c ui.C, p *project) {
 		})
 		return
 	}
+	if record := h.record; record != nil {
+		if v.recordReadable(record) {
+			a.agentRecordPanel(c.Part("record"), p, record)
+			return
+		}
+		c.After(a.closeRecord)
+	}
 	ui.Column(c).Fill().Children(func() {
 		ui.Row(c).FillWidth().Shrink(0).PadX(8).PadY(6).Gap(8).Items(ui.Center).Children(func() {
 			field := ui.TextField(c.Key("query"), &h.query, i18n.Shared(lang, "desktop.agents.history.search"),
@@ -671,6 +678,9 @@ func (a *App) agentSessionList(c ui.C, p *project, lang i18n.Language) {
 				ui.Text(row.C, agentSessionDetail(lang, a.agentDisplayName(session.Agent), session.Cwd, session.UpdatedAtMs, h.everywhere)).
 					FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
 			})
+			if _, hit := a.toolIconButton(row.C.Part("view"), i18n.Shared(lang, "desktop.agents.history.view"), icons.Eye, false, false); hit {
+				row.C.After(func() { a.openRecordedSession(p, session) })
+			}
 			if _, hit := a.toolIconButton(row.C.Part("resume"), i18n.Shared(lang, "desktop.agents.history.resume"), icons.Play, false, !a.canResume(session.PluginID, session.AgentID)); hit {
 				pluginID, agentID, id := session.PluginID, session.AgentID, session.SessionID
 				row.C.After(func() { a.resumeRecorded(p, pluginID, agentID, id) })
@@ -683,23 +693,30 @@ func (a *App) agentSessionList(c ui.C, p *project, lang i18n.Language) {
 	}
 }
 
-// agentHitList declares the search hits; a double click resumes the session of one.
+// agentHitList declares the search hits; a double click opens the session of one at the hit.
 func (a *App) agentHitList(c ui.C, p *project, lang i18n.Language) {
 	h := &a.agentsView.history
 	hits := h.hits
 	ui.List(c, &h.list, len(hits), func(row ui.ListRow) {
 		hit := hits[row.Index]
-		row.Element.FillWidth().PadX(10).PadY(5).Gap(2).Children(func() {
-			ui.Column(row.C).FillWidth().Gap(2).Children(func() {
+		row.Element.FillWidth().PadX(10).PadY(5).Gap(8).Items(ui.Center).Children(func() {
+			ui.Column(row.C).Grow(1).Shrink(1).MinWidth(0).Gap(2).Children(func() {
 				ui.Text(row.C, hit.SessionID).Color(a.colors.Text).Ellipsis()
 				ui.Text(row.C, agentSessionDetail(lang, a.agentDisplayName(hit.Agent), "", hit.AtMs, false)).
 					FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
 			})
+			if _, view := a.toolIconButton(row.C.Part("view"), i18n.Shared(lang, "desktop.agents.history.view"), icons.Eye, false, false); view {
+				row.C.After(func() { a.openRecordedHit(p, hit) })
+			}
+			if _, resume := a.toolIconButton(row.C.Part("resume"), i18n.Shared(lang, "desktop.agents.history.resume"), icons.Play, false, !a.canResume(hit.PluginID, hit.AgentID)); resume {
+				pluginID, agentID, id := hit.PluginID, hit.AgentID, hit.SessionID
+				row.C.After(func() { a.resumeRecorded(p, pluginID, agentID, id) })
+			}
 		})
 	}).Label(i18n.Shared(lang, "desktop.agents.history")).Scrollbars().Grow(1).Shrink(1).MinHeight(0).FillWidth()
-	if index, ok := h.list.Submitted(); ok && index < len(hits) && a.canResume(hits[index].PluginID, hits[index].AgentID) {
+	if index, ok := h.list.Submitted(); ok && index < len(hits) {
 		hit := hits[index]
-		c.After(func() { a.resumeRecorded(p, hit.PluginID, hit.AgentID, hit.SessionID) })
+		c.After(func() { a.openRecordedHit(p, hit) })
 	}
 }
 

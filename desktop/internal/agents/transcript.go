@@ -114,7 +114,7 @@ func (t *Transcript) Live() bool { return t.Exit == nil }
 // AddPrompt records a prompt the user is sending. It shows at once, before the turn's replies,
 // which can arrive before Core's answer to the prompt; its turn is zero until PromptAccepted.
 func (t *Transcript) AddPrompt(text string) {
-	t.push(Entry{Kind: EntryUser, Text: clip(text, MaxEntryBytes)})
+	t.push(Entry{Kind: EntryUser, Text: Clip(text, MaxEntryBytes)})
 }
 
 // PromptAccepted gives the oldest prompt still waiting for a turn the turn Core assigned it.
@@ -196,10 +196,10 @@ func (t *Transcript) Apply(event Event) {
 		}
 		t.dropPendingOf(event.Turn)
 		if event.Reason != "" && event.Reason != "completed" {
-			t.push(Entry{Kind: EntryNotice, Turn: event.Turn, Level: "warning", Code: clip(event.Reason, 64), Text: clip(event.Message, MaxEntryBytes)})
+			t.push(Entry{Kind: EntryNotice, Turn: event.Turn, Level: "warning", Code: Clip(event.Reason, 64), Text: Clip(event.Message, MaxEntryBytes)})
 		}
 	case "notice":
-		t.push(Entry{Kind: EntryNotice, Turn: t.ActiveTurn, Level: event.Level, Code: clip(event.Code, 128), Text: clip(event.Text, MaxEntryBytes)})
+		t.push(Entry{Kind: EntryNotice, Turn: t.ActiveTurn, Level: event.Level, Code: Clip(event.Code, 128), Text: Clip(event.Text, MaxEntryBytes)})
 	case "outputLineDropped":
 		t.Dropped++
 	case "exited":
@@ -215,15 +215,15 @@ func (t *Transcript) message(kind EntryKind, event Event) {
 		entry := &t.Entries[at]
 		before := len(entry.Text)
 		if event.Delta {
-			entry.Text = clip(entry.Text+event.Text, MaxEntryBytes)
+			entry.Text = Clip(entry.Text+event.Text, MaxEntryBytes)
 		} else {
-			entry.Text = clip(event.Text, MaxEntryBytes)
+			entry.Text = Clip(event.Text, MaxEntryBytes)
 		}
 		t.bytes += len(entry.Text) - before
 		t.trim()
 		return
 	}
-	t.push(Entry{Kind: kind, Turn: event.Turn, ID: event.MessageID, Text: clip(event.Text, MaxEntryBytes)})
+	t.push(Entry{Kind: kind, Turn: event.Turn, ID: event.MessageID, Text: Clip(event.Text, MaxEntryBytes)})
 	if event.MessageID != "" {
 		t.index[key] = len(t.Entries) - 1
 	}
@@ -236,7 +236,7 @@ func (t *Transcript) toolCall(event Event) {
 		before := entrySize(*entry)
 		entry.Status = event.Status
 		entry.ToolKind = firstNonEmpty(event.ToolKind, entry.ToolKind)
-		entry.Title = firstNonEmpty(clip(event.Title, 1024), entry.Title)
+		entry.Title = firstNonEmpty(Clip(event.Title, 1024), entry.Title)
 		if len(event.Locations) > 0 {
 			entry.Locations = event.Locations
 		}
@@ -249,7 +249,7 @@ func (t *Transcript) toolCall(event Event) {
 	}
 	t.push(Entry{
 		Kind: EntryTool, Turn: event.Turn, ID: event.ToolCallID, Status: event.Status,
-		ToolKind: event.ToolKind, Title: clip(event.Title, 1024), Locations: event.Locations,
+		ToolKind: event.ToolKind, Title: Clip(event.Title, 1024), Locations: event.Locations,
 		Output: tail(event.Output, MaxOutputBytes),
 	})
 	t.index[key] = len(t.Entries) - 1
@@ -323,8 +323,8 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-// clip keeps at most limit bytes of text, cut on a character boundary.
-func clip(text string, limit int) string {
+// Clip keeps at most limit bytes of text, cut on a character boundary.
+func Clip(text string, limit int) string {
 	if len(text) <= limit {
 		return text
 	}

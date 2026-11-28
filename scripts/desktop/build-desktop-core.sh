@@ -397,7 +397,10 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # rules and globs, with submission checks that match the resolver.
 # Lithe-core-rust main at e4c2eb14 (#216): API-45 agents capability 0, native agent sessions
 # (agents.*) and local agent session records (agentSessions.*).
-PINNED_CORE_REVISION="e4c2eb14ba7dff6eab217d7330fb0b601b997687"
+# Lithe-core-rust #217 head at 4e864f76 (not yet on main; re-pin to its main commit once it
+# merges): per-model output speeds in usage and stats, and paged session reads
+# (agentSessions.list's sessionID and readBytes, agentSessions.read's end).
+PINNED_CORE_REVISION="4e864f76fe93c45c904df415e01194b8635625f5"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

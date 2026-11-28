@@ -164,6 +164,8 @@ type agentHistory struct {
 	searched   bool
 	failure    string
 	list       ui.ListState
+	// record is the recorded session shown in place of the list, nil when the list shows.
+	record *agentRecord
 }
 
 // agentCatalogResult is what a configuration found, handed to the window thread. Stale
