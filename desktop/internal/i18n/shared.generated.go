@@ -173,7 +173,7 @@ var sharedCatalogs = map[string]map[string]string{
 		"desktop.build.ignoredPathsDefault":                        "Using the default list; changes are saved on this machine only.",
 		"desktop.build.ignoredPathsHelp":                           "One rule per line, written as in .gitignore and relative to the project root; rules match folders only. Workspace rules override plugin defaults. Later rules win. Start a rule with ! to bring a folder back into detection, even one Git ignores. By default every folder whose name starts with a dot, such as .claude/worktrees, is skipped; dependency caches and build outputs are always skipped. At most 256 rules.",
 		"desktop.build.ignoredPathsLocal":                          "Using the list saved on this machine.",
-		"desktop.build.ignoredPathsPlugin":                         "{system} defaults ({plugin}): {patterns}",
+		"desktop.build.ignoredPathsPlugin":                         "Defaults for {system} ({plugin}): {patterns}",
 		"desktop.build.ignoredPathsTeam":                           "Using the list in the team file {file}; changes are saved on this machine only.",
 		"desktop.build.instanceOptions":                            "{name} workspace options",
 		"desktop.build.invalidIgnoredPath":                         "Line {line} is not a usable ignore rule. Rules follow .gitignore syntax, have no leading or trailing spaces, do not start with # or consist of a lone !, are at most 1024 bytes long, and number at most 256.",

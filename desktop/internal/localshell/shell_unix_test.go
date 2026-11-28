@@ -80,10 +80,7 @@ func TestShellSeesItsDirectoryAsTheHostSpelledIt(t *testing.T) {
 	}
 	shell, wakes := start(t, Config{Dir: link})
 	shell.Write([]byte("echo dir=$(pwd)\n"))
-	output := until(t, shell, wakes, "dir=/")
-	if !strings.Contains(output, "dir="+link+"\r\n") {
-		t.Fatalf("pwd = %q, want %s", output, link)
-	}
+	until(t, shell, wakes, "dir="+link+"\r\n")
 }
 
 // A plugin terminal's own PWD replaces the directory's, and one it unsets is not
