@@ -232,6 +232,16 @@ func TestBuildOptionsIgnoredPathsAreSavedOnThisMachineAndRestored(t *testing.T) 
 	}
 }
 
+// scrollBuildOptionsToBottom wheels over the Detection heading of a newly opened dialog.
+func (h *harness) scrollBuildOptionsToBottom() {
+	h.t.Helper()
+	at := center(h.labelBounds(h.shared("desktop.build.detection")))
+	if err := h.driver.Scroll(gfx.ScrollEvent{X: at.X, Y: at.Y, DeltaY: 20000, Precise: true}); err != nil {
+		h.t.Fatal(err)
+	}
+	h.settle()
+}
+
 func TestBuildOptionsScrollToLastPluginRule(t *testing.T) {
 	h, p := openIgnoredPathsProject(t, "", nil)
 	if err := h.driver.Resize(minWindowWidth, minWindowHeight); err != nil {
@@ -261,11 +271,7 @@ func TestBuildOptionsScrollToLastPluginRule(t *testing.T) {
 	if save.Y+save.Height > minWindowHeight || lastVisible() {
 		t.Fatalf("expected a visible footer and an offscreen last rule, Save at %v", save)
 	}
-	at := center(h.labelBounds(h.shared("desktop.build.detection")))
-	if err := h.driver.Scroll(gfx.ScrollEvent{X: at.X, Y: at.Y, DeltaY: 20000, Precise: true}); err != nil {
-		t.Fatal(err)
-	}
-	h.settle()
+	h.scrollBuildOptionsToBottom()
 	if !lastVisible() || h.pageHit(h.shared("ui.save")).Bounds != save || h.pageHit(h.shared("desktop.git.cancel")).Bounds != cancel {
 		t.Fatalf("after scrolling, last rule at %v, Save at %v (was %v), Cancel at %v (was %v)", lastBounds, h.pageHit(h.shared("ui.save")).Bounds, save, h.pageHit(h.shared("desktop.git.cancel")).Bounds, cancel)
 	}

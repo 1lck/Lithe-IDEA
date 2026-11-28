@@ -67,6 +67,7 @@ func TestBuildOptionsShowTheRuntimeAndDroppedOptions(t *testing.T) {
 	if run := runtimes[1]; run.name != "fixture-runtime" || run.executable != runtimeExecutable || run.source.Kind != "toolchain" {
 		t.Fatalf("runtime row = %+v, want the toolchain's selection", run)
 	}
+	h.scrollBuildOptionsToBottom()
 	for _, label := range []string{
 		i18n.Shared(language, "desktop.build.runtimeHeading"),
 		runtimeExecutable,
