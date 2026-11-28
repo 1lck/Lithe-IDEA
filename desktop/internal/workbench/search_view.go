@@ -97,9 +97,9 @@ func (a *App) searchOptions(c ui.C, language i18n.Language) {
 	}
 	ui.Popover(c, button, &v.optionsOpen, ui.PopoverSpec{Align: ui.End, Width: 300}, func() {
 		option := func(label, action string, value *bool) {
-			before := *value
-			ui.Checkbox(c, value, label)
-			if *value != before {
+			// The checkbox writes the click into *value only once Changed is read or the
+			// paint ends, so comparing *value right after it misses the click.
+			if ui.Checkbox(c, value, label).Changed() {
 				a.performed(action, surfaceButton)
 			}
 		}
