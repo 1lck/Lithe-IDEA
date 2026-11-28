@@ -227,7 +227,7 @@ func (a *App) applyFilteredTreeEvents(p *project, names []string) {
 	// Native recursive streams report physical target paths. Loaded linked listings
 	// must refresh too; Core revalidates their canonical boundary and cycles.
 	for name, node := range p.tree.byPath {
-		if node.linked && node.expanded {
+		if node.linked && (node.expanded || node.empty) {
 			selected[name] = struct{}{}
 		}
 	}

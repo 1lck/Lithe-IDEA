@@ -304,6 +304,8 @@ func (a *App) pumpTreeListings(p *project) {
 					t.replaceChildren(n, listing.Children)
 					if n != t.root && !n.listed && len(n.children) == 0 {
 						n.expanded = false
+						// A deferred probe found no rows to open. Another folder can use its slot.
+						delete(t.expandSeen, n.id)
 					}
 					n.listed, n.empty = true, len(n.children) == 0
 					if n == t.root {

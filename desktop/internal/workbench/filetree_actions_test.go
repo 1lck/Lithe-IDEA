@@ -204,7 +204,7 @@ func TestProjectTreeExpandsAndCollapsesAll(t *testing.T) {
 }
 
 // expandLimitTreeKernel keeps the limit test independent of 512 native Git/ignore
-// queries. The root still comes from Core; each fixture child has its known file.
+// queries. The root still comes from Core; each fixture provides its known children.
 // Small-tree expansion above covers real directory reads through the same queue.
 type expandLimitTreeKernel struct {
 	*testKernel
@@ -252,20 +252,17 @@ func TestProjectTreeExpandAllStopsAtItsLimit(t *testing.T) {
 		paths[i] = folder + "/f.txt"
 		fixtures[folder] = core.DirectoryListing{Path: folder, Children: []core.WorkspaceNode{{Path: paths[i], Name: "f.txt", Leaf: true}}}
 	}
-	writeTreeFiles(t, root, paths...)
+	writeTreeFiles(t, root, paths[1:]...)
+	if err := os.Mkdir(filepath.Join(root, "d0000"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fixtures["d0000"] = core.DirectoryListing{Path: "d0000"}
 	kernel := &expandLimitTreeKernel{testKernel: &testKernel{Client: core.NewClient()}, fixtures: fixtures, requested: make(map[string]bool)}
 	h := newHarness(t, kernel)
 	p := h.openTree(t, root)
-	// Observe this action's notice before unrelated native watcher completions
-	// can replace the single banner (Linux reaches its separate watch cap first).
+	// Check the initial reservations as well as the final count after the empty probe.
 	// The button dispatch is exercised by TestProjectTreeExpandsAndCollapsesAll.
 	h.app.expandProjectTree(p)
-	if p.tree.expandingAll {
-		t.Fatal("Expand All went on past its limit")
-	}
-	if want := i18n.Shared(h.app.language(), "desktop.project.expandAllIncomplete"); h.app.notice != want {
-		t.Fatalf("notice %q, want %q", h.app.notice, want)
-	}
 	expanded := 0
 	for _, child := range p.tree.root.children {
 		if child.expanded {
@@ -276,10 +273,13 @@ func TestProjectTreeExpandAllStopsAtItsLimit(t *testing.T) {
 		t.Fatalf("Expand All opened %d folders, want %d", expanded, treeExpandAllLimit)
 	}
 	awaitDocumentState(t, h, func() bool { return treeIdle(p) })
+	if p.tree.expandingAll || h.app.notice != i18n.Shared(h.app.language(), "desktop.project.expandAllIncomplete") {
+		t.Fatal("expected the expansion limit notice after reads settled")
+	}
 	kernel.mu.Lock()
 	defer kernel.mu.Unlock()
-	if len(kernel.requested) != treeExpandAllLimit || kernel.maxBatch > treeListingBatch {
-		t.Fatalf("read %d folders, largest batch %d; want %d folders in batches of at most %d", len(kernel.requested), kernel.maxBatch, treeExpandAllLimit, treeListingBatch)
+	if len(kernel.requested) != treeExpandAllLimit+1 || kernel.maxBatch > treeListingBatch {
+		t.Fatalf("read %d folders, largest batch %d; want %d folders in batches of at most %d", len(kernel.requested), kernel.maxBatch, treeExpandAllLimit+1, treeListingBatch)
 	}
 	loadedExpanded := 0
 	for _, child := range p.tree.root.children {
@@ -287,6 +287,10 @@ func TestProjectTreeExpandAllStopsAtItsLimit(t *testing.T) {
 			loadedExpanded++
 			if !child.listed || child.loading || !kernel.requested[child.path] || p.tree.find(child.path+"/f.txt") == nil {
 				t.Fatalf("expanded folder %q did not finish loading its file", child.path)
+			}
+		} else if child.path == "d0000" {
+			if !child.listed || !child.empty {
+				t.Fatal("empty folder was not resolved")
 			}
 		} else if child.listed || child.loading || kernel.requested[child.path] {
 			t.Fatalf("closed folder %q was read past the expansion limit", child.path)

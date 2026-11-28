@@ -765,6 +765,18 @@ func TestProjectTreeFollowsExternalDirectoryChanges(t *testing.T) {
 	}
 }
 
+func TestProjectTreeRefreshesCollapsedEmptyLinkOnTargetEvent(t *testing.T) {
+	alias := &treeNode{path: "alias", dir: true, listed: true, empty: true, linked: true}
+	p := &project{remote: &remoteProject{}}
+	p.tree.root = &treeNode{dir: true, expanded: true, children: []*treeNode{alias}}
+	p.tree.reading = true // Inspect the next batch before any filesystem I/O.
+	a := &App{}
+	a.applyFilteredTreeEvents(p, []string{"target/new.txt"})
+	if p.tree.pending["alias"] != alias {
+		t.Fatal("physical target change did not queue the empty alias for refresh")
+	}
+}
+
 func TestProjectTreeEmptyFolderBecomesExpandable(t *testing.T) {
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, "empty"), 0o700); err != nil {

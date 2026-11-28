@@ -234,12 +234,13 @@ func (a *App) stepTreeExpandAll(p *project) {
 	if len(ask) != 0 {
 		a.listTree(p, ask...)
 	}
-	switch {
-	case limited:
-		t.expandingAll, t.expandSeen = false, nil
+	// Outstanding listings may discover empty folders and release expansion slots.
+	if t.reading || len(t.pending) != 0 {
+		return
+	}
+	t.expandingAll, t.expandSeen = false, nil
+	if limited {
 		a.notify(i18n.Shared(a.language(), "desktop.project.expandAllIncomplete"))
-	case len(ask) == 0 && !t.reading && len(t.pending) == 0:
-		t.expandingAll, t.expandSeen = false, nil
 	}
 }
 
