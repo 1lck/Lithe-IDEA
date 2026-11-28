@@ -42,8 +42,8 @@ func (a *App) resolveDocumentLanguage(ctx context.Context, registry *syntax.Regi
 		}
 	}
 	for {
-		if language, ok := registry.ForPath(path); ok {
-			return language.ID, registry.SyntaxForPath(path)
+		if languageID, grammar, ok := a.resolvePathLanguage(ctx, registry, path); ok {
+			return languageID, grammar
 		}
 		if hasExtension {
 			return "", nil

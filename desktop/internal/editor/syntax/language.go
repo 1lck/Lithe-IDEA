@@ -336,6 +336,98 @@ func (r *Registry) ForPath(path string) (*Language, bool) {
 	return nil, false
 }
 
+// PluginForPath returns the plugin-contributed language that matches path by exact name
+// or longest extension, without consulting bundled associations.
+func (r *Registry) PluginForPath(path string) (*Language, bool) {
+	name := fileName(path)
+	if name == "" {
+		return nil, false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if language := r.pluginForName(name); language != nil {
+		return language, true
+	}
+	return nil, false
+}
+
+// BundledForPath returns the bundled language (with any matching plugin override) for path
+// by exact name, name prefix, or longest extension.
+func (r *Registry) BundledForPath(path string) (*Language, bool) {
+	name := fileName(path)
+	if name == "" {
+		return nil, false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if language := bundledForName(name); language != nil {
+		return r.resolveBundledLocked(language), true
+	}
+	return nil, false
+}
+
+// SyntaxForLanguage returns the compiled Syntax for language id, or falls back to the
+// bundled syntax selected by fallbackPath when id names a grammarless plugin language.
+func (r *Registry) SyntaxForLanguage(id, fallbackPath string) *Syntax {
+	if id != "" {
+		if s := r.Syntax(id); s != nil {
+			return s
+		}
+	}
+	if fallbackPath != "" {
+		if bundled := bundledForName(fileName(fallbackPath)); bundled != nil {
+			return r.Syntax(bundled.ID)
+		}
+	}
+	return nil
+}
+
+// CommentsForLanguage returns the comment delimiters for language id, or falls back to the
+// bundled language selected by fallbackPath when id has neither comments nor a grammar.
+func (r *Registry) CommentsForLanguage(id, fallbackPath string) Comments {
+	if id != "" {
+		if language, ok := r.Language(id); ok {
+			if language.Comments != (Comments{}) || language.Scope != "" {
+				return language.Comments
+			}
+		}
+	}
+	if fallbackPath != "" {
+		if bundled := bundledForName(fileName(fallbackPath)); bundled != nil {
+			return bundled.Comments
+		}
+	}
+	return Comments{}
+}
+
+// KnownLanguageIDs returns the sorted, deduplicated list of bundled and plugin language IDs.
+func (r *Registry) KnownLanguageIDs() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	seen := make(map[string]struct{}, len(bundledLanguages)+len(r.plugins))
+	ids := make([]string, 0, len(bundledLanguages)+len(r.plugins))
+	for _, language := range bundledLanguages {
+		if language.ID == "" {
+			continue
+		}
+		if _, ok := seen[language.ID]; !ok {
+			seen[language.ID] = struct{}{}
+			ids = append(ids, language.ID)
+		}
+	}
+	for _, id := range r.pluginOrder {
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; !ok {
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+		}
+	}
+	slices.Sort(ids)
+	return ids
+}
+
 // SyntaxForPath returns the Syntax that colors a file by its name, as ForPath names it: the
 // grammar of the language ForPath gives the file, or nil when there is none.
 //

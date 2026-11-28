@@ -110925,6 +110925,196 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.fileTypeMappings.pageTitle",
+      "description": "Settings sidebar title for file type mappings page",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.fileTypeMappings.keywords",
+      "description": "Settings sidebar search keywords for file type mappings page",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.fileTypeMappings.help",
+      "description": "Info tooltip explaining file type mapping pattern syntax and precedence",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.fileTypeMappings.scopeGlobal",
+      "description": "Segment label for global file type mappings",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.fileTypeMappings.scopeProject",
+      "description": "Segment label for project-level file type mappings",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.fileTypeMappings.sourcePath",
+      "description": "Label for configuration file path",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.fileTypeMappings.noWorkspace",
+      "description": "Status message shown when no local workspace is open for project mappings",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.fileTypeMappings.patternPlaceholder",
+      "description": "Placeholder text for file pattern input field",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.fileTypeMappings.languageLabel",
+      "description": "Accessible label for target language selector",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.fileTypeMappings.add",
+      "description": "Button label to add a file type mapping rule",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.fileTypeMappings.remove",
+      "description": "Button label to remove a file type mapping rule",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.fileTypeMappings.emptyCustom",
+      "description": "Empty state text when no custom mappings exist in the selected scope",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.fileTypeMappings.save",
+      "description": "Button label to save file type mappings",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.fileTypeMappings.discard",
+      "description": "Button label to discard unsaved file type mapping edits",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.fileTypeMappings.refresh",
+      "description": "Button label to reload file type mappings from disk",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.fileTypeMappings.saved",
+      "description": "Status message after saving file type mappings",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.fileTypeMappings.loadFailed",
+      "description": "Error message when loading file type mappings fails",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.fileTypeMappings.saveFailed",
+      "description": "Error message when saving file type mappings fails",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.fileTypeMappings.conflict",
+      "description": "Error message when the mapping configuration file changed on disk",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.fileTypeMappings.invalidPattern",
+      "description": "Validation error for an invalid mapping pattern",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "scope": "string",
+        "pattern": "string"
+      }
+    },
+    {
+      "id": "desktop.fileTypeMappings.invalidLanguage",
+      "description": "Validation error for an invalid language identifier",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "scope": "string",
+        "language": "string"
+      }
+    },
+    {
+      "id": "desktop.fileTypeMappings.unknownLanguage",
+      "description": "Validation error for an unknown language identifier",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "scope": "string",
+        "language": "string"
+      }
+    },
+    {
+      "id": "desktop.fileTypeMappings.tooManyEntries",
+      "description": "Validation error when a mapping scope exceeds 256 entries",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "scope": "string"
+      }
+    },
+    {
+      "id": "desktop.fileTypeMappings.builtinsTitle",
+      "description": "Card title for read-only built-in file type mappings",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.fileTypeMappings.overridden",
+      "description": "Badge text when a built-in mapping is overridden by a custom rule",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }
