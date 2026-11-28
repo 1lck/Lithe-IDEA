@@ -238,6 +238,7 @@ type GraphLabel struct {
 // AdjacentPosition in the row above (Direction "up") or below ("down").
 type GraphElement struct {
 	ID               string `json:"id"`
+	HoverChain       int    `json:"hoverChain,omitempty"`
 	Position         int    `json:"position"`
 	AdjacentPosition int    `json:"adjacentPosition"`
 	Direction        string `json:"direction"`
@@ -253,6 +254,7 @@ type GraphElement struct {
 // GraphRow is the layout of one visible commit.
 type GraphRow struct {
 	CommitHash    string         `json:"commitHash"`
+	HoverChain    int            `json:"hoverChain,omitempty"`
 	Lane          int            `json:"lane"`
 	LaneCount     int            `json:"laneCount"`
 	ColorID       int32          `json:"colorId"`

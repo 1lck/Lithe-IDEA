@@ -24,6 +24,7 @@ func (a *App) logPageView(c ui.C) {
 	v := &a.logView
 	if v.bodyDraw == nil {
 		v.bodyDraw = func(d *ui.DrawContext) { v.bodyRect = d.Rect }
+		v.graphHoverDraw = a.paintLogGraphHover
 		v.barDraw = func(d *ui.DrawContext) { measureLogBar(&v.barWidth, d) }
 		v.filtersDraw = func(d *ui.DrawContext) { measureLogBar(&v.filtersWidth, d) }
 		v.refs.Node, v.refLabel = v.refNode, v.refRowLabel
@@ -681,7 +682,7 @@ func (a *App) runLogView(p *project, i int) {
 	case logViewDetails:
 		l.showDetails = !l.showDetails
 	case logViewRefresh:
-		a.loadLog(p)
+		a.refreshLog(p)
 	case logViewDecorations:
 		l.decorations = !l.decorations
 	case logViewFind:
@@ -878,38 +879,57 @@ func (a *App) drawLogList(c ui.C, p *project) {
 		a.gitEmpty(c, g.NoCommits)
 		return
 	case len(l.graph.Rows) == 0 && l.filtered():
-		a.gitEmpty(c, g.NoMatches)
+		ui.Column(c).Fill().Center().PadX(shellContentPad).Children(func() {
+			ui.Paragraph(c, g.NoMatches, 3).FillWidth().TextCenter().Color(a.colors.Subtle)
+			if l.hasMore || l.loadingMore || l.limitReached || l.projStop != nil || l.projFailed {
+				footer := c.Part("empty-footer")
+				a.drawLogFooter(footer, p, ui.Row(footer))
+			}
+		})
 		return
 	}
 	rows := l.graph.Rows
 	n := len(rows)
-	v.keyRows = rows
 	if v.commits.Selection == nil {
-		v.commits.Selection, v.commits.Key = &v.chosen, v.logCommitKey
+		v.commits.Selection, v.commits.Key = &v.chosen, a.logCommitKey
 	}
-	if l.reveal {
-		l.reveal = false
-		if at := slices.IndexFunc(rows, func(r core.GraphRow) bool { return r.CommitHash == l.selected }); at >= 0 {
+	focusRow := -1
+	if reveal := l.reveal; reveal != logRevealNone {
+		l.reveal = logRevealNone
+		if at := l.visibleRow(l.selected); at >= 0 {
 			v.commits.ScrollIntoView(at)
+			if reveal == logRevealWithFocus {
+				focusRow = at
+			}
 		}
 	}
 	// The list's choice follows the commit selected anywhere else: a reference located in
 	// the graph, a selection that a filter dropped. With no row selected before or after, the
 	// commits chosen are left as they are.
 	if cur := v.commits.Selected(); !v.commits.Changed() && (cur < 0 || cur >= n || rows[cur].CommitHash != l.selected) {
-		if at := slices.IndexFunc(rows, func(r core.GraphRow) bool { return r.CommitHash == l.selected }); at >= 0 || cur >= 0 {
+		if at := l.visibleRow(l.selected); at >= 0 || cur >= 0 {
 			v.commits.Select(at)
 			v.chosen.Clear()
 			if at >= 0 {
-				v.chosen.Add(v.hashKey(l.selected))
+				v.chosen.Add(a.logCommitKey(at))
 			}
 		}
 	}
 	total := n
-	if l.hasMore || l.loadingMore || l.limitReached {
+	if l.hasMore || l.loadingMore || l.limitReached || l.projFailed {
 		total++
 	}
-	area := ui.List(c, &v.commits, total, func(row ui.ListRow) { a.drawLogRow(c, p, rows, row) }).Scrollbars().Grow(1).FillWidth()
+	v.graphHover.rows = v.graphHover.rows[:0]
+	v.hoveredGraphArrow, v.focusedGraphArrow = logGraphArrowHighlight{}, logGraphArrowHighlight{}
+	if c.Canvas().Pressed().IsZero() {
+		v.pressedGraphArrow = logGraphArrowPress{}
+	}
+	area := ui.List(c, &v.commits, total, func(row ui.ListRow) {
+		if row.Index == focusRow {
+			row.C.Canvas().RequestFocusOnce(row.ID)
+		}
+		a.drawLogRow(c, p, rows, row)
+	}).Scrollbars().Grow(1).FillWidth().DrawOver(v.graphHoverDraw)
 	if v.commits.Changed() {
 		if i := v.commits.Selected(); i >= 0 && i < n {
 			a.selectCommit(p, rows[i].CommitHash)
@@ -926,7 +946,7 @@ func (a *App) drawLogRow(c ui.C, p *project, rows []core.GraphRow, row ui.ListRo
 	l, v := &p.log, &a.logView
 	i := row.Index
 	if i >= len(rows) {
-		a.drawLogFooter(c, p, row)
+		a.drawLogFooter(c, p, row.Element)
 		return
 	}
 	box := row.Element.Height(logRowHeight).FillWidth()
@@ -940,23 +960,29 @@ func (a *App) drawLogRow(c ui.C, p *project, rows []core.GraphRow, row ui.ListRo
 	}
 	// The menu hangs on the row the list already identifies: an identity of its own would
 	// take the row's presses from the list, which then never chooses the commit.
-	ui.ContextMenu(row.C, box, a.logCommitMenu(p, i))
+	menu := a.logCommitMenu(p, i)
+	ui.ContextMenu(row.C, box, menu)
 	box.Draw(v.rowPainter(a, i))
+	a.drawLogGraphArrows(p, row, rows[i], menu)
 }
 
 // drawLogFooter declares the row under the list that loads the next page, or that says the log
 // read as many commits as its settings let it and offers them.
-func (a *App) drawLogFooter(c ui.C, p *project, row ui.ListRow) {
+func (a *App) drawLogFooter(c ui.C, p *project, footer ui.Box) {
 	l, g := &p.log, a.text.Git
-	row.Element.Height(logRowHeight * 1.5).FillWidth().Items(ui.Center).Gap(8).PadX(12).Children(func() {
+	footer.Height(logRowHeight * 1.5).FillWidth().Items(ui.Center).Gap(8).PadX(12).Children(func() {
 		ui.Spacer(c)
 		switch {
-		case l.loadingMore:
+		case l.loadingMore || l.projStop != nil:
 			ui.Text(c, g.LoadingCommits).Muted()
-		case l.moreFailed:
+		case l.moreFailed || l.projFailed:
 			ui.Text(c, g.LoadMoreFailed).Color(a.colors.Warning)
 			if ui.Button(c.Part("retry-more"), g.Retry).Ghost().Clicked() {
 				c.After(func() {
+					if l.projFailed {
+						a.reproject(p, 0)
+						return
+					}
 					l.moreFailed = false
 					a.loadMoreLog(p)
 				})
@@ -975,27 +1001,23 @@ func (a *App) drawLogFooter(c ui.C, p *project, row ui.ListRow) {
 	})
 }
 
-// logCommitKey is the key of row i of the commit list in its selection: the key of the commit's
-// hash, so a choice survives a reload that moves the rows. Zero identifies the
-// loading footer, which still needs a valid identity even though it is not selectable.
-func (v *logView) logCommitKey(i int) int {
-	if i < 0 || i >= len(v.keyRows) {
+// logCommitKey keeps list focus and selection tied to a commit in its own
+// repository. Zero belongs to the loading footer.
+func (a *App) logCommitKey(i int) int {
+	p := a.project
+	if p == nil || i < 0 || i >= len(p.log.graph.Rows) {
 		return 0
 	}
-	return v.hashKey(v.keyRows[i].CommitHash)
-}
-
-// hashKey is the selection key of the commit hash: the order the list first showed it in. A
-// row's key is its identity too, which has to be unique and below 2^31, as no digest of the
-// hash is.
-func (v *logView) hashKey(hash string) int {
-	if k, ok := v.keys[hash]; ok {
+	v := &a.logView
+	id := p.logCommitIdentity(p.log.graph.Rows[i].CommitHash)
+	if k, ok := v.keys[id]; ok {
 		return k
 	}
 	if v.keys == nil {
-		v.keys = map[string]int{}
+		v.keys = make(map[logCommitIdentity]int)
 	}
-	k := len(v.keys) + 1 // Zero belongs to the loading footer.
-	v.keys[hash] = k
+	// Viva needs a unique key below 2^31. Number the commits as they appear.
+	k := len(v.keys) + 1
+	v.keys[id] = k
 	return k
 }

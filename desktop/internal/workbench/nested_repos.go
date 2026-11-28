@@ -86,7 +86,12 @@ func (a *App) loadNestedRepos(p *project) {
 	n.gen++
 	gen := n.gen
 	kernel, root := a.kernel, p.root
+	owner := core.SnapshotRemoteWorkspace(p.ctx)
+	session := logRemoteSession(owner)
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
+		if binding := core.RemoteWorkspaceOf(owner); binding != nil {
+			ctx = core.WithRemoteWorkspace(ctx, binding)
+		}
 		found, err := discoverer.DiscoverWorkspaceRepositories(ctx, root)
 		var repos []nestedRepo
 		var slots map[string]int
@@ -105,7 +110,7 @@ func (a *App) loadNestedRepos(p *project) {
 			slots, showColors = assignRepositoryColors(ctx, kernel, ids)
 		}
 		return func(a *App) {
-			if p.nested.gen != gen {
+			if p.nested.gen != gen || (p.remote != nil && (session == "" || session != p.remote.session || p.safeMode())) {
 				return
 			}
 			if err != nil {

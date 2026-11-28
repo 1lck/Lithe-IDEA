@@ -102,10 +102,11 @@ type logView struct {
 
 	// bodyRect is where the commit list and the details were laid out in the last paint, read
 	// from the draw callback bodyDraw gave their box. hasBody says the box was declared.
-	bodyRect ui.Rect
-	bodyDraw func(*ui.DrawContext)
-	hasBody  bool
-	details  bool
+	bodyRect       ui.Rect
+	bodyDraw       func(*ui.DrawContext)
+	graphHoverDraw func(*ui.DrawContext)
+	hasBody        bool
+	details        bool
 
 	// barWidth is the width of the commit list's filter bar and filtersWidth that of its filters
 	// at their own width, as the last paint laid them out, read from the draw callbacks barDraw
@@ -136,16 +137,18 @@ type logView struct {
 	compareRoot   string
 	// commits is the commit list; slotRow is the row each draw slot paints and painters the
 	// callbacks that paint them.
-	commits  ui.ListState
-	slotRow  [logRowSlots]int
-	painters [logRowSlots]func(*ui.DrawContext)
+	commits    ui.ListState
+	slotRow    [logRowSlots]int
+	painters   [logRowSlots]func(*ui.DrawContext)
+	graphHover logGraphHover
+	// Arrow highlights refer to the commit projection being painted.
+	hoveredGraphArrow, focusedGraphArrow logGraphArrowHighlight
+	pressedGraphArrow                    logGraphArrowPress
 	// chosen is the commits chosen in the list, by logCommitKey of their hashes: Primary or
-	// Shift with a click chooses several, for the commit menu's actions on a range. keyRows is
-	// the rows the list's Key names, as the paint being drawn has them, and keys the key of
-	// every commit hash it has shown (hashKey).
-	chosen  ui.Selection
-	keyRows []core.GraphRow
-	keys    map[string]int
+	// Shift with a click chooses several. The list and its selection share the
+	// numeric keys of the repository and commit pairs they have shown.
+	chosen ui.Selection
+	keys   map[logCommitIdentity]int
 
 	// focus is the field to give the keyboard to in the next paint.
 	focus gfx.ID
@@ -175,12 +178,14 @@ type logView struct {
 	fileWidthOf   string
 	fileWidthFont float32
 
-	colors       map[int32]gfx.Color
-	colorsDark   bool
-	dates        map[string]string
-	upstream     map[string]string
-	upstreamFor  *logSection
-	upstreamRefs int
+	colors        map[int32]gfx.Color
+	colorsDark    bool
+	dates         map[string]string
+	arrowTips     logGraphArrowTips
+	arrowPainters logGraphArrowPainters
+	upstream      map[string]string
+	upstreamFor   *logSection
+	upstreamRefs  int
 	// dateWidth is the width of the date column, measured for fonts dateFonts.
 	dateWidth float32
 	dateFonts uint32
@@ -201,10 +206,12 @@ func (v *logView) reset() {
 	}
 	v.file, v.folder = "", ""
 	v.dates = nil
+	v.arrowTips = logGraphArrowTips{}
+	v.pressedGraphArrow = logGraphArrowPress{}
 	v.upstream = nil
 	v.commits = ui.ListState{Label: v.commits.Label}
 	v.chosen.Clear()
-	v.keyRows, v.keys = nil, nil
+	v.keys = nil
 	v.files = ui.ListState{}
 	v.refs.ListState = ui.ListState{}
 	v.forgetLogRefMarks()

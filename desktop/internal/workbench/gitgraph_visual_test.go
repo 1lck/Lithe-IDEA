@@ -16,9 +16,110 @@ import (
 	"github.com/vivaui/viva/headless"
 )
 
-// TestVisualGitGraph captures the actual clipped lists in both Git history views,
-// including a merge, a lane passing unrelated commits, and HEAD.
-func TestVisualGitGraph(t *testing.T) {
+// Each visual case owns its repository and window so its setup, capture, and
+// cleanup are measured together.
+func TestVisualGitGraphLogDark100(t *testing.T) {
+	testVisualGitGraph(t, "git-log", "dark", 1)
+}
+
+func TestVisualGitGraphEmptyFilterPagination(t *testing.T) {
+	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
+	if out == "" {
+		t.Skip("set LITHE_VISUAL_OUTPUT_DIR")
+	}
+	if err := os.MkdirAll(out, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, theme := range []string{"dark", "light"} {
+		t.Run(theme, func(t *testing.T) {
+			dir, kernel := newFilteredLogPagingFixture(t)
+			prefs := store.At(t.TempDir())
+			if err := prefs.Save(settingsFile, settings{Theme: themeChoice(theme), Language: "en"}); err != nil {
+				t.Fatal(err)
+			}
+			var session *headless.Session
+			h := newHarnessWithDriver(t, Options{Kernel: kernel, Store: prefs, Languages: []string{"en"}}, func(config app.Config) (*app.Driver, func(), error) {
+				config.Width, config.Height = 1200, 1050
+				var err error
+				session, err = headless.Open(config, nil, headless.Options{Scale: 1.25})
+				if err != nil {
+					return nil, nil, err
+				}
+				return session.Driver(), session.Close, nil
+			})
+			openLogWithUnmatchedPage(t, h, dir)
+			h.pageHit(h.app.text.Git.LoadMore)
+			if err := session.Screenshot(filepath.Join(out, "git-log-empty-filter-"+theme+"-1.25x.png")); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestVisualGitGraphLogDark125(t *testing.T) {
+	testVisualGitGraph(t, "git-log", "dark", 1.25)
+}
+
+func TestVisualGitGraphLogDark150(t *testing.T) {
+	testVisualGitGraph(t, "git-log", "dark", 1.5)
+}
+
+func TestVisualGitGraphLogDark200(t *testing.T) {
+	testVisualGitGraph(t, "git-log", "dark", 2)
+}
+
+func TestVisualGitGraphLogLight100(t *testing.T) {
+	testVisualGitGraph(t, "git-log", "light", 1)
+}
+
+func TestVisualGitGraphLogLight125(t *testing.T) {
+	testVisualGitGraph(t, "git-log", "light", 1.25)
+}
+
+func TestVisualGitGraphLogLight150(t *testing.T) {
+	testVisualGitGraph(t, "git-log", "light", 1.5)
+}
+
+func TestVisualGitGraphLogLight200(t *testing.T) {
+	testVisualGitGraph(t, "git-log", "light", 2)
+}
+
+func TestVisualGitGraphWorktreeDark100(t *testing.T) {
+	testVisualGitGraph(t, "worktree-history", "dark", 1)
+}
+
+func TestVisualGitGraphWorktreeDark125(t *testing.T) {
+	testVisualGitGraph(t, "worktree-history", "dark", 1.25)
+}
+
+func TestVisualGitGraphWorktreeDark150(t *testing.T) {
+	testVisualGitGraph(t, "worktree-history", "dark", 1.5)
+}
+
+func TestVisualGitGraphWorktreeDark200(t *testing.T) {
+	testVisualGitGraph(t, "worktree-history", "dark", 2)
+}
+
+func TestVisualGitGraphWorktreeLight100(t *testing.T) {
+	testVisualGitGraph(t, "worktree-history", "light", 1)
+}
+
+func TestVisualGitGraphWorktreeLight125(t *testing.T) {
+	testVisualGitGraph(t, "worktree-history", "light", 1.25)
+}
+
+func TestVisualGitGraphWorktreeLight150(t *testing.T) {
+	testVisualGitGraph(t, "worktree-history", "light", 1.5)
+}
+
+func TestVisualGitGraphWorktreeLight200(t *testing.T) {
+	testVisualGitGraph(t, "worktree-history", "light", 2)
+}
+
+// testVisualGitGraph captures a clipped history list with a merge, a passing
+// lane, and HEAD.
+func testVisualGitGraph(t *testing.T, view, theme string, scale float64) {
+	t.Helper()
 	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
 	if out == "" {
 		t.Skip("set LITHE_VISUAL_OUTPUT_DIR")
@@ -45,71 +146,63 @@ func TestVisualGitGraph(t *testing.T) {
 	for i := 1; i <= 5; i++ {
 		gitRun(t, linked, "commit", "--allow-empty", "-m", fmt.Sprintf("feature step %d", i))
 	}
-	for _, theme := range []string{"dark", "light"} {
-		for _, scale := range []float64{1, 1.25, 1.5, 2} {
-			for _, view := range []string{"git-log", "worktree-history"} {
-				t.Run(fmt.Sprintf("%s/%s-%gx", view, theme, scale), func(t *testing.T) {
-					prefs := store.At(t.TempDir())
-					if err := prefs.Save(settingsFile, settings{Theme: themeChoice(theme), Language: "en", DisableAutoSave: true}); err != nil {
-						t.Fatal(err)
-					}
-					var session *headless.Session
-					h := newHarnessWithDriver(t, Options{Kernel: gitKernel{core.NewClient()}, Store: prefs, Languages: []string{"en"}}, func(config app.Config) (*app.Driver, func(), error) {
-						config.Width, config.Height = 1200, 1050
-						var err error
-						session, err = headless.Open(config, nil, headless.Options{Scale: scale})
-						if err != nil {
-							return nil, nil, err
-						}
-						return session.Driver(), session.Close, nil
-					})
-					var rows []core.GraphRow
-					if view == "git-log" {
-						p := h.openLog(t, linked)
-						rows = p.log.graph.Rows
-					} else {
-						h.openWorktrees(t, dir)
-						h.selectWorktreeAt(t, linked)
-						h.clickNamed(h.app.text.Worktrees.History)
-						history := &h.app.project.worktrees.history
-						h.await("the selected checkout's history and graph", func() bool {
-							return history.loaded && !history.loading && len(history.graph.Rows) == len(history.commits)
-						})
-						if !h.app.worktreeView.graphed || len(history.graph.Rows) != 12 {
-							t.Fatalf("worktree history graph has %d rows; drawn=%t", len(history.graph.Rows), h.app.worktreeView.graphed)
-						}
-						rows = history.graph.Rows
-					}
-					h.settleChain()
-					img, err := session.Image()
-					if err != nil {
-						t.Fatal(err)
-					}
-					if err := session.Screenshot(filepath.Join(out, fmt.Sprintf("%s-%s-%gx.png", view, theme, scale))); err != nil {
-						t.Fatal(err)
-					}
-					m := newGraphMetrics(float32(scale))
-					row := h.pageHit("feature step 4").Bounds
-					y := row.Y + m.rowCenter
-					assertGraphStrokeUniform(t, img, row.X+m.laneCenter, y+m.nodeRadius+2, y+logRowHeight-m.nodeRadius-2, m.lineWidth, scale)
-					assertPassingGraphStrokeUniform(t, h, img, rows, sideSubjects, m, scale)
-					if view == "git-log" && theme == "dark" && scale == 1.25 {
-						h.clickNamed("feature step 4")
-						h.settleChain()
-						if h.app.project.log.selected != h.app.project.log.graph.Rows[1].CommitHash {
-							t.Fatal("the older commit was not selected")
-						}
-						head := h.pageHit("feature step 5").Bounds
-						if err := h.driver.Move(head.X+head.Width/2, head.Y+head.Height/2); err != nil {
-							t.Fatal(err)
-						}
-						h.settleChain()
-						if err := session.Screenshot(filepath.Join(out, "git-log-selected-hover-dark-1.25x.png")); err != nil {
-							t.Fatal(err)
-						}
-					}
-				})
-			}
+	prefs := store.At(t.TempDir())
+	if err := prefs.Save(settingsFile, settings{Theme: themeChoice(theme), Language: "en", DisableAutoSave: true}); err != nil {
+		t.Fatal(err)
+	}
+	var session *headless.Session
+	h := newHarnessWithDriver(t, Options{Kernel: gitKernel{core.NewClient()}, Store: prefs, Languages: []string{"en"}}, func(config app.Config) (*app.Driver, func(), error) {
+		config.Width, config.Height = 1200, 1050
+		var err error
+		session, err = headless.Open(config, nil, headless.Options{Scale: scale})
+		if err != nil {
+			return nil, nil, err
+		}
+		return session.Driver(), session.Close, nil
+	})
+	var rows []core.GraphRow
+	if view == "git-log" {
+		p := h.openLog(t, linked)
+		rows = p.log.graph.Rows
+	} else {
+		h.openWorktrees(t, dir)
+		h.selectWorktreeAt(t, linked)
+		h.clickNamed(h.app.text.Worktrees.History)
+		history := &h.app.project.worktrees.history
+		h.await("the selected checkout's history and graph", func() bool {
+			return history.loaded && !history.loading && len(history.graph.Rows) == len(history.commits)
+		})
+		if !h.app.worktreeView.graphed || len(history.graph.Rows) != 12 {
+			t.Fatalf("worktree history graph has %d rows; drawn=%t", len(history.graph.Rows), h.app.worktreeView.graphed)
+		}
+		rows = history.graph.Rows
+	}
+	h.settleChain()
+	img, err := session.Image()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Screenshot(filepath.Join(out, fmt.Sprintf("%s-%s-%gx.png", view, theme, scale))); err != nil {
+		t.Fatal(err)
+	}
+	m := newGraphMetrics(float32(scale))
+	row := h.pageHit("feature step 4").Bounds
+	y := row.Y + m.rowCenter
+	assertGraphStrokeUniform(t, img, row.X+m.laneCenter, y+m.nodeRadius+2, y+logRowHeight-m.nodeRadius-2, m.lineWidth, scale)
+	assertPassingGraphStrokeUniform(t, h, img, rows, sideSubjects, m, scale)
+	if view == "git-log" && theme == "dark" && scale == 1.25 {
+		h.clickNamed("feature step 4")
+		h.settleChain()
+		if h.app.project.log.selected != h.app.project.log.graph.Rows[1].CommitHash {
+			t.Fatal("the older commit was not selected")
+		}
+		head := h.pageHit("feature step 5").Bounds
+		if err := h.driver.Move(head.X+head.Width/2, head.Y+head.Height/2); err != nil {
+			t.Fatal(err)
+		}
+		h.settleChain()
+		if err := session.Screenshot(filepath.Join(out, "git-log-selected-hover-dark-1.25x.png")); err != nil {
+			t.Fatal(err)
 		}
 	}
 }

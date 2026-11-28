@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"slices"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 )
@@ -87,6 +88,9 @@ func (p *project) repositoryName(id string) string {
 // again, and the ones its reference pane lists besides. When Core falls back from the one walked,
 // or picks a nested one because the folder is no repository, the log walks that one from its start.
 func (a *App) selectLogRepo(p *project) {
+	if p.logReads.retired {
+		return
+	}
 	n := &p.nested
 	if p.walksSeveral() {
 		a.selectLogRepos(p)
@@ -101,19 +105,30 @@ func (a *App) selectLogRepo(p *project) {
 	if _, nested := n.repo(active); !nested {
 		active = ""
 	}
-	if active != n.logRepo {
+	changed := active != n.logRepo
+	if changed {
 		a.releaseLogCursor(p)
 		n.logRepo = active
 		p.log.reference, p.log.referenceLabel, p.log.refSelected = "", "", ""
-		if p.log.started {
-			a.loadLog(p)
-			return
-		}
+	}
+	a.refreshSelectedLogRepo(p, changed)
+}
+
+// refreshSelectedLogRepo refreshes after applying current discovery and Core's root selection.
+func (a *App) refreshSelectedLogRepo(p *project, changed bool) {
+	reload := false
+	if r := p.remote; r != nil && r.logNeedsReload {
+		r.logNeedsReload = false
+		reload = p.walksSeveral() || p.logRepo() != nil
 	}
 	// The reference pane lists the other repositories' references, so they are read again once the
 	// repositories are.
 	if p.log.started {
-		a.loadNestedReferences(p)
+		if changed || reload {
+			a.loadLog(p)
+		} else {
+			a.loadNestedReferences(p)
+		}
 	}
 }
 
@@ -121,6 +136,9 @@ func (a *App) selectLogRepo(p *project) {
 // project's own repository, and reads its log once. full, when given, is the reference the log then
 // walks in it, short its name.
 func (a *App) setLogRepo(p *project, id, full, short string) {
+	if p.logReads.retired {
+		return
+	}
 	if p.isOwnID(id) {
 		id = ""
 	}
@@ -170,27 +188,122 @@ func (a *App) selectLogRepos(p *project) {
 	if !ok {
 		return
 	}
-	if !slices.Equal(selection.Chosen, n.chosen) {
+	changed := !slices.Equal(selection.Chosen, n.chosen)
+	if changed {
 		a.applyLogRepos(p, selection)
-		if p.log.started {
-			a.loadLog(p)
-		}
-		return
+	} else {
+		n.others = selection.Others
 	}
-	n.others = selection.Others
-	if p.log.started {
-		a.loadNestedReferences(p)
-	}
+	a.refreshSelectedLogRepo(p, changed)
 }
 
 // releaseLogCursor closes the history walks of the log, when they are open, in the repositories
 // they were opened in.
 func (a *App) releaseLogCursor(p *project) {
-	l := &p.log
-	if l.cursor != "" {
-		a.closeLogCursor(p, l.cursor)
-		l.cursor = ""
+	owner, cursors := a.takeOwnedLogCursors(p)
+	p.log.walks, p.log.origins, p.log.pending = nil, nil, nil
+	a.queueLogCursorClose(p, owner, cursors)
+}
+
+type logCursor struct{ root, token string }
+
+func (a *App) takeOwnedLogCursors(p *project) (context.Context, []logCursor) {
+	cursors := p.log.takeLogCursors()
+	owner := p.log.cursorOwner
+	p.log.cursorOwner = nil
+	if len(cursors) != 0 && owner == nil {
+		owner = core.SnapshotRemoteWorkspace(p.ctx)
 	}
-	a.closeWalkCursors(p, l.walks)
-	l.walks, l.origins, l.pending = nil, nil, nil
+	if owner != nil {
+		owner = a.operationContext(owner)
+	}
+	return owner, cursors
+}
+
+func (l *gitLogState) takeLogCursors() []logCursor {
+	l.stopGitLogRead()
+	if l.windowCancel != nil {
+		l.windowCancel()
+		l.windowCancel = nil
+	}
+	var cursors []logCursor
+	if l.cursor != "" {
+		cursors = append(cursors, logCursor{l.cursorRoot, l.cursor})
+	}
+	for i := range l.walks {
+		walk := &l.walks[i]
+		if walk.cursor != "" {
+			cursors = append(cursors, logCursor{walk.root, walk.cursor})
+			walk.cursor = ""
+		}
+	}
+	l.cursor, l.cursorRoot, l.hasMore = "", "", false
+	return cursors
+}
+
+func (a *App) closeLogCursors(ctx context.Context, kernel historyPager, cursors []logCursor) {
+	remote := core.RemoteWorkspaceOf(ctx) != nil
+	for _, cursor := range cursors {
+		if _, err := kernel.CloseGitHistoryCursor(ctx, cursor.root, cursor.token); err != nil {
+			if remote {
+				err = remoteLogError(err)
+			}
+			a.backgroundFailedIn(ctx, "git_log_cursor_close", err)
+			if ctx.Err() != nil {
+				return
+			}
+		}
+	}
+}
+
+const remoteLogCloseTimeout = 3 * time.Second
+
+func (a *App) logCursorCloser(owner context.Context, pager historyPager) func(root, cursor string) {
+	return func(root, cursor string) {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(owner), remoteLogCloseTimeout)
+		defer cancel()
+		a.closeLogCursors(ctx, pager, []logCursor{{root, cursor}})
+	}
+}
+
+func (l *gitLogState) stopLogPublication() {
+	l.gen++
+	l.loading, l.loadingMore = false, false
+	l.projGen++
+	if l.projStop != nil {
+		close(l.projStop)
+		l.projStop = nil
+	}
+}
+
+// prepareLogClose stops publication and returns the background cleanup of published and pending
+// results. A remote workspace runs the cleanup before disconnecting its session.
+func (a *App) prepareLogClose(p *project, waitTimeout time.Duration) func(context.Context) {
+	reads := &p.logReads
+	if reads.retired {
+		return nil
+	}
+	reads.retired = true
+	p.log.stopLogPublication()
+	p.log.stopLogSelection()
+	owner, cursors := a.takeOwnedLogCursors(p)
+	kernel := a.kernel
+	return func(ctx context.Context) {
+		wait, stopWaiting := context.WithTimeout(ctx, waitTimeout)
+		err := reads.running.WaitContext(wait)
+		stopWaiting()
+		if err != nil {
+			a.backgroundFailedIn(ctx, "git_log_reads_close", err)
+		}
+		// A read can still have returned a cursor when the wait expired. Give cleanup
+		// its own deadline before taking ownership of those results.
+		cleanup, cancel := context.WithTimeout(ctx, remoteLogCloseTimeout)
+		defer cancel()
+		for read, cursors := range reads.takeForClose() {
+			a.closeLogCursors(core.WithRemoteWorkspace(cleanup, core.RemoteWorkspaceOf(read.owner)), kernel, cursors)
+		}
+		if len(cursors) != 0 {
+			a.closeLogCursors(core.WithRemoteWorkspace(cleanup, core.RemoteWorkspaceOf(owner)), kernel, cursors)
+		}
+	}
 }

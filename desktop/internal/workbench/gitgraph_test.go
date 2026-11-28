@@ -250,6 +250,152 @@ func TestGraphHeadClipsCrossingEdge(t *testing.T) {
 	}
 }
 
+func TestGraphWideDiagonalKeepsItsBoundaryAndHit(t *testing.T) {
+	const scale, chain = 1.25, 7
+	var canvas gfx.Canvas
+	canvas.SetPixelScale(scale)
+	m := newGraphMetrics(scale)
+	edge := core.GraphElement{Direction: "down", AdjacentPosition: 40, ColorID: 1, HoverChain: chain}
+	row := core.GraphRow{ColorID: 1, PrintElements: []core.GraphElement{edge}}
+	new(App).paintGraphRow(&canvas, m, gfx.Rect{Width: 900, Height: logRowHeight}, row, func(int32) gfx.Color { return gfx.RGB(220, 70, 80) })
+	x0, y0, x1, y1 := m.line(edge)
+	y := y1 - .1
+	x := x1 - (x1-x0)*(y1-y)/(y1-y0)
+	if !graphInkAt(&canvas, x, y) {
+		t.Errorf("wide diagonal is clipped before its boundary at (%g,%g)", x, y)
+	}
+	if got := graphChainAt(row, m, m.titleOffset(row), gfx.Point{X: x, Y: y}); got != chain {
+		t.Errorf("wide diagonal near the boundary hit chain %d, want %d", got, chain)
+	}
+}
+
+func TestGraphDiagonalDashPhaseCrossesRowBoundary(t *testing.T) {
+	const scale, chain = 1.25, 7
+	m := newGraphMetrics(scale)
+	color := func(int32) gfx.Color { return gfx.RGB(220, 70, 80) }
+	var paint, hit [2]bool
+	for i, edge := range []core.GraphElement{
+		{Direction: "down", Position: 0, AdjacentPosition: 4, IsDotted: true, ColorID: 1, HoverChain: chain},
+		{Direction: "up", Position: 4, AdjacentPosition: 0, IsDotted: true, ColorID: 1, HoverChain: chain},
+	} {
+		var canvas gfx.Canvas
+		canvas.SetPixelScale(scale)
+		row := core.GraphRow{Lane: edge.Position, ColorID: 1, PrintElements: []core.GraphElement{edge}}
+		new(App).paintGraphRow(&canvas, m, gfx.Rect{Width: 240, Height: logRowHeight}, row, color)
+		x0, y0, x1, y1 := m.line(edge)
+		point := gfx.Point{X: x1 + (x0-x1)*.025, Y: y1 + (y0-y1)*.025}
+		paint[i] = graphInkAt(&canvas, point.X, point.Y)
+		hit[i] = graphChainAt(row, m, m.titleOffset(row), point) == chain
+	}
+	if paint[0] != paint[1] || hit != paint {
+		t.Fatalf("dash phase differs across the row boundary: paint %v, hit %v", paint, hit)
+	}
+}
+
+func TestGraphDiagonalDashKeepsStrokeWidthAtRowBoundary(t *testing.T) {
+	const scale, chain = 1.25, 7
+	m := newGraphMetrics(scale)
+	color := func(int32) gfx.Color { return gfx.RGB(220, 70, 80) }
+	for _, edge := range []core.GraphElement{
+		{Direction: "down", Position: 0, AdjacentPosition: 3, IsDotted: true, ColorID: 1, HoverChain: chain},
+		{Direction: "up", Position: 3, AdjacentPosition: 0, IsDotted: true, ColorID: 1, HoverChain: chain},
+	} {
+		var canvas gfx.Canvas
+		canvas.SetPixelScale(scale)
+		row := core.GraphRow{Lane: edge.Position, ColorID: 1, PrintElements: []core.GraphElement{edge}}
+		width := new(App).paintGraphRow(&canvas, m, gfx.Rect{Width: 240, Height: logRowHeight}, row, color)
+		x0, y0, x1, y1 := m.line(edge)
+		dy := float32(math.Copysign(.1, float64(y0-y1)))
+		x := x1 + (x1-x0)*dy/(y1-y0)
+		// At this slope the leading side of the dash still lies within its
+		// true width, past the centerline endpoint of a half cut too short.
+		x += float32(math.Copysign(.65, float64(x1-x0)))
+		if !graphInkAt(&canvas, x, y1+dy) {
+			t.Errorf("%s dash loses its leading fringe by the row clip", edge.Direction)
+		}
+		if got := graphChainAt(row, m, width, gfx.Point{X: x, Y: y1 + dy}); got != chain {
+			t.Errorf("%s dash fringe hit chain %d, want %d", edge.Direction, got, chain)
+		}
+	}
+}
+
+func TestGraphHeadHighlightPreservesRingGap(t *testing.T) {
+	const scale, chain = 2, 7
+	var canvas gfx.Canvas
+	canvas.SetPixelScale(scale)
+	m := newGraphMetrics(scale)
+	a := new(App)
+	a.colors.Text = gfx.RGB(235, 240, 250)
+	row := core.GraphRow{
+		ColorID:       1,
+		HoverChain:    chain,
+		Labels:        []core.GraphLabel{{Kind: "head"}},
+		PrintElements: []core.GraphElement{{Direction: "down", ColorID: 1, HoverChain: chain}},
+	}
+	rect := gfx.Rect{Width: 240, Height: logRowHeight}
+	color := func(int32) gfx.Color { return gfx.RGB(220, 70, 80) }
+	width := a.paintGraphRow(&canvas, m, rect, row, color)
+	a.paintGraphRowWithHover(&canvas, m, rect, row, width, 0, color, 0, chain)
+	x := m.laneCenter + m.nodeRadius*.66
+	if graphInkAt(&canvas, x, m.rowCenter) {
+		t.Fatalf("highlight closed the gap between the HEAD ring and dot at x=%g", x)
+	}
+	if y := m.rowCenter + m.nodeRadius*.9; graphInkAt(&canvas, m.laneCenter, y) {
+		t.Fatalf("the highlighted outgoing edge covers the HEAD ring gap at y=%g", y)
+	}
+	if x := m.laneCenter + m.nodeRadius + m.lineWidth*1.5; !graphInkAt(&canvas, x, m.rowCenter) {
+		t.Fatalf("highlight did not outline the outside of the HEAD ring at x=%g", x)
+	}
+}
+
+func TestGraphSolidHighlightKeepsStrokeWidthAtRowBoundary(t *testing.T) {
+	const scale, chain = 1.25, 7
+	m := newGraphMetrics(scale)
+	a := &App{colors: palette{Text: gfx.RGB(235, 240, 250)}}
+	color := func(int32) gfx.Color { return gfx.RGB(220, 70, 80) }
+	for _, edge := range []core.GraphElement{
+		{Direction: "down", Position: 0, AdjacentPosition: 8, ColorID: 1, HoverChain: chain},
+		{Direction: "up", Position: 8, AdjacentPosition: 0, ColorID: 1, HoverChain: chain},
+	} {
+		var canvas gfx.Canvas
+		canvas.SetPixelScale(scale)
+		row := core.GraphRow{Lane: edge.Position, ColorID: 1, PrintElements: []core.GraphElement{edge}}
+		a.paintGraphRowWithHover(&canvas, m, gfx.Rect{Width: 240, Height: logRowHeight}, row, m.titleOffset(row), 0, color, 0, chain)
+		x0, y0, x1, y1 := m.line(edge)
+		dy := float32(math.Copysign(.1, float64(y0-y1)))
+		x := x1 + (x1-x0)*dy/(y1-y0) + float32(math.Copysign(7.9, float64(x1-x0)))
+		if !graphInkAt(&canvas, x, y1+dy) {
+			t.Errorf("%s highlighted stroke narrows near the row boundary at (%g,%g)", edge.Direction, x, y1+dy)
+		}
+	}
+}
+
+func TestGraphArrowHighlightKeepsHEADGap(t *testing.T) {
+	const scale = 1.75
+	var canvas gfx.Canvas
+	canvas.SetPixelScale(scale)
+	m := newGraphMetrics(scale)
+	a := &App{colors: palette{Text: gfx.RGB(235, 240, 250)}}
+	color := func(int32) gfx.Color { return gfx.RGB(220, 70, 80) }
+	edge := core.GraphElement{Direction: "up", Position: 0, AdjacentPosition: 5, ColorID: 1, HasArrow: true}
+	row := core.GraphRow{Lane: 2, ColorID: 1, PrintElements: []core.GraphElement{edge}, Labels: []core.GraphLabel{{Kind: "head"}}}
+	rect := gfx.Rect{Width: 240, Height: logRowHeight}
+	a.logView.focusedGraphArrow = logGraphArrowHighlight{row: 1}
+	a.paintGraphRowWithHover(&canvas, m, rect, row, m.titleOffset(row), 0, color, 1, 0)
+	center, _ := m.marker(row)
+	_, wings := graphArrowPoints(m, edge)
+	wing := wings[0]
+	dx, dy := wing.X-center.X, wing.Y-center.Y
+	distance := float32(math.Hypot(float64(dx), float64(dy)))
+	x, y := center.X+4*dx/distance, center.Y+4*dy/distance
+	if graphInkAt(&canvas, x, y) {
+		t.Fatalf("focused arrow outline covers the HEAD gap at (%g,%g)", x, y)
+	}
+	if !graphInkAt(&canvas, wing.X, wing.Y) {
+		t.Fatalf("the arrow lost its colored wing at %+v", wing)
+	}
+}
+
 func graphNear(a, b float32) bool { return math.Abs(float64(a-b)) < 0.0001 }
 
 // graphInkAt samples retained geometry before rasterization, so marker tests
@@ -266,6 +412,9 @@ func graphInkAt(canvas *gfx.Canvas, x, y float32) bool {
 		}
 	}
 	for _, tri := range canvas.Triangles() {
+		if tri.HasClip && (x < tri.ClipOf.X || x >= tri.ClipOf.Right() || y < tri.ClipOf.Y || y >= tri.ClipOf.Bottom()) {
+			continue
+		}
 		a, b, c := tri.Points[0], tri.Points[1], tri.Points[2]
 		d1 := (x-b.X)*(a.Y-b.Y) - (a.X-b.X)*(y-b.Y)
 		d2 := (x-c.X)*(b.Y-c.Y) - (b.X-c.X)*(y-c.Y)

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.git.graph.jumpToCommit",
+      "description": "Tooltip for a Git graph arrow with its target commit subject, author, and date",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "subject": "string",
+        "author": "string",
+        "date": "string"
+      }
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.git.graph.jumpToCommit": "Jump to “{subject}” (by {author}, {date})"
+    },
+    "zh-CN": {
+      "desktop.git.graph.jumpToCommit": "跳转到“{subject}”（作者 {author}，{date}）"
+    }
+  }
+}

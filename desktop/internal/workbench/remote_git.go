@@ -220,7 +220,7 @@ func remoteRepositoryAbove(p *project, status core.GitStatus) bool {
 // status once it is found (startGitObservation).
 func (a *App) resumeRemoteGit(p *project) {
 	a.closeGitObservation(p)
-	a.startGitObservation(p)
+	a.startGitObservationWithFallback(p, p.remote.logNeedsReload)
 }
 
 // remoteInfoExcludeLimit is the largest info/exclude a remote workspace adds a line to; the file

@@ -711,6 +711,23 @@ func WithRemoteWorkspace(ctx context.Context, binding *RemoteWorkspace) context.
 	return context.WithValue(ctx, remoteWorkspaceKey{}, binding)
 }
 
+// SnapshotRemoteWorkspace keeps requests on the session attached now. Losing that session
+// still notifies the live workspace if it has not already moved to another session.
+func SnapshotRemoteWorkspace(ctx context.Context) context.Context {
+	binding := RemoteWorkspaceOf(ctx)
+	if binding == nil {
+		return ctx
+	}
+	session := binding.session.Load()
+	snapshot := NewRemoteWorkspace(binding.LocalRoot(), binding.RemoteRoot(), func(id string) {
+		if binding.session.CompareAndSwap(session, nil) && binding.lost != nil {
+			binding.lost(id)
+		}
+	})
+	snapshot.session.Store(session)
+	return WithRemoteWorkspace(ctx, snapshot)
+}
+
 // payloadOnlyCommands are the commands an open document, the Project tool window or the search
 // sends that compute only from their payload: Core's handler reads no file, starts no process and names no
 // workspace path, so the answer is the same on any computer. They go without the remote

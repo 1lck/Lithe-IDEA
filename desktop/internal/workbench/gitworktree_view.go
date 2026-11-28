@@ -641,8 +641,8 @@ func (a *App) paintWorktreeCommit(canvas *gfx.Canvas, rect gfx.Rect, index int) 
 	var labels []core.GraphLabel
 	if v.graphed && index < len(h.graph.Rows) && h.graph.Rows[index].CommitHash == commit.Hash {
 		row := h.graph.Rows[index]
-		a.paintGraphRow(canvas, newGraphMetrics(canvas.PixelScale()), rect, row, a.graphColors())
-		start, labels = titleOffset(row), row.Labels
+		start = a.paintGraphRow(canvas, newGraphMetrics(canvas.PixelScale()), rect, row, a.graphColors())
+		labels = row.Labels
 	}
 	// Keep text in the same row bounds as the graph.
 	canvas.Clip(rect)

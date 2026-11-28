@@ -87,6 +87,8 @@ type remoteProject struct {
 	// trustRevision invalidates asynchronous trust reads and grants when the window reloads
 	// settings or loses the session. It belongs to the window thread.
 	trustRevision uint64
+	// logNeedsReload marks a lost connection until the window can reload a nested or merged Git Log.
+	logNeedsReload bool
 	// resume is what connecting again presents to attach to the same host session, nil when the
 	// host issued no token. It is a secret: it stays in memory and is never logged.
 	resume *core.RemoteResume
@@ -277,11 +279,23 @@ func remoteConnectFailure(result core.RemoteConnectResult, err error) error {
 // releaseRemoteSession ends the session id in the background; a session Core no longer knows is
 // already gone.
 func (a *App) releaseRemoteSession(id string) {
-	if id == "" {
+	a.releaseRemoteSessionAfter(id, nil)
+}
+
+func (a *App) releaseRemoteSessionAfter(id string, beforeDisconnect func(context.Context)) {
+	if id == "" && beforeDisconnect == nil {
 		return
 	}
 	kernel := a.kernel
-	a.background(nil, remoteDisconnectTimeout, func(ctx context.Context) func(*App) {
+	a.background(nil, 0, func(ctx context.Context) func(*App) {
+		if beforeDisconnect != nil {
+			beforeDisconnect(ctx)
+		}
+		if id == "" {
+			return nil
+		}
+		ctx, cancel := context.WithTimeout(ctx, remoteDisconnectTimeout)
+		defer cancel()
 		_, err := kernel.RemoteDisconnect(ctx, id, core.RemoteCloseEnd)
 		if err == nil {
 			return nil
@@ -350,6 +364,12 @@ func (a *App) attachRemote(p *project, session core.RemoteSession) {
 	a.rejoinRemoteRuns(p)
 }
 
+// awaitsRemoteLogRoots reports whether the open log needs the trusted replacement session's repository list.
+func (p *project) awaitsRemoteLogRoots() bool {
+	return p.remote != nil && p.remote.logNeedsReload && p.remote.session != "" && !p.safeMode() &&
+		p.log.started && (p.walksSeveral() || p.nested.logRepo != "")
+}
+
 // beatRemote asks the server of the workspace's session what still runs, and schedules the next
 // heartbeat. An answer shows the connection alive with its round trip; a closed connection is
 // lost; remoteHeartbeatMisses unanswered heartbeats in a row end the session as lost.
@@ -403,6 +423,10 @@ func (a *App) loseRemote(p *project, session string, err error) {
 	a.backgroundFailed("remote_session_lost", remoteLogError(err))
 	a.stopRemoteWatch(p)
 	a.closeGitObservation(p)
+	r.logNeedsReload = true
+	p.log.stopLogPublication()
+	logOwner, cursors := a.takeOwnedLogCursors(p)
+	a.queueLogCursorClose(p, logOwner, cursors)
 	// Core stops the session's forwards with it.
 	r.ports.reset()
 	r.session, r.misses = "", 0
@@ -577,10 +601,11 @@ func (a *App) closeRemoteWorkspace(p *project) {
 		r.reconnecting.cancel()
 		r.reconnecting = nil
 	}
+	closeLog := a.prepareLogClose(p, remoteLogCloseTimeout)
 	r.binding.Detach()
 	r.live.Store(nil)
 	r.closeRemoteRuns()
-	a.releaseRemoteSession(r.session)
+	a.releaseRemoteSessionAfter(r.session, closeLog)
 	r.session, r.resume, r.menuOpen = "", nil, false
 }
 

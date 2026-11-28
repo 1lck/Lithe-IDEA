@@ -2,13 +2,237 @@ package workbench
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 )
+
+type mergedLogRetryKernel struct {
+	gitKernel
+	pages         map[string][]core.GitCommit
+	pageReads     []string
+	closed        []string
+	failedRoot    string
+	failedMerge   bool
+	failedGraph   bool
+	mergeWithCore bool
+}
+
+func (k *mergedLogRetryKernel) GitHistoryPage(_ context.Context, root, _, cursor string, _, _ int) (core.GitHistoryPage, error) {
+	k.pageReads = append(k.pageReads, cursor)
+	if root == k.failedRoot {
+		k.failedRoot = ""
+		return core.GitHistoryPage{}, errors.New("transient repository read failure")
+	}
+	commits := k.pages[root]
+	if len(commits) == 0 {
+		return core.GitHistoryPage{}, errors.New("the test stream is exhausted")
+	}
+	k.pages[root] = commits[1:]
+	page := core.GitHistoryPage{Commits: commits[:1]}
+	if len(commits) > 1 {
+		page.NextCursor, page.HasMore = cursor, true
+	}
+	return page, nil
+}
+
+func (k *mergedLogRetryKernel) CloseGitHistoryCursor(ctx context.Context, _, cursor string) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	k.closed = append(k.closed, cursor)
+	return true, nil
+}
+
+func (k *mergedLogRetryKernel) MergeWorkspaceHistories(ctx context.Context, histories []core.WorkspaceHistory) (core.WorkspaceHistoryMerge, error) {
+	if k.mergeWithCore {
+		return k.gitKernel.MergeWorkspaceHistories(ctx, histories)
+	}
+	if k.failedMerge {
+		k.failedMerge = false
+		return core.WorkspaceHistoryMerge{}, errors.New("transient merge failure")
+	}
+	var merged core.WorkspaceHistoryMerge
+	for i := 0; i < max(len(histories[0].Commits), len(histories[1].Commits)); i++ {
+		for repository, history := range histories {
+			if i < len(history.Commits) {
+				merged.Entries = append(merged.Entries, core.WorkspaceHistoryEntry{
+					Repository: repository, Index: i, Key: history.Commits[i].Hash,
+				})
+			}
+		}
+	}
+	return merged, nil
+}
+
+func (k *mergedLogRetryKernel) GitGraph(_ context.Context, request core.GraphRequest) (core.Graph, error) {
+	if k.failedGraph {
+		k.failedGraph = false
+		return core.Graph{}, errors.New("transient graph projection failure")
+	}
+	rows := make([]core.GraphRow, len(request.Commits))
+	for i, commit := range request.Commits {
+		rows[i].CommitHash = commit.Hash
+	}
+	return core.Graph{Rows: rows}, nil
+}
+
+func TestMergedLogPublishesRowOriginsWithTheProjection(t *testing.T) {
+	const sharedHash = "bbbbbbbb"
+	k := &mergedLogRetryKernel{
+		gitKernel: gitKernel{core.NewClient()},
+		pages: map[string][]core.GitCommit{
+			"/a": {{Hash: "cccccccc", ParentHashes: []string{sharedHash}}},
+		},
+		mergeWithCore: true,
+	}
+	p := &project{ctx: t.Context(), root: "/a"}
+	a := &App{project: p, kernel: k, text: i18n.For(i18n.English), now: time.Now}
+	t.Cleanup(func() { waitForLogCursorLifecycle(t, a) })
+	l := &p.log
+	newer, older := int64(2), int64(1)
+	l.walks = []logWalk{
+		{id: "a", root: "/a", commits: []core.GitCommit{{Hash: "aaaaaaaa", DateUnixSeconds: &older}}, cursor: "a-cursor"},
+		{id: "b", root: "/b", commits: []core.GitCommit{{Hash: sharedHash, DateUnixSeconds: &newer}}, complete: true},
+	}
+	commits, origins, pending, err := mergeLogWalks(t.Context(), k, l.walks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.setMerged(commits, origins, pending)
+	graph, err := k.GitGraph(t.Context(), core.GraphRequest{Commits: graphInput(commits, origins)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.setGraph(graph)
+	row := l.visibleRow(sharedHash)
+	if row < 0 {
+		t.Fatal("the initial graph must contain the unsuffixed commit from repository B")
+	}
+	checkRow := func(row int, key string) {
+		t.Helper()
+		root, keys, hashes := a.logMenuTarget(p, row)
+		if l.visibleRow(key) != row || root != "/b" || !slices.Equal(keys, []string{key}) || !slices.Equal(hashes, []string{sharedHash}) {
+			t.Fatalf("row %d for %q targets %s %q %q, want repository B and hash %s", row, key, root, keys, hashes, sharedHash)
+		}
+	}
+	checkRow(row, sharedHash)
+	l.selected, l.filesState = sharedHash, logFilesReady
+	l.files = []core.GitCommitFile{{Path: "changed-in-b.txt"}}
+	rowKey := a.logCommitKey(row)
+
+	k.failedGraph = true
+	a.loadMoreLogRepos(p)
+	waitForLogCursorLifecycle(t, a)
+	a.drain()
+	checkRow(row, sharedHash)
+	waitForLogCursorLifecycle(t, a)
+	a.drain()
+	if !l.projFailed {
+		t.Fatal("the replacement projection did not fail")
+	}
+	checkRow(row, sharedHash)
+
+	a.reproject(p, 0)
+	waitForLogCursorLifecycle(t, a)
+	a.drain()
+	disambiguated := sharedHash + "@b"
+	checkRow(l.visibleRow(disambiguated), disambiguated)
+	root, hash := p.logCommitAt(l.selected)
+	if l.selected != disambiguated || root != "/b" || hash != sharedHash || len(l.files) != 1 || a.logCommitKey(l.visibleRow(disambiguated)) != rowKey {
+		t.Fatalf("selection %q, files %v, and row key did not follow repository B, resolved %s %s", l.selected, l.files, root, hash)
+	}
+	if l.visibleRow(sharedHash) >= 0 || len(k.pageReads) != 1 {
+		t.Fatalf("retry kept the previous key or consumed another page: reads %v", k.pageReads)
+	}
+}
+
+func TestMergedLogRetryKeepsConsumedPages(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		failedRoot  string
+		failedMerge bool
+		closed      bool
+		wantReads   []string
+	}{
+		{name: "repository read", failedRoot: "/b", wantReads: []string{"a-cursor", "b-cursor", "b-cursor"}},
+		{name: "merge", failedMerge: true, wantReads: []string{"a-cursor", "b-cursor"}},
+		{name: "closed project", closed: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			k := &mergedLogRetryKernel{
+				failedRoot: tc.failedRoot, failedMerge: tc.failedMerge,
+				pages: map[string][]core.GitCommit{
+					"/a": {{Hash: "a2"}, {Hash: "a3"}},
+					"/b": {{Hash: "b2"}, {Hash: "b3"}},
+				},
+			}
+			projectContext, cancelProject := context.WithCancel(context.Background())
+			p := &project{ctx: projectContext}
+			a := &App{project: p, kernel: k}
+			wait := func() {
+				t.Helper()
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if err := a.tasks.running.WaitContext(ctx); err != nil {
+					t.Fatalf("waiting for merged Git Log work: %v", err)
+				}
+			}
+			t.Cleanup(func() {
+				cancelProject()
+				wait()
+			})
+			l := &p.log
+			initial := []core.GitCommit{{Hash: "a1"}, {Hash: "b1"}}
+			l.walks = []logWalk{
+				{id: "a", root: "/a", commits: initial[:1:1], cursor: "a-cursor"},
+				{id: "b", root: "/b", commits: initial[1:], cursor: "b-cursor"},
+			}
+			l.setMerged(initial, []logOrigin{{key: "a1"}, {walk: 1, key: "b1"}}, []int{0, 1})
+			l.setGraph(core.Graph{Rows: []core.GraphRow{{CommitHash: "a1"}, {CommitHash: "b1"}}})
+
+			a.loadMoreLog(p)
+			wait()
+			if tc.closed {
+				// The successful read is queued when the window closes the project.
+				cancelProject()
+				a.project = nil
+				a.drain()
+				wait()
+				if len(l.graph.Rows) != 2 || !slices.Equal(k.closed, []string{"a-cursor", "b-cursor"}) {
+					t.Fatalf("discarding the continuation left %v and closed %v", l.graph.Rows, k.closed)
+				}
+				return
+			}
+			a.drain()
+			if !l.moreFailed || len(l.graph.Rows) != 2 {
+				t.Fatalf("failed continuation should leave the published graph available: %+v", l.graph.Rows)
+			}
+
+			l.moreFailed = false
+			a.loadMoreLog(p)
+			wait()
+			a.drain()
+			wait()
+			a.drain()
+			var hashes []string
+			for _, row := range l.graph.Rows {
+				hashes = append(hashes, row.CommitHash)
+			}
+			if !slices.Equal(hashes, []string{"a1", "b1", "a2", "b2"}) {
+				t.Fatalf("retried graph contains %v, want both first continuation pages", hashes)
+			}
+			if !slices.Equal(k.pageReads, tc.wantReads) {
+				t.Fatalf("read cursors %v, want %v", k.pageReads, tc.wantReads)
+			}
+		})
+	}
+}
 
 // A folder holding repositories lists a node per repository in the Git Log's reference pane, each
 // with its own sections, and a click on another repository's branch walks that branch there. The
@@ -151,7 +375,7 @@ func TestMergedLogReadsNoMoreThanItsLimit(t *testing.T) {
 	}
 	read := func(i int) {
 		t.Helper()
-		if err := readWalkPage(ctx, pager, &walks[i], limit-walkCommits(walks), limit); err != nil {
+		if err := readWalkPage(ctx, pager, &walks[i], limit-walkCommits(walks), limit, (&App{}).logCursorCloser(ctx, pager)); err != nil {
 			t.Fatalf("walk %q: %v", walks[i].id, err)
 		}
 	}
@@ -190,7 +414,7 @@ func TestMergedLogReadsNoMoreThanItsLimit(t *testing.T) {
 func TestMergedLogWalkEndsAtCoresBound(t *testing.T) {
 	ctx, pager := context.Background(), &endlessPager{bound: true}
 	w := logWalk{id: "a", root: "/a"}
-	if err := readWalkPage(ctx, pager, &w, 500, 500); err != nil {
+	if err := readWalkPage(ctx, pager, &w, 500, 500, (&App{}).logCursorCloser(ctx, pager)); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Equal(pager.maxCommits, []int{500}) || !w.complete || !w.capped {

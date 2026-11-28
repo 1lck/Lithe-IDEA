@@ -96,14 +96,63 @@ func (m graphMetrics) line(e core.GraphElement) (x0, y0, x1, y1 float32) {
 	return x0, y0, x1, y1
 }
 
-// titleOffset is where the subject of a row starts: the graph's width with six lanes
-// kept for it, so the subjects of a narrow graph line up, plus the text inset.
-func titleOffset(row core.GraphRow) float32 {
+func (m graphMetrics) strokeLine(e core.GraphElement, highlight bool) (x0, y0, x1, y1 float32) {
+	x0, y0, x1, y1 = m.line(e)
+	if !e.IsTerminal {
+		overlap := max(m.lineWidth, 1)
+		if highlight || e.IsDotted && !e.HasArrow {
+			// Let the row clip cut across the full width of a dash or outline.
+			overlap += m.lineWidth
+		}
+		x1, y1 = extendGraphEndpoint(x0, y0, x1, y1, overlap)
+	}
+	return x0, y0, x1, y1
+}
+
+func (m graphMetrics) marker(row core.GraphRow) (center gfx.Point, headRadius float32) {
+	center = gfx.Point{X: m.laneCenter + float32(row.Lane)*m.laneSpacing, Y: m.rowCenter}
+	if slices.ContainsFunc(row.Labels, func(label core.GraphLabel) bool { return label.Kind == "head" }) {
+		headRadius = m.nodeRadius + m.lineWidth
+	}
+	return center, headRadius
+}
+
+// titleOffset keeps six lanes for the graph and leaves room for the actual
+// stroke at a wide diagonal's row boundary, where its end can pass its midpoint.
+func (m graphMetrics) titleOffset(row core.GraphRow) float32 {
 	last := float32(row.Lane)
+	right := float32(0)
+	// Include the hover outline and at least half a device pixel of fringe.
+	reach := m.lineWidth + max(m.lineWidth, 1)
 	for _, e := range row.PrintElements {
 		last = max(last, float32(e.Position), float32(e.Position+e.AdjacentPosition)/2)
+		if e.AdjacentPosition > e.Position {
+			_, _, x, _ := m.line(e)
+			slope := float32(e.AdjacentPosition-e.Position) * m.laneSpacing / logRowHeight
+			// A diagonal's stroke extends farther horizontally where it crosses
+			// the row clip. 1+slope bounds the length of its slanted cross-section.
+			right = max(right, x+reach*(1+slope))
+		}
+		if e.HasArrow {
+			tip, wings := graphArrowPoints(m, e)
+			right = max(right, max(tip.X, wings[0].X, wings[1].X)+reach)
+		}
 	}
-	return float32(math.Floor(float64(max(last+1, 6)*graphLaneSpacing+graphTextGap))) + 2
+	nominal := float32(math.Floor(float64(max(last+1, 6)*graphLaneSpacing + graphTextGap)))
+	return max(nominal, float32(math.Ceil(float64(right)))) + 2
+}
+
+// dashSpan is the full distance between adjacent row centers. Both halves
+// fit the same dash period to that span so their phases meet at the row clip.
+func (m graphMetrics) dashSpan(e core.GraphElement) float32 {
+	if !e.IsDotted || e.HasArrow {
+		return 0
+	}
+	if e.IsTerminal {
+		x0, y0, x1, y1 := m.line(e)
+		return 2 * float32(math.Hypot(float64(x1-x0), float64(y1-y0)))
+	}
+	return float32(math.Hypot(float64(float32(e.AdjacentPosition-e.Position)*m.laneSpacing), logRowHeight))
 }
 
 // graphColor is the color of an edge or node with a color id: a hue derived from the id
@@ -387,13 +436,18 @@ func (a *App) paintLogRow(canvas *gfx.Canvas, rect gfx.Rect, index int) {
 		return
 	}
 	dark := a.colors.Dark
-	color, dateWidth := a.graphColors(), v.dateColumn(canvas)
+	color, metadataWidth := a.graphColors(), v.metadataWidth(canvas)
+	dateWidth := metadataWidth - logMetaGap
 	m := newGraphMetrics(canvas.PixelScale())
 	upstream := v.upstreams(l)
 	row := l.graph.Rows[index]
+	// The graph and its overlay stop before the fixed author and date columns.
+	contentEnd := max(0, rect.Width-metadataWidth)
+	start := min(contentEnd, m.titleOffset(row))
+	bounds := logGraphRowBounds{index: index, rect: rect, width: start}
 	commit, _ := l.commit(row.CommitHash)
 	selected := row.CommitHash == l.selected
-	a.paintGraphRow(canvas, m, rect, row, color)
+	a.paintGraphRowWithHover(canvas, m, rect, row, start, 0, color, index+1, 0)
 	// Graph strokes and text each stay within this row's pixel clip.
 	canvas.Clip(rect)
 	defer canvas.Unclip()
@@ -401,21 +455,24 @@ func (a *App) paintLogRow(canvas *gfx.Canvas, rect gfx.Rect, index int) {
 		// As IDEA marks each commit with the color of its root, the strip at the left edge says which
 		// repository of the folder the commit belongs to, also while the log walks several at once.
 		canvas.Fill(gfx.Rect{X: rect.X, Y: rect.Y, Width: logRootStripWidth, Height: rect.Height}, repositoryColor(slot, dark))
+		// The overlay paints after the strip. Use the strip's snapped edge as
+		// the left boundary for highlight drawing and hit testing.
+		painted := canvas.Rectangles()
+		bounds.inset = painted[len(painted)-1].Bounds.Right() - rect.X
 	}
+	v.graphHover.rows = append(v.graphHover.rows, bounds)
 
 	foreground := a.colors.Text
 	if len(commit.ParentHashes) > 1 && !selected {
 		foreground = mergeForeground(dark)
 	}
-	start := titleOffset(row)
 	labelsWidth := float32(0)
 	var group referenceGroup
 	var labelRect gfx.Rect
 	labelText := ""
 	if l.decorations && len(row.Labels) > 0 {
 		group = groupReferences(row.Labels, l.current, upstream)
-		end := max(start, rect.Width-dateWidth-logMetaGap)
-		column := end - start
+		column := contentEnd - start
 		subject := canvas.TextWidth(commit.Subject, logFontSize)
 		available := max(0, min(column-subject, column/3))
 		icon := group.iconWidth(logRefSize + 3)
@@ -426,10 +483,10 @@ func (a *App) paintLogRow(canvas *gfx.Canvas, rect gfx.Rect, index int) {
 		}
 		width := min(column, icon+textW+8)
 		labelsWidth = width
-		labelRect = gfx.Rect{X: rect.X + end - width, Y: rect.Y, Width: width, Height: rect.Height}
+		labelRect = gfx.Rect{X: rect.X + contentEnd - width, Y: rect.Y, Width: width, Height: rect.Height}
 	}
-	a.paintText(canvas, commit.Subject, gfx.Rect{X: rect.X + start, Y: rect.Y, Width: max(0, rect.Width-start-dateWidth-logMetaGap-labelsWidth), Height: rect.Height}, logFontSize, foreground, gfx.AlignStart)
-	a.paintText(canvas, commit.AuthorName, gfx.Rect{X: rect.X + max(0, rect.Width-dateWidth-112), Y: rect.Y, Width: logAuthorWidth, Height: rect.Height}, logMetaSize, foreground, gfx.AlignStart)
+	a.paintText(canvas, commit.Subject, gfx.Rect{X: rect.X + start, Y: rect.Y, Width: contentEnd - start - labelsWidth, Height: rect.Height}, logFontSize, foreground, gfx.AlignStart)
+	a.paintText(canvas, commit.AuthorName, gfx.Rect{X: rect.X + max(0, rect.Width-metadataWidth+logDatePad), Y: rect.Y, Width: logAuthorWidth, Height: rect.Height}, logMetaSize, foreground, gfx.AlignStart)
 	a.paintText(canvas, v.date(commit), gfx.Rect{X: rect.X + max(0, rect.Width-dateWidth-logDatePad), Y: rect.Y, Width: dateWidth, Height: rect.Height}, logMetaSize, foreground, gfx.AlignEnd)
 	if labelRect.Width > 0 {
 		background := a.colors.Ground
@@ -468,64 +525,115 @@ func (v *logView) dateColumn(canvas *gfx.Canvas) float32 {
 	return v.dateWidth
 }
 
+func (v *logView) metadataWidth(canvas *gfx.Canvas) float32 {
+	return v.dateColumn(canvas) + logMetaGap
+}
+
 // paintGraphRow strokes the edges of one row and paints its node. Each row owns
 // its pixel clip; boundary edges extend beyond it to keep their antialiased caps
 // outside the visible line, without blending either row's fringe twice.
 // HEAD has a ring and central dot;
 // clipping crossing edges keeps the gap transparent on any row background.
-func (a *App) paintGraphRow(canvas *gfx.Canvas, m graphMetrics, rect gfx.Rect, row core.GraphRow, color func(int32) gfx.Color) {
-	width := titleOffset(row)
+func (a *App) paintGraphRow(canvas *gfx.Canvas, m graphMetrics, rect gfx.Rect, row core.GraphRow, color func(int32) gfx.Color) float32 {
+	width := m.titleOffset(row)
+	a.paintGraphRowWithHover(canvas, m, rect, row, width, 0, color, 0, 0)
+	return width
+}
+
+// A nonzero chain paints only that chain over the list's row backgrounds.
+func (a *App) paintGraphRowWithHover(canvas *gfx.Canvas, m graphMetrics, rect gfx.Rect, row core.GraphRow, width, inset float32, color func(int32) gfx.Color, logRow, chain int) {
+	if width <= inset {
+		return
+	}
 	overlap := max(m.lineWidth, 1)
 	box := gfx.Rect{X: rect.X, Y: rect.Y, Width: width, Height: logRowHeight}
-	canvas.Clip(box)
+	clip := box
+	clip.X += inset
+	clip.Width -= inset
+	canvas.Clip(clip)
 	defer canvas.Unclip()
-	head := slices.ContainsFunc(row.Labels, func(label core.GraphLabel) bool { return label.Kind == "head" })
-	center := gfx.Point{X: m.laneCenter + float32(row.Lane)*m.laneSpacing, Y: m.rowCenter}
-	outerRadius := float32(0)
-	if head {
-		outerRadius = m.nodeRadius + m.lineWidth
+	center, outerRadius := m.marker(row)
+	edgeClipRadius := outerRadius
+	if chain != 0 && (outerRadius > 0 || row.HoverChain != chain) {
+		// The overlay is painted after the normal graph. Stop its round cap
+		// outside the marker so branch points and the HEAD gap stay intact.
+		edgeClipRadius = graphHighlightCutoff(max(outerRadius, m.nodeRadius), m.lineWidth, canvas.PixelScale())
 	}
+	stroke := gfx.PathStyle{StrokeWidth: m.lineWidth, Cap: gfx.CapRound, Join: gfx.JoinRound}
 	for i := 0; i < len(row.PrintElements); i++ {
 		e := row.PrintElements[i]
-		x0, y0, x1, y1 := m.line(e)
-		originalX1, originalY1 := x1, y1
-		if !e.IsTerminal && (!e.IsDotted || e.HasArrow) {
-			x1, y1 = extendGraphEndpoint(x0, y0, x1, y1, overlap)
+		if chain != 0 && e.HoverChain != chain {
+			continue
 		}
-		// Core emits the up and down halves of a passing lane consecutively.
-		// Join straight halves before stroking so there are no caps to blend at
-		// the center of the row, where this lane has no commit marker.
-		if e.Position != row.Lane && e.Direction == "up" && straightGraphHalf(e) && i+1 < len(row.PrintElements) {
+		stroke.Cap = gfx.CapRound
+		x0, y0, x1, y1 := m.strokeLine(e, chain != 0)
+		// Join passing halves to avoid blending caps. An ordinary commit dot
+		// covers the join of the two straight halves in its own chain.
+		solidNodeJoin := chain == 0 && outerRadius == 0 && row.HoverChain != 0 && e.HoverChain == row.HoverChain
+		if (e.Position != row.Lane || solidNodeJoin) && e.Direction == "up" && straightGraphHalf(e) && i+1 < len(row.PrintElements) {
 			next := row.PrintElements[i+1]
-			if next.Position == e.Position && next.ColorID == e.ColorID && next.Direction == "down" && straightGraphHalf(next) {
+			if next.Position == e.Position && next.ColorID == e.ColorID && next.HoverChain == e.HoverChain && next.Direction == "down" && straightGraphHalf(next) {
 				y0, y1 = y1, logRowHeight+overlap
+				if edgeClipRadius == 0 {
+					// Both ends of the unbroken stroke are outside the row clip.
+					stroke.Cap = gfx.CapButt
+				}
 				i++
 			}
 		}
 		b := canvas.PathBuilder()
-		traceGraphLine(b, gfx.Point{X: x0, Y: y0}, gfx.Point{X: x1, Y: y1}, center, outerRadius, e.IsDotted && !e.HasArrow)
+		traceGraphLine(b, gfx.Point{X: x0, Y: y0}, gfx.Point{X: x1, Y: y1}, center, edgeClipRadius, m.dashSpan(e))
+		stroke.Stroke = color(e.ColorID)
+		if chain != 0 {
+			drawGraphHighlight(canvas, b.Path(width, logRowHeight), box, stroke, a.colors.Text, m.lineWidth)
+			continue
+		}
 		if e.HasArrow {
-			length := max(1, float32(math.Hypot(float64(originalX1-x0), float64(originalY1-y0))))
-			vx := (x0 - originalX1) / length * logRowHeight * 0.3
-			vy := (y0 - originalY1) / length * logRowHeight * 0.3
-			arrowTip := gfx.Point{X: originalX1, Y: originalY1}
-			for _, sign := range [2]float32{-1, 1} {
-				wing := gfx.Point{X: arrowTip.X + vx*sqrt07 - sign*vy*sqrt03, Y: arrowTip.Y + sign*vx*sqrt03 + vy*sqrt07}
-				traceGraphLine(b, arrowTip, wing, center, outerRadius, false)
+			arrowTip, wings := graphArrowPoints(m, e)
+			arrow := logGraphArrowHighlight{logRow, i}
+			if logRow != 0 && (a.logView.hoveredGraphArrow == arrow || a.logView.focusedGraphArrow == arrow) {
+				canvas.DrawPath(b.Path(width, logRowHeight), box, stroke)
+				b = canvas.PathBuilder()
+				cutoff := outerRadius
+				if outerRadius > 0 {
+					cutoff = graphHighlightCutoff(outerRadius, m.lineWidth, canvas.PixelScale())
+				}
+				for _, wing := range wings {
+					traceGraphLine(b, arrowTip, wing, center, cutoff, 0)
+				}
+				path := b.Path(width, logRowHeight)
+				if outerRadius == 0 {
+					drawGraphHighlight(canvas, path, box, stroke, a.colors.Text, m.lineWidth)
+					continue
+				}
+				// Trim the wider halo separately to keep the colored wing intact.
+				canvas.DrawPath(path, box, graphOutlineStyle(stroke, a.colors.Text, m.lineWidth))
+				b = canvas.PathBuilder()
+			}
+			for _, wing := range wings {
+				traceGraphLine(b, arrowTip, wing, center, outerRadius, 0)
 			}
 		}
-		canvas.DrawPath(b.Path(width, logRowHeight), box, gfx.PathStyle{
-			Stroke: color(e.ColorID), StrokeWidth: m.lineWidth, Cap: gfx.CapRound, Join: gfx.JoinRound,
-		})
+		canvas.DrawPath(b.Path(width, logRowHeight), box, stroke)
+	}
+	if chain != 0 && row.HoverChain != chain {
+		return
 	}
 	radius := m.nodeRadius
-	if head {
+	if outerRadius > 0 {
 		b := canvas.PathBuilder()
+		if chain != 0 {
+			// Keep both the ring and dot as painted in the base pass. Only the
+			// outside of the ring receives the highlight.
+			b.Arc(center.X, center.Y, outerRadius+m.lineWidth/2, 0, 360)
+			b.Close()
+			canvas.DrawPath(b.Path(width, logRowHeight), box, gfx.PathStyle{Stroke: a.colors.Text, StrokeWidth: m.lineWidth})
+			return
+		}
 		b.Arc(center.X, center.Y, outerRadius-m.lineWidth/2, 0, 360)
 		b.Close()
-		canvas.DrawPath(b.Path(width, logRowHeight), box, gfx.PathStyle{
-			Stroke: color(row.ColorID), StrokeWidth: m.lineWidth,
-		})
+		ring := gfx.PathStyle{Stroke: color(row.ColorID), StrokeWidth: m.lineWidth}
+		canvas.DrawPath(b.Path(width, logRowHeight), box, ring)
 		radius /= 2
 	}
 	// Use the same path transform as the edges. Rounded rectangles snap their
@@ -533,7 +641,27 @@ func (a *App) paintGraphRow(canvas *gfx.Canvas, m graphMetrics, rect gfx.Rect, r
 	b := canvas.PathBuilder()
 	b.Arc(center.X, center.Y, radius, 0, 360)
 	b.Close()
-	canvas.DrawPath(b.Path(width, logRowHeight), box, gfx.PathStyle{Fill: color(row.ColorID)})
+	node := gfx.PathStyle{Fill: color(row.ColorID)}
+	if chain != 0 {
+		node.Stroke, node.StrokeWidth = a.colors.Text, m.lineWidth
+	}
+	canvas.DrawPath(b.Path(width, logRowHeight), box, node)
+}
+
+func drawGraphHighlight(canvas *gfx.Canvas, path gfx.Path, box gfx.Rect, stroke gfx.PathStyle, outline gfx.Color, width float32) {
+	canvas.DrawPath(path, box, graphOutlineStyle(stroke, outline, width))
+	canvas.DrawPath(path, box, stroke)
+}
+
+func graphOutlineStyle(stroke gfx.PathStyle, outline gfx.Color, width float32) gfx.PathStyle {
+	stroke.Stroke = outline
+	stroke.StrokeWidth += 2 * max(width, 1)
+	return stroke
+}
+
+// graphHighlightCutoff accounts for the round cap and its antialiased fringe.
+func graphHighlightCutoff(radius, width, scale float32) float32 {
+	return radius + width/2 + max(width, 1) + .5/scale
 }
 
 func straightGraphHalf(e core.GraphElement) bool {
@@ -557,12 +685,18 @@ var (
 	sqrt03 = float32(math.Sqrt(0.3))
 )
 
-// traceGraphLine excludes the HEAD disk from every edge, including other lanes
-// that cross near it. Each surviving interval retains the full edge's dash phase.
-func traceGraphLine(b *gfx.PathBuilder, from, to, center gfx.Point, radius float32, dotted bool) {
-	if radius == 0 && !dotted {
+func traceGraphLine(b *gfx.PathBuilder, from, to, center gfx.Point, radius, dashSpan float32) {
+	visitGraphLine(from, to, center, radius, dashSpan, func(from, to gfx.Point) {
 		b.MoveTo(from.X, from.Y)
 		b.LineTo(to.X, to.Y)
+	})
+}
+
+// visitGraphLine gives painting and hover the same stroke segments. The HEAD
+// disk cuts every crossing edge without moving the dash pattern.
+func visitGraphLine(from, to, center gfx.Point, radius, dashSpan float32, visit func(from, to gfx.Point)) {
+	if radius == 0 && dashSpan == 0 {
+		visit(from, to)
 		return
 	}
 	length := float32(math.Hypot(float64(to.X-from.X), float64(to.Y-from.Y)))
@@ -570,15 +704,17 @@ func traceGraphLine(b *gfx.PathBuilder, from, to, center gfx.Point, radius float
 		return
 	}
 	dx, dy := (to.X-from.X)/length, (to.Y-from.Y)/length
+	segment := func(start, end float32) {
+		visit(gfx.Point{X: from.X + dx*start, Y: from.Y + dy*start}, gfx.Point{X: from.X + dx*end, Y: from.Y + dy*end})
+	}
 	trace := func(start, end float32) {
 		if start >= end {
 			return
 		}
-		if dotted {
-			dashLine(b, from.X, from.Y, to.X, to.Y, start, end)
+		if dashSpan > 0 {
+			visitGraphDashes(dashSpan, start, end, segment)
 		} else {
-			b.MoveTo(from.X+dx*start, from.Y+dy*start)
-			b.LineTo(from.X+dx*end, from.Y+dy*end)
+			segment(start, end)
 		}
 	}
 	if radius > 0 {
@@ -594,30 +730,20 @@ func traceGraphLine(b *gfx.PathBuilder, from, to, center gfx.Point, radius float
 	trace(0, length)
 }
 
-// dashLine traces a dotted edge as the IntelliJ log dashes it: one dash and one gap
-// fitted into a row, the pattern starting half a dash in. start and end clip the
-// visible interval without changing dash lengths or phase outside the HEAD marker.
-func dashLine(b *gfx.PathBuilder, x0, y0, x1, y1, start, end float32) {
+// visitGraphDashes fits a dash and gap into a row, starting half a dash in.
+// start and end clip the visible interval without changing the dash phase.
+func visitGraphDashes(length, start, end float32, visit func(start, end float32)) {
 	space := float32(logRowHeight/2 - 2)
-	segment := float32(math.Hypot(float64(x1-x0), float64(y1-y0)))
-	if segment <= 0 || start >= end {
-		return
-	}
-	length := segment * 2
 	dash := length/max(1, float32(math.Floor(float64(length/logRowHeight)))) - space
-	dx, dy := (x1-x0)/segment, (y1-y0)/segment
 	if dash <= 0 {
-		b.MoveTo(x0+dx*start, y0+dy*start)
-		b.LineTo(x0+dx*end, y0+dy*end)
+		visit(start, end)
 		return
 	}
 	for pos := -dash / 2; pos < end; pos += dash + space {
 		from, to := max(pos, start), min(pos+dash, end)
-		if to <= from {
-			continue
+		if to > from {
+			visit(from, to)
 		}
-		b.MoveTo(x0+dx*from, y0+dy*from)
-		b.LineTo(x0+dx*to, y0+dy*to)
 	}
 }
 

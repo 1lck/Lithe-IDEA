@@ -270,6 +270,29 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Capture Git graph screenshots
+        id: git-graph-visual
+        if: ${{ !cancelled() && steps.rust.outcome == 'success' }}
+        timeout-minutes: 5
+        env:
+          LITHE_VISUAL_OUTPUT_DIR: ${{ github.workspace }}/.artifacts/git-graph-visual
+        run: |
+          node .agents/skills/write-stable-tests/scripts/run-go-tests-with-timing.mjs \
+            --report .artifacts/test-stability/git-graph-visual.json --max-ms 15000 --suite-timeout-ms 240000 -- \
+            ./scripts/desktop/desktop-go.sh test -json -tags 'vivahead lithevisual' ./internal/workbench \
+            -run '^TestVisualGitGraph' -count=1 -timeout=120s
+          test -s "$LITHE_VISUAL_OUTPUT_DIR/git-log-path-hover-dark-1.25x.png"
+          test -s "$LITHE_VISUAL_OUTPUT_DIR/git-log-path-hover-fixture-dark-1.25x.png"
+
+      - name: Upload Git graph screenshots
+        if: ${{ !cancelled() && steps.git-graph-visual.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: git-graph-visual-${{ runner.os }}-${{ runner.arch }}
+          path: .artifacts/git-graph-visual/*.png
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Capture search screenshots
         id: search-visual
         if: ${{ !cancelled() && steps.rust.outcome == 'success' }}
