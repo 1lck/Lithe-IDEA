@@ -8,17 +8,15 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/agents"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
-	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
 // This file draws the Agent tool window (agents.go keeps its state): the header's tabs and
-// buttons, a conversation's transcript, its pending permission requests, plan and usage, the
-// prompt field and the History tab.
+// buttons, how to start a conversation, and the parts of a conversation its view
+// (agents_chat_view.go) shares with it: a gap in the transcript, notices, the pending
+// permission requests and the plan.
 
 const (
-	// agentPromptHeight is the height of the prompt field.
-	agentPromptHeight = 76
 	// agentToolOutputLines is how many lines of a tool call's output a row shows.
 	agentToolOutputLines = 6
 	// agentPlanLines is how many plan entries the window shows.
@@ -197,7 +195,7 @@ func (a *App) agentsEmpty(c ui.C) {
 func (a *App) agentsChat(c ui.C, p *project) {
 	v := &a.agentsView
 	lang := a.language()
-	conversation := a.currentConversation()
+	conversation := a.sidebarConversation()
 	if conversation == nil {
 		ui.Column(c).Fill().Center().Gap(10).PadX(shellContentPad).Children(func() {
 			message := i18n.Shared(lang, "desktop.agents.noConversation")
@@ -223,72 +221,7 @@ func (a *App) agentsChat(c ui.C, p *project) {
 		})
 		return
 	}
-	ui.Column(c).Fill().Children(func() {
-		a.agentConversationBar(c.Part("bar"), p, conversation)
-		a.agentTranscript(c.Part("transcript"), conversation)
-		a.agentPending(c.Part("pending"), p, conversation)
-		a.agentPlan(c.Part("plan"), conversation)
-		a.agentStatus(c.Part("status"), conversation)
-		a.agentPrompt(c.Part("prompt"), p, conversation)
-	})
-}
-
-// agentConversationBar declares the switcher of the window's conversations, when there are
-// several, and the button that closes the shown one.
-func (a *App) agentConversationBar(c ui.C, p *project, conversation *agentConversation) {
-	v := &a.agentsView
-	lang := a.language()
-	ui.Row(c).FillWidth().Height(panelHeaderHeight).Shrink(0).PadX(8).Gap(4).Items(ui.Center).Children(func() {
-		if len(v.conversations) > 1 {
-			labels := make([]string, len(v.conversations))
-			for i, each := range v.conversations {
-				labels[i] = agentConversationLabel(lang, i, each)
-			}
-			a.toolTabsWith(c.Key("conversations"), v.current, labels, func(index int) { a.agentsView.current = index })
-		} else {
-			ui.Text(c, agentConversationLabel(lang, 0, conversation)).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Shrink(1)
-		}
-		ui.Spacer(c)
-		if _, hit := a.toolIconButton(c.Part("close"), i18n.Shared(lang, "desktop.agents.closeSession"), icons.X, false, conversation.busy); hit {
-			c.After(func() { a.closeConversation(p, conversation) })
-		}
-	})
-}
-
-// agentConversationLabel names a conversation by its agent and place, with the state of one
-// that ended.
-func agentConversationLabel(lang i18n.Language, index int, conversation *agentConversation) string {
-	label := i18n.SharedFormat(lang, "desktop.agents.conversation", map[string]string{
-		"agent": conversation.agent.DisplayName, "number": strconv.Itoa(index + 1),
-	})
-	if !conversation.transcript.Live() {
-		label = i18n.SharedFormat(lang, "desktop.agents.conversationEnded", map[string]string{"conversation": label})
-	}
-	return label
-}
-
-// agentTranscript declares the conversation's rows, newest at the bottom.
-func (a *App) agentTranscript(c ui.C, conversation *agentConversation) {
-	t := conversation.transcript
-	lang := a.language()
-	atEnd := conversation.list.AtEnd()
-	extra := 0
-	if t.Missed || t.Dropped > 0 {
-		extra = 1
-	}
-	conversation.pruneSelections()
-	ui.List(c, &conversation.list, extra+len(t.Entries), func(row ui.ListRow) {
-		row.Element.FillWidth().PadX(10).PadY(5)
-		if row.Index < extra {
-			a.agentGapRow(row.C, lang, t)
-			return
-		}
-		entry := t.Entries[row.Index-extra]
-		a.agentEntryRow(row.C, lang, entry, conversation.selection(entry.Serial))
-	}).Label(i18n.Shared(lang, "desktop.agents.transcript")).Scrollbars().Grow(1).Shrink(1).MinHeight(0).FillWidth()
-	if atEnd {
-		conversation.list.ScrollToEnd()
-	}
+	a.agentChatBody(c, p, conversation, false)
 }
 
 // agentGapRow says that the transcript is not whole: Core lost some events, or the oldest
@@ -301,43 +234,6 @@ func (a *App) agentGapRow(c ui.C, lang i18n.Language, t *agents.Transcript) {
 		if t.Dropped > 0 {
 			ui.Wrap(c, i18n.SharedFormat(lang, "desktop.agents.dropped", map[string]string{"count": strconv.Itoa(t.Dropped)})).
 				FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
-		}
-	})
-}
-
-// agentEntryRow declares one transcript row. Its words can be selected and copied with
-// selection; the captions Lithe adds (who spoke, a tool call's state) stay out of the copy.
-func (a *App) agentEntryRow(c ui.C, lang i18n.Language, entry agents.Entry, selection *ui.TextSelectionState) {
-	small := a.theme.Metrics.FontSizeS
-	ui.TextSelectionArea(c, selection).FillWidth().Gap(3).Children(func() {
-		switch entry.Kind {
-		case agents.EntryUser:
-			ui.Column(c).Unselectable().Children(func() {
-				ui.Text(c, i18n.Shared(lang, "desktop.agents.you")).FontSize(small).Weight(gfx.WeightSemibold).Color(a.colors.Accent)
-			})
-			ui.Wrap(c, entry.Text).Color(a.colors.Text)
-		case agents.EntryAssistant:
-			ui.Wrap(c, entry.Text).Color(a.colors.Text)
-		case agents.EntryThought:
-			ui.Column(c).Unselectable().Children(func() {
-				ui.Text(c, i18n.Shared(lang, "desktop.agents.thinking")).FontSize(small).Color(a.colors.Subtle)
-			})
-			ui.Wrap(c, entry.Text).FontSize(small).Color(a.colors.Subtle)
-		case agents.EntryTool:
-			a.agentToolRow(c, lang, entry)
-		case agents.EntryNotice:
-			color := a.colors.Subtle
-			if entry.Level == "warning" || entry.Level == "error" {
-				color = a.colors.Warning
-			}
-			text := entry.Text
-			if text == "" {
-				text = agentNoticeText(lang, entry.Code)
-			}
-			ui.Row(c).FillWidth().Gap(6).Items(ui.Start).Children(func() {
-				ui.Icon(c, icons.CircleAlert).Size(13, 13).Color(color).Shrink(0)
-				ui.Wrap(c, text).FontSize(small).Color(color).Grow(1).Shrink(1)
-			})
 		}
 	})
 }
@@ -360,38 +256,6 @@ func agentNoticeText(lang i18n.Language, code string) string {
 	return code
 }
 
-// agentToolRow declares a tool call: its title and state, the files it touches and the end of
-// its output.
-func (a *App) agentToolRow(c ui.C, lang i18n.Language, entry agents.Entry) {
-	small := a.theme.Metrics.FontSizeS
-	title := entry.Title
-	if title == "" {
-		title = entry.ToolKind
-	}
-	ui.Row(c).FillWidth().Gap(6).Items(ui.Center).Children(func() {
-		ui.Icon(c, icons.Wrench).Size(13, 13).Color(a.colors.Subtle).Shrink(0)
-		ui.Text(c, title).FontSize(small).Color(a.colors.Text).Ellipsis().Shrink(1)
-		if entry.Status != "" {
-			ui.Row(c).Unselectable().Shrink(0).Children(func() {
-				ui.Text(c, agentToolStatus(lang, entry.Status)).FontSize(small).Color(agentToolStatusColor(a, entry.Status))
-			})
-		}
-	})
-	for i, location := range entry.Locations {
-		if i == 3 {
-			break
-		}
-		place := location.Path
-		if location.Line > 0 {
-			place += ":" + strconv.FormatUint(location.Line, 10)
-		}
-		ui.Text(c.KeyInt(i), place).FontSize(small).Mono().Color(a.colors.Subtle).Ellipsis()
-	}
-	if output := strings.TrimRight(entry.Output, "\n"); output != "" {
-		ui.Paragraph(c, strings.ReplaceAll(lastLines(output, agentToolOutputLines), "\t", "    "), agentToolOutputLines).FontSize(small).Mono().Color(a.colors.Subtle).FillWidth()
-	}
-}
-
 // agentToolStatus is the words of a tool call's state.
 func agentToolStatus(lang i18n.Language, status string) string {
 	switch status {
@@ -405,16 +269,6 @@ func agentToolStatus(lang i18n.Language, status string) string {
 		return i18n.Shared(lang, "desktop.agents.toolStatus.failed")
 	}
 	return status
-}
-
-func agentToolStatusColor(a *App, status string) gfx.Color {
-	switch status {
-	case "completed":
-		return a.colors.Success
-	case "failed":
-		return a.colors.Warning
-	}
-	return a.colors.Subtle
 }
 
 // lastLines keeps the last n lines of text; a line break that ends the text starts no line.
@@ -512,48 +366,6 @@ func (a *App) agentPlan(c ui.C, conversation *agentConversation) {
 	})
 }
 
-// agentStatus declares the conversation's state line: whether it works, its model, how much
-// of the context it uses, its tokens and cost.
-func (a *App) agentStatus(c ui.C, conversation *agentConversation) {
-	ui.Text(c, agentStatusText(a.language(), conversation)).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).
-		Ellipsis().FillWidth().PadX(10).PadY(3).Shrink(0)
-}
-
-// agentStatusText is the state line of a conversation.
-func agentStatusText(lang i18n.Language, conversation *agentConversation) string {
-	t := conversation.transcript
-	var parts []string
-	switch {
-	case !t.Live():
-		parts = append(parts, i18n.Shared(lang, "desktop.agents.ended"))
-	case t.ActiveTurn != 0 || conversation.busy:
-		parts = append(parts, i18n.Shared(lang, "desktop.agents.working"))
-	default:
-		parts = append(parts, i18n.Shared(lang, "desktop.agents.ready"))
-	}
-	model := t.Model
-	if t.Usage != nil && t.Usage.Model != "" {
-		model = t.Usage.Model
-	}
-	if model != "" {
-		parts = append(parts, model)
-	}
-	if usage := t.Usage; usage != nil {
-		if usage.ContextWindow > 0 {
-			parts = append(parts, i18n.SharedFormat(lang, "desktop.agents.context", map[string]string{
-				"used": compactCount(usage.ContextUsed), "window": compactCount(usage.ContextWindow),
-			}))
-		}
-		if total := usage.Tokens.Total(); total > 0 {
-			parts = append(parts, i18n.SharedFormat(lang, "desktop.agents.tokens", map[string]string{"count": compactCount(total)}))
-		}
-		if usage.CostUSD != nil {
-			parts = append(parts, i18n.SharedFormat(lang, "desktop.agents.cost", map[string]string{"cost": strconv.FormatFloat(*usage.CostUSD, 'f', 2, 64)}))
-		}
-	}
-	return strings.Join(parts, " · ")
-}
-
 // compactCount writes a count as 1234, 12.3K or 1.2M.
 func compactCount(count uint64) string {
 	switch {
@@ -563,35 +375,6 @@ func compactCount(count uint64) string {
 		return strconv.FormatFloat(float64(count)/1_000, 'f', 1, 64) + "K"
 	}
 	return strconv.FormatUint(count, 10)
-}
-
-// agentPrompt declares the prompt field with its Send and Stop buttons; ⌘↩ sends.
-func (a *App) agentPrompt(c ui.C, p *project, conversation *agentConversation) {
-	t := conversation.transcript
-	if !t.Live() {
-		return
-	}
-	lang := a.language()
-	ui.Column(c).FillWidth().Shrink(0).PadX(8).PadY(6).Gap(6).Children(func() {
-		field := ui.TextArea(c.Key("prompt"), &conversation.prompt, i18n.Shared(lang, "desktop.agents.promptLabel"),
-			i18n.SharedFormat(lang, "desktop.agents.promptPlaceholder", map[string]string{"agent": conversation.agent.DisplayName})).
-			FillWidth().Height(agentPromptHeight)
-		if field.Shortcut(ui.Primary, "enter") && conversation.canSendPrompt() {
-			c.After(func() { a.sendPrompt(p, conversation, surfaceShortcut) })
-		}
-		ui.Row(c).FillWidth().Gap(6).Items(ui.Center).Children(func() {
-			ui.Text(c, i18n.Shared(lang, "desktop.agents.sendHint")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Shrink(1)
-			ui.Spacer(c)
-			if t.ActiveTurn != 0 {
-				if ui.Button(c.Key("stop"), i18n.Shared(lang, "desktop.agents.stop")).Icon(icons.Square).Outline().Disabled(conversation.busy).Clicked() {
-					c.After(func() { a.cancelTurn(p, conversation) })
-				}
-			}
-			if ui.Button(c.Key("send"), i18n.Shared(lang, "desktop.agents.send")).Icon(icons.ArrowUp).Disabled(!conversation.canSendPrompt()).Clicked() {
-				c.After(func() { a.sendPrompt(p, conversation, surfaceButton) })
-			}
-		})
-	})
 }
 
 // canResume reports whether a recorded session's agent can start a conversation now.

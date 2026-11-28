@@ -289,16 +289,7 @@ func (a *App) requestDocCommentParse(p *project, d *document, docGen uint64, rev
 			return nil
 		}
 
-		var codeBlocks []hoverCodeBlock
-		for i := range doc.Blocks {
-			b := &doc.Blocks[i]
-			if b.Kind != markdown.Code {
-				continue
-			}
-			if lang := hoverCodeLanguage(b.Info, fallbackLang); lang != "" {
-				codeBlocks = append(codeBlocks, hoverCodeBlock{language: lang, text: b.Text})
-			}
-		}
+		codeBlocks := markdownCodeBlocks(&doc, fallbackLang)
 		var tokens map[hoverCodeKey][]syntax.Token
 		if len(codeBlocks) > 0 && registry != nil {
 			tokens = hoverCodeTokens(registry, codeBlocks)

@@ -169,5 +169,11 @@ func (a *App) tabLook(member string) (string, gfx.Icon, bool) {
 		tab := shownTab{lsp: true}
 		return a.tabLabel(tab), a.tabIcon(tab), true
 	}
+	if id, ok := memberAgent(member); ok {
+		if conversation := a.agentsView.tabConversation(id); conversation != nil {
+			tab := shownTab{agent: conversation}
+			return a.tabLabel(tab), a.tabIcon(tab), true
+		}
+	}
 	return "", gfx.Icon{}, false
 }

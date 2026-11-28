@@ -218,7 +218,10 @@ Core 定义一套与具体 Agent 无关的会话事件，两种模式都翻译�
 | --- | --- |
 | `desktop/internal/agents/` | `agents.*`、`agentSessions.*` 命令的客户端；把会话事件合并成有上限的对话记录；按清单和用户同意算出授予的权限；会话目录用到的环境变量 |
 | `desktop/internal/pluginservice/agents.go`、`hostmethods.go` | 从已安装插件读出 `agents[]` 和权限；按需启动 Agent 的插件后端；把 `agents/*` 宿主方法交给 Core |
-| `desktop/internal/workbench/agents.go`、`agents_view.go` | 右侧 Agent 工具窗口：对话与历史两个页签、多会话、权限请求、计划、用量状态行、终端打开、CLI 更新确认；远程工作区不显示，安全模式先请求信任 |
+| `desktop/internal/workbench/agents.go`、`agents_view.go` | 右侧 Agent 工具窗口：对话与历史两个页签、多会话、权限请求、计划、终端打开、CLI 更新确认；远程工作区不显示，安全模式先请求信任 |
+| `desktop/internal/workbench/agents_chat_view.go`、`agents_markdown.go` | 对话页：用户提示是右侧气泡；回复用原生 Markdown 视图排版（不用网页）；工具调用一行一条、连续的合成一组可折叠，结束的轮次折成“工作了 N”，最后列出改动文件；提示卡片里的模型菜单与推理等级滑块、上下文圆环和额度悬停卡片；离开末尾时的“滚动到底部”；左侧提问导航条 |
+| `desktop/internal/workbench/agents_tab.go`、`agents_title.go` | 同一个会话在侧栏和编辑区标签页之间双向移动（↗ 移到标签页，↙ 移回侧栏）；会话标题用 Agent 给的标题，没有时取首个提示的第一行 |
+| `desktop/internal/workbench/agents_history.go`、`agents_history_view.go` | 历史页：搜索、按 Agent 筛选、紧凑视图、按项目目录分组，数据来自 `agentSessions.list` |
 | `desktop/internal/workbench/agents_record.go` | 历史页打开一条已记录的会话：用 `agentSessions.read` 按整行分页读取，从头或从搜索命中处开始；文件变了或单行过长时说明原因 |
 | `desktop/internal/workbench/agents_install.go`、`command_installers.go` | CLI 找不到时提示，并打开插件管理里该插件的 `commandInstallers`；受管安装目录参与 CLI 解析。宿主不自己安装 |
 | `desktop/internal/workbench/agents_records_sync.go` | 配置完成后和窗口重新激活时（最多每分钟一次）在后台同步已同意 Agent 的会话记录，`lithe/host/agents/usage` 读到的是最近一次同步 |
@@ -237,8 +240,9 @@ Core 定义一套与具体 Agent 无关的会话事件，两种模式都翻译�
 进度（2026-11-28）：
 
 - 第 1 期、第 2 期的原生模式已合入 Core（#216）。用量的速度排行、会话按整行分页读取、CLI 安装方式和 IDE 连接的会话搜索在 Core Draft PR Lithe-IDEA/Lithe-core-rust#217，属于 `agents` 0 内的补充。ACP 客户端还没做（#2487），目前没有只提供 ACP 的 Agent 插件。
-- 第 3 期在桌面端 Draft PR #2492，固定 #217 的 Core 提交，#217 合入后换成 main 上的合入提交。第 7 节表里的功能都已实现：对话文字可选择复制，历史页可查看已记录会话，CLI 缺失时引导安装，MCP 会话搜索开关，会话记录后台同步。两端原生整机验收还没做。
-- 第 4 期三个插件已在各自仓库实现：`lithe-plugin-agent-hub` 0.1.0、`lithe-plugin-claude-code` 0.2.0、`lithe-plugin-codex` 0.3.0，依赖未发布的宿主能力，都只能发预发布版，不进 Store。管理插件仓库的宿主端到端测试用真实 Core 和三个插件包，从隔离 HOME 里的 Claude Code、Codex 会话文件一路读到用量、速度和额度的界面。插件界面文字的多语言在 #2493。
+- 第 3 期在桌面端 Draft PR #2492，固定 Core main 上 #220 的合入提交 `12bf730`（#217、#219、#220 都已合入）。第 7 节表里的功能都已实现：对话文字可选择复制，历史页可查看已记录会话，CLI 缺失时引导安装，MCP 会话搜索开关，会话记录后台同步；2026-11-28 又照参考图重做了历史页和对话页，加上侧栏与标签页双向切换、模型与推理等级切换（#220 的会话配置项）和提问导航条。两端原生整机验收还没做。
+- 提问导航条跳到某个提问时，桌面端先让列表停止跟随末尾，列表离开末尾或有新行进来后再恢复（`agentConversation.jump`）。这是 Viva 的缺陷：跟随末尾的 `ui.List` 上调用 `ListState.ScrollTo`，滚动请求在本帧 `Follow(true)` 之前应用，不会脱离跟随，下一帧又被拉回末尾。按“Viva 的问题在 fork 修复”的规则，在 Lithe-IDEA/viva 修复并向上游提 PR，升级固定版本后删掉这段处理。
+- 第 4 期三个插件已在各自仓库实现：`lithe-plugin-agent-hub` 0.1.0、`lithe-plugin-claude-code` 0.3.0、`lithe-plugin-codex` 0.4.0（后两个已上报并切换会话配置项），依赖未发布的宿主能力，都只能发预发布版，不进 Store。管理插件仓库的宿主端到端测试用真实 Core 和三个插件包，从隔离 HOME 里的 Claude Code、Codex 会话文件一路读到用量、速度和额度的界面。插件界面文字的多语言在 #2493。
 
 ### 9. 契约细节（v0）
 
@@ -278,6 +282,17 @@ Core 定义一套与具体 Agent 无关的会话事件，两种模式都翻译�
 - 写入走每个会话自己的写线程和有上限的队列，后端的读线程不会等 CLI 的标准输入，避免两个进程互相等待。
 - 输出按会话的顺序队列发给后端；后端会话结束时，Core 结束它名下的全部 CLI 进程树。
 - `turn` 由 Core 分配；后端上报的事件必须属于正在进行的一轮。权限请求的选项由后端列出，用户只能从中选一个，Core 检查后再通知后端。
+
+**会话配置项（#220，`agents` 0 内补充）。** 模型、推理等级和模式都是“插件列出、用户选择”的数据，Core 不认识具体取值：
+
+| 方向 | 方法或事件 | 内容 |
+| --- | --- | --- |
+| 后端 → Core | `report` 里的 `configOptions` 事件 | 至多 16 项 `{id, name, description?, category?, currentValue, options}`，`category` 只能是 `model`、`thoughtLevel`、`mode`；每项 1–128 个 `{value, name, description?}` |
+| 桌面端 → Core | `agents.setConfigOption` | `{session, option, value}`，只接受来源为 `user` 的请求；只能选后端最近一次列出的设置和取值，否则报 `agents.unknownConfigOption`、`agents.unknownConfigValue` |
+| Core → 后端 | `lithe/host/agents/didSetConfigOption` | `{session, option, value}`；后端按 CLI 的方式写入（Codex 在下一轮 `turn/start` 带上，Claude Code 用 `set_model`、`apply_flag_settings`、`set_permission_mode` 控制请求），生效后再报一次 `configOptions` |
+
+- 选项由插件后端从 CLI 自己的回答里取（Codex `model/list`，Claude Code `initialize` 的回答和 `get_settings`），不在插件或宿主里写死模型表。
+- 桌面端只显示插件给的名称；没有 `thoughtLevel` 时不显示滑块，没有任何配置项时只显示当前模型名，不放不能用的控件。
 
 **Core 内部调用插件函数。** 启动函数、`scan` 和 `read` 由 Core 直接调用插件后端，操作 ID 用 Core 保留的前缀，结果不进入桌面端的事件队列。这和跨插件调用的 relay 是同一种做法，桌面端不需要逐跳搬运。
 

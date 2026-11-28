@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/agents"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -61,9 +62,9 @@ func TestApplyAgentBatchAppliesEachEventOnceAndSkipsOtherSessions(t *testing.T) 
 	applyAgentBatch(v, agents.EventBatch{Next: 4, Events: []agents.SessionEvent{
 		{Sequence: 3, Session: "agent-1", Event: message},
 		{Sequence: 4, Session: "agent-other", Event: message},
-	}})
+	}}, time.Time{})
 	// A rewound read hands the same event again; it must not be appended twice.
-	applyAgentBatch(v, agents.EventBatch{Next: 4, Events: []agents.SessionEvent{{Sequence: 3, Session: "agent-1", Event: message}}})
+	applyAgentBatch(v, agents.EventBatch{Next: 4, Events: []agents.SessionEvent{{Sequence: 3, Session: "agent-1", Event: message}}}, time.Time{})
 
 	if v.cursor != 4 {
 		t.Fatalf("cursor = %d, want 4", v.cursor)
@@ -80,7 +81,7 @@ func TestApplyAgentBatchMarksMissedAndHonoursARewind(t *testing.T) {
 	ended.transcript.Apply(agents.Event{Kind: "exited", Reason: "closed"})
 	v := &agentsState{conversations: []*agentConversation{live, ended}, cursor: 10, cursorSet: true, rewind: 6, rewinding: true}
 
-	applyAgentBatch(v, agents.EventBatch{Next: 12, Missed: true})
+	applyAgentBatch(v, agents.EventBatch{Next: 12, Missed: true}, time.Time{})
 
 	if !live.transcript.Missed || ended.transcript.Missed {
 		t.Fatalf("missed = live %v, ended %v; want only the live conversation marked", live.transcript.Missed, ended.transcript.Missed)
@@ -117,24 +118,6 @@ func TestConfigureAgentsRunsAnOlderConfigurationWhenTheNewerNeverRan(t *testing.
 
 	if result := a.configureAgents(context.Background(), pluginservice.InstalledSnapshot{}, older); result.stale {
 		t.Fatal("an older configuration must run while no newer one reached Core")
-	}
-}
-
-func TestAgentStatusTextShowsStateModelContextTokensAndCost(t *testing.T) {
-	conversation := liveConversation("agent-1")
-	cost := 1.5
-	conversation.transcript.Apply(agents.Event{Kind: "usage", Model: "model-a", ContextUsed: 12_345, ContextWindow: 200_000,
-		Tokens: agents.Tokens{Input: 1_000, Output: 500}, CostUSD: &cost})
-
-	got := agentStatusText(i18n.English, conversation)
-	want := "Ready · model-a · Context 12.3K/200.0K · Tokens: 1500 · $1.50"
-	if got != want {
-		t.Fatalf("status = %q, want %q", got, want)
-	}
-
-	conversation.busy = true
-	if got := agentStatusText(i18n.English, conversation); got[:len("Working")] != "Working" {
-		t.Fatalf("status while a request is on its way = %q, want it to start with Working", got)
 	}
 }
 
@@ -199,13 +182,22 @@ func TestAgentToolWindowExistsOnlyInALocalWorkspace(t *testing.T) {
 // showAgentConversation opens the Agent tool window of an English window showing conversation.
 func showAgentConversation(t *testing.T, conversation *agentConversation) *harness {
 	t.Helper()
+	h, _ := showAgentConversationWith(t, conversation)
+	return h
+}
+
+// showAgentConversationWith is showAgentConversation answering from a Core that records what
+// the window asks.
+func showAgentConversationWith(t *testing.T, conversation *agentConversation) (*harness, *agentCore) {
+	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, settingsFile), []byte(`{"theme":"dark"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	kernel := &agentCore{}
 	h := newHarnessWithOptions(t, Options{
 		Kernel: &testKernel{Client: core.NewClient()}, Store: store.At(dir), Languages: []string{"en-US"},
-		AgentKernel: agents.NewClient(&agentCore{}),
+		AgentKernel: agents.NewClient(kernel),
 	})
 	h.open(t.TempDir())
 	v := &h.app.agentsView
@@ -214,7 +206,7 @@ func showAgentConversation(t *testing.T, conversation *agentConversation) *harne
 	v.conversations = []*agentConversation{conversation}
 	h.click(center(h.button(itemAgents)))
 	h.settle()
-	return h
+	return h, kernel
 }
 
 // shownText is where the window drew value.
@@ -242,11 +234,15 @@ func TestAgentReplyDragSelectsAndCopies(t *testing.T) {
 	conversation.transcript.Apply(agents.Event{Kind: "message", Turn: 1, Role: "assistant", MessageID: "m1", Text: reply})
 	h := showAgentConversation(t, conversation)
 
-	r := h.shownText(reply)
-	h.drag(gfx.Point{X: r.X + 1, Y: r.Y + r.Height/2}, gfx.Point{X: r.X + r.Width + 4, Y: r.Y + r.Height/2})
+	r := h.pageHit(reply).Bounds
+	// The reply may wrap at the tool window's width: the drag ends on its last line.
+	h.drag(gfx.Point{X: r.X + 1, Y: r.Y + 4}, gfx.Point{X: r.X + r.Width - 1, Y: r.Y + r.Height - 4})
 	h.settle()
-	serial := conversation.transcript.Entries[0].Serial
-	if got := conversation.selections[serial].Text(); got != reply {
+	md := conversation.markdown[conversation.transcript.Entries[0].Serial]
+	if md == nil {
+		t.Fatal("the reply is not drawn as Markdown")
+	}
+	if got := md.view.SelectedText(md.selection); got != reply {
 		t.Fatalf("the drag selected %q, want %q", got, reply)
 	}
 	if got := h.copyShortcut(); got != reply {

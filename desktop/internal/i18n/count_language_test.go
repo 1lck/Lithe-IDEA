@@ -232,6 +232,19 @@ func TestDesktopSharedCatalogHasNoUnguardedCountPluralMismatches(t *testing.T) {
 	// Keys that already have an explicit Go singular branch (n == 1) or are only
 	// called when count > 1 (or use fixed plural values such as byte-width choices).
 	guardedOrMultiOnly := map[string]bool{
+		"desktop.agents.history.daysAgo":                     true, // agents_history_view.go: n == 1 -> daysAgoOne
+		"desktop.agents.history.hoursAgo":                    true, // agents_history_view.go: n == 1 -> hoursAgoOne
+		"desktop.agents.history.messages":                    true, // agents_history_view.go: n == 1 -> messagesOne
+		"desktop.agents.history.minutesAgo":                  true, // agents_history_view.go: n == 1 -> minutesAgoOne
+		"desktop.agents.history.results":                     true, // agents_history_view.go: n == 1 -> resultsOne
+		"desktop.agents.history.sessions":                    true, // agents_history_view.go: n == 1 -> sessionsOne
+		"desktop.agents.history.subagents":                   true, // agents_history_view.go: n == 1 -> subagentsOne
+		"desktop.agents.tools.changed":                       true, // agents_chat_view.go: n == 1 -> changedOne
+		"desktop.agents.tools.fetched":                       true, // agents_chat_view.go: n == 1 -> fetchedOne
+		"desktop.agents.tools.ran":                           true, // agents_chat_view.go: n == 1 -> ranOne
+		"desktop.agents.tools.read":                          true, // agents_chat_view.go: n == 1 -> readOne
+		"desktop.agents.tools.searched":                      true, // agents_chat_view.go: n == 1 -> searchedOne
+		"desktop.agents.tools.used":                          true, // agents_chat_view.go: n == 1 -> usedOne
 		"desktop.branch.deleteManyFailed":                    true, // len(results) > 1
 		"desktop.branch.deleteManyTitle":                     true, // len(b.deleting) > 1
 		"desktop.branch.deletedMany":                         true, // len(results) > 1

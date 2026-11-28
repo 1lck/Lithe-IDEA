@@ -547,6 +547,8 @@ func (a *App) dropTab(member string, target dropTarget) {
 		a.selectViewer(p, id)
 	} else if member == lspLogMember {
 		a.selectLSPLog(p)
+	} else if id, ok := memberAgent(member); ok {
+		a.selectAgentTab(p, id)
 	}
 }
 

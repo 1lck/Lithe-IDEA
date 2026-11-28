@@ -29,6 +29,15 @@
       "desktop/internal/workbench/settings_agents.go",
       "desktop/internal/settingswindow/agents_model.go",
       "desktop/internal/settingswindow/agents_view.go",
+      "desktop/internal/agents/types.go",
+      "desktop/internal/workbench/agents_chat_view.go",
+      "desktop/internal/workbench/agents_chat_view_test.go",
+      "desktop/internal/workbench/agents_markdown.go",
+      "desktop/internal/workbench/agents_tab.go",
+      "desktop/internal/workbench/agents_title.go",
+      "desktop/internal/workbench/agents_history.go",
+      "desktop/internal/workbench/agents_history_test.go",
+      "desktop/internal/workbench/agents_history_view.go",
       "shared/i18n/features/agents.json"
     ]
   },
@@ -58,10 +67,19 @@
       "desktop/internal/workbench/settings_agents.go",
       "desktop/internal/settingswindow/agents_model.go",
       "desktop/internal/settingswindow/agents_view.go",
+      "desktop/internal/agents/types.go",
+      "desktop/internal/workbench/agents_chat_view.go",
+      "desktop/internal/workbench/agents_chat_view_test.go",
+      "desktop/internal/workbench/agents_markdown.go",
+      "desktop/internal/workbench/agents_tab.go",
+      "desktop/internal/workbench/agents_title.go",
+      "desktop/internal/workbench/agents_history.go",
+      "desktop/internal/workbench/agents_history_test.go",
+      "desktop/internal/workbench/agents_history_view.go",
       "shared/i18n/features/agents.json"
     ]
   },
   "owner": "AI / 插件平台",
-  "verification": "用合成 Agent 插件（dev.lithe.test.*）在可信的本地工作区验证：Agent 工具窗口列出插件声明的 Agent，新建会话后发送提示、流式显示回复/思考/工具调用/计划，对话文字可拖选、全选和复制，权限请求按插件给出的选项回答，停止当前轮次，关闭会话与关闭项目都结束 CLI 进程；CLI 找不到时提示并打开插件管理里该插件的安装器；远程工作区不显示 Agent 按钮，安全模式先请求信任。历史页：未授权时只提示去设置，授权后同步、搜索、跨项目切换和恢复会话，打开一条记录按整行分页查看消息，搜索结果从命中处打开；配置完成和窗口重新激活时后台同步记录。设置 › AI › Agent 撤销授权后再次配置会丢弃已缓存的记录；打开 IDE 连接和“允许 MCP 客户端搜索本地会话”后，MCP 客户端才能列出 lithe_sessions_search、lithe_sessions_read。界面与日志不得出现提示、回复、工具参数或输出、查询词、账号与凭据。两端原生整机验收仍为 pending。",
-  "notes": "2026-11-28：桌面端接入 Core API-45（agents 能力 v0）。Core 运行插件声明的 Agent CLI 并保存会话记录；桌面端 desktop/internal/agents 封装 agents.* 与 agentSessions.* 命令并把事件合并成对话记录，workbench 增加右侧 Agent 工具窗口（标题栏为对话与历史两个页签；“+”新建对话，装了多个 Agent 时先选 Agent；“更多操作”菜单按 Agent 列出在终端打开与 CLI 更新确认），设置 › AI › Agent 管理每个插件读取本机会话记录的授权和 MCP 会话搜索开关。同日补齐：对话文字选择复制、历史页查看已记录会话（agentSessions.read 分页）、CLI 缺失时引导到插件安装器、IDE 连接的两个只读会话工具、会话记录后台同步（供 lithe/host/agents/usage 读取）。宿主不认识任何具体 Agent，名称、工具、形式和会话目录都来自插件清单。未做：ACP 模式（#2487，目前没有只提供 ACP 的 Agent 插件）；插件没有原生对话或未获准运行程序时，对话页说明原因，仍可从“更多操作”菜单在终端打开。"
+  "verification": "用合成 Agent 插件（dev.lithe.test.*）在可信的本地工作区验证：Agent 工具窗口列出插件声明的 Agent，新建会话后发送提示、流式显示回复/思考/工具调用/计划，对话文字可拖选、全选和复制，权限请求按插件给出的选项回答，停止当前轮次，关闭会话与关闭项目都结束 CLI 进程；回复按原生 Markdown 排版（标题、列表、行内代码、代码块着色），工具调用一行一条可折叠，结束的轮次折成“工作了 N”，最后给出改动文件；侧栏对话用 ↗ 移到编辑区标签页、标签页用 ↙ 移回侧栏，两边是同一个会话；提示卡片的模型菜单切换模型、拖动推理等级（选项来自插件上报的 configOptions），上下文圆环悬停显示用量与额度；离开末尾时出现“滚动到底部”；左侧提问导航条的圆点悬停显示第 N/共 M 与时间，点击跳到该提问；CLI 找不到时提示并打开插件管理里该插件的安装器；远程工作区不显示 Agent 按钮，安全模式先请求信任。历史页：未授权时只提示去设置，授权后同步、搜索、跨项目切换和恢复会话，打开一条记录按整行分页查看消息，搜索结果从命中处打开；配置完成和窗口重新激活时后台同步记录。设置 › AI › Agent 撤销授权后再次配置会丢弃已缓存的记录；打开 IDE 连接和“允许 MCP 客户端搜索本地会话”后，MCP 客户端才能列出 lithe_sessions_search、lithe_sessions_read。界面与日志不得出现提示、回复、工具参数或输出、查询词、账号与凭据。两端原生整机验收仍为 pending。",
+  "notes": "2026-11-28：桌面端接入 Core API-45（agents 能力 v0）。Core 运行插件声明的 Agent CLI 并保存会话记录；桌面端 desktop/internal/agents 封装 agents.* 与 agentSessions.* 命令并把事件合并成对话记录，workbench 增加右侧 Agent 工具窗口（标题栏为对话与历史两个页签；“+”新建对话，装了多个 Agent 时先选 Agent；“更多操作”菜单按 Agent 列出在终端打开与 CLI 更新确认），设置 › AI › Agent 管理每个插件读取本机会话记录的授权和 MCP 会话搜索开关。同日补齐：对话文字选择复制、历史页查看已记录会话（agentSessions.read 分页）、CLI 缺失时引导到插件安装器、IDE 连接的两个只读会话工具、会话记录后台同步（供 lithe/host/agents/usage 读取）。宿主不认识任何具体 Agent，名称、工具、形式和会话目录都来自插件清单。未做：ACP 模式（#2487，目前没有只提供 ACP 的 Agent 插件）；插件没有原生对话或未获准运行程序时，对话页说明原因，仍可从“更多操作”菜单在终端打开。同日照参考图重做历史页（搜索、Agent 筛选、紧凑视图、按目录分组）和对话页：对话标题用 Agent 生成的标题，没有时取首个提示的第一行；回复用原生 Markdown 视图（不用网页）；侧栏对话与编辑区标签页对话可以双向切换；模型与推理等级来自 Core agents 能力 v0 内补充的 configOptions 事件和 agents.setConfigOption（Core #220）；提问导航条跳转时暂停跟随末尾，是 Viva 跟随列表上 ScrollTo 不脱离跟随的绕过，Viva 修复后删除。"
 }

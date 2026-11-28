@@ -89,6 +89,11 @@ type agentsState struct {
 	// recordSync keeps the session records current for the views that read usage
 	// (agents_records_sync.go).
 	recordSync agentRecordSync
+	// highlights are the replies whose code blocks the paint found complete and uncolored,
+	// colored at the end of the paint (agents_markdown.go).
+	highlights []*agentMarkdown
+	// nextTab is the last editor tab number given to a conversation (agents_tab.go).
+	nextTab int
 }
 
 // agentsMenu is a menu of the Agent tool window's header.
@@ -118,8 +123,87 @@ type agentConversation struct {
 	// selections keeps the text selection of each entry drawn, by the entry's serial, so a
 	// selection stays put while the rows scroll and new events arrive.
 	selections map[uint64]*ui.TextSelectionState
-	// pruned is the serial of the oldest entry when the selections were last pruned.
+	// markdown keeps the view of each reply drawn, by the entry's serial; selected is the reply
+	// whose text is selected.
+	markdown map[uint64]*agentMarkdown
+	selected *agentMarkdown
+	// expanded are the tool calls whose files and output are shown, by the entry's serial;
+	// opened are the runs of tool calls shown one by one, by their first entry's serial, and
+	// unfolded the completed turns whose work is shown, by turn.
+	expanded, opened map[uint64]bool
+	unfolded         map[uint64]bool
+	// turnTimes is when each turn the window saw started and ended, by turn; timed is the turn
+	// in progress being timed and sentAt when the prompt waiting for its turn was sent.
+	turnTimes map[uint64]agentTurnTime
+	timed     uint64
+	sentAt    time.Time
+	// pruned is the serial of the oldest entry when the per-entry state was last pruned.
 	pruned uint64
+	// title is the agent's own title of the session, read from its session record; firstLine is
+	// the first line of the first prompt, which names the conversation until the agent's title
+	// is known. Neither is logged.
+	title, firstLine string
+	// resumed is set for a conversation that resumes a recorded session, whose title can be read
+	// at once.
+	resumed bool
+	// titleWanted asks for the title to be read again; titleReading is set while a read runs.
+	titleWanted, titleReading bool
+
+	// picks are the values the user picked for the settings the backend reports, by setting
+	// ID: each shows until the backend reports its settings again or the pick fails.
+	picks map[string]string
+	// effort is the reasoning effort slider, at the index of a value of the thoughtLevel
+	// setting; effortMoved says the user moved it since it was last put at the value shown.
+	// effortMarks are its marks, made for the values effortFor lists.
+	effort      ui.SliderState
+	effortMoved bool
+	effortMarks []ui.SliderMark
+	effortFor   string
+	// settingsOpen says the settings menu is open; contextOpen the card of the context used.
+	settingsOpen, contextOpen bool
+	// rows are the rows the transcript shows, made again each paint from the entries, and
+	// prompts the rows of the user's prompts among them (agents_chat_view.go).
+	rows    []agentRow
+	prompts []int
+	// tab is the editor tab that shows the conversation, zero while the Agent tool window
+	// shows it (agents_tab.go).
+	tab int
+	// navCard is one more than the prompt whose card the navigator shows, zero when none.
+	navCard int
+	// jump is one more than the number of rows when the navigator scrolled the transcript to a
+	// prompt, zero when none waits: until the list leaves its end or gets rows, it does not
+	// follow the end, which would undo the jump.
+	jump int
+	// transcriptBox is the transcript list this paint declared and shownRows its rows, by
+	// index in order: laid out, they tell which row is at the top of the list. They hold
+	// only for the paint that declared them.
+	transcriptBox ui.Box
+	shownRows     []agentShownRow
+	// readRow is one more than the row being read as the last paint laid the transcript out
+	// (transcriptRead), zero when it showed none.
+	readRow int
+}
+
+// agentShownRow is a transcript row a paint declared and its element.
+type agentShownRow struct {
+	index int
+	box   ui.Box
+}
+
+// shownValue is the value the conversation shows for setting: the user's pick on its way,
+// else the value in force.
+func (conversation *agentConversation) shownValue(setting *agents.ConfigOption) string {
+	if picked, ok := conversation.picks[setting.ID]; ok {
+		return picked
+	}
+	return setting.CurrentValue
+}
+
+// shownIndex is the index of the value shown for setting among its values, -1 when it lists
+// none such.
+func (conversation *agentConversation) shownIndex(setting *agents.ConfigOption) int {
+	value := conversation.shownValue(setting)
+	return slices.IndexFunc(setting.Options, func(option agents.ConfigValue) bool { return option.Value == value })
 }
 
 // selection is the text selection of the entry with serial, made when the entry is first drawn.
@@ -135,18 +219,120 @@ func (conversation *agentConversation) selection(serial uint64) *ui.TextSelectio
 	return state
 }
 
-// pruneSelections forgets the selections of the entries the transcript dropped to keep its bounds.
+// pruneSelections forgets the selections, reply views, opened tool calls and turn times of the
+// entries the transcript dropped to keep its bounds.
 func (conversation *agentConversation) pruneSelections() {
 	entries := conversation.transcript.Entries
 	if len(entries) == 0 || entries[0].Serial == conversation.pruned {
 		return
 	}
-	conversation.pruned = entries[0].Serial
+	oldest := entries[0].Serial
+	conversation.pruned = oldest
+	if turn := entries[0].Turn; turn != 0 {
+		for each := range conversation.turnTimes {
+			if each < turn {
+				delete(conversation.turnTimes, each)
+			}
+		}
+		for each := range conversation.unfolded {
+			if each < turn {
+				delete(conversation.unfolded, each)
+			}
+		}
+	}
+	for serial := range conversation.opened {
+		if serial < oldest {
+			delete(conversation.opened, serial)
+		}
+	}
 	for serial := range conversation.selections {
-		if serial < conversation.pruned {
+		if serial < oldest {
 			delete(conversation.selections, serial)
 		}
 	}
+	for serial, md := range conversation.markdown {
+		if serial < oldest {
+			if conversation.selected == md {
+				conversation.selected = nil
+			}
+			delete(conversation.markdown, serial)
+		}
+	}
+	for serial := range conversation.expanded {
+		if serial < oldest {
+			delete(conversation.expanded, serial)
+		}
+	}
+}
+
+// toggleExpanded shows or hides the files and output of the tool call with serial.
+func (conversation *agentConversation) toggleExpanded(serial uint64) {
+	conversation.expanded = toggleKey(conversation.expanded, serial)
+}
+
+// toggleOpened shows the run of tool calls starting at serial one by one, or folds it again.
+func (conversation *agentConversation) toggleOpened(serial uint64) {
+	conversation.opened = toggleKey(conversation.opened, serial)
+}
+
+// toggleUnfolded shows or folds the work of a completed turn.
+func (conversation *agentConversation) toggleUnfolded(turn uint64) {
+	conversation.unfolded = toggleKey(conversation.unfolded, turn)
+}
+
+// toggleKey adds key to set or takes it out, making the set when it has none.
+func toggleKey(set map[uint64]bool, key uint64) map[uint64]bool {
+	if set[key] {
+		delete(set, key)
+		return set
+	}
+	if set == nil {
+		set = map[uint64]bool{}
+	}
+	set[key] = true
+	return set
+}
+
+// agentTurnTime is when a turn started, as the window saw it (the prompt being sent, or the
+// first sign of the turn), and when it ended; ended is zero while it runs.
+type agentTurnTime struct {
+	started, ended time.Time
+}
+
+// worked is how long a completed turn took, false while it runs or when the window did not see
+// it start.
+func (conversation *agentConversation) worked(turn uint64) (time.Duration, bool) {
+	times, ok := conversation.turnTimes[turn]
+	if !ok || times.started.IsZero() || times.ended.IsZero() {
+		return 0, false
+	}
+	return times.ended.Sub(times.started), true
+}
+
+// timeTurns notes, at now, the turn in progress changing: the one that was in progress ended and
+// the new one started, at the time its prompt was sent when the window sent it.
+func (conversation *agentConversation) timeTurns(now time.Time) {
+	active := conversation.transcript.ActiveTurn
+	if active == conversation.timed {
+		return
+	}
+	if conversation.turnTimes == nil {
+		conversation.turnTimes = map[uint64]agentTurnTime{}
+	}
+	if previous := conversation.timed; previous != 0 {
+		if times, ok := conversation.turnTimes[previous]; ok {
+			times.ended = now
+			conversation.turnTimes[previous] = times
+		}
+	}
+	if active != 0 {
+		started := now
+		if !conversation.sentAt.IsZero() {
+			started, conversation.sentAt = conversation.sentAt, time.Time{}
+		}
+		conversation.turnTimes[active] = agentTurnTime{started: started}
+	}
+	conversation.timed = active
 }
 
 // agentCatalogResult is what a configuration found, handed to the window thread. Stale
@@ -289,6 +475,14 @@ func (a *App) applyAgentCatalog(result agentCatalogResult) {
 	a.syncAgentRecords(true)
 }
 
+// selectConversation shows conversation in the window, when it is still there.
+func (a *App) selectConversation(conversation *agentConversation) {
+	v := &a.agentsView
+	if at := slices.Index(v.conversations, conversation); at >= 0 {
+		v.current = at
+	}
+}
+
 // currentConversation is the conversation the window shows, nil when there is none.
 func (a *App) currentConversation() *agentConversation {
 	v := &a.agentsView
@@ -338,7 +532,7 @@ func (a *App) startConversation(p *project, agent agents.CatalogAgent, resume st
 	base := append(loginenv.Environ(), a.terminalEnvironment()...)
 	a.background(p, agentStartTimeout, func(ctx context.Context) func(*App) {
 		session, probe, err := a.startAgentSession(ctx, kernel, service, agent, root, resume, base)
-		return func(a *App) { a.finishConversationStart(p, agent, session, probe, err) }
+		return func(a *App) { a.finishConversationStart(p, agent, session, probe, resume != "", err) }
 	})
 }
 
@@ -374,7 +568,7 @@ func (a *App) startAgentSession(ctx context.Context, kernel *agents.Client, serv
 
 // finishConversationStart shows the started session and reads its events from the probed
 // sequence, or says why it did not start.
-func (a *App) finishConversationStart(p *project, agent agents.CatalogAgent, session string, probe uint64, err error) {
+func (a *App) finishConversationStart(p *project, agent agents.CatalogAgent, session string, probe uint64, resumed bool, err error) {
 	v := &a.agentsView
 	v.starting = false
 	if err != nil {
@@ -389,7 +583,7 @@ func (a *App) finishConversationStart(p *project, agent agents.CatalogAgent, ses
 		a.notifyError(i18n.SharedFormat(a.language(), "desktop.agents.startFailed", map[string]string{"agent": agent.DisplayName, "reason": a.agentFailure(err)}))
 		return
 	}
-	conversation := &agentConversation{agent: agent, transcript: agents.NewTranscript(session, agent.PluginID, agent.AgentID), seen: probe}
+	conversation := &agentConversation{agent: agent, transcript: agents.NewTranscript(session, agent.PluginID, agent.AgentID), seen: probe, resumed: resumed}
 	v.conversations = append(v.conversations, conversation)
 	if len(v.conversations) > maxAgentConversations {
 		v.conversations = dropEndedConversation(v.conversations)
@@ -457,13 +651,14 @@ func (a *App) applyAgentEvents(p *project, batch agents.EventBatch, err error) {
 	if err != nil {
 		a.backgroundFailed("agents_events", err)
 	} else {
-		applyAgentBatch(v, batch)
+		applyAgentBatch(v, batch, a.now())
+		a.readAgentTitles(p)
 	}
 	a.pumpAgentEvents(p)
 }
 
 // applyAgentBatch folds batch into the conversations of v and moves the cursor past it.
-func applyAgentBatch(v *agentsState, batch agents.EventBatch) {
+func applyAgentBatch(v *agentsState, batch agents.EventBatch, now time.Time) {
 	if batch.Missed {
 		for _, conversation := range v.conversations {
 			if conversation.transcript.Live() {
@@ -477,7 +672,22 @@ func applyAgentBatch(v *agentsState, batch agents.EventBatch) {
 			continue
 		}
 		conversation.seen = event.Sequence
-		conversation.transcript.Apply(event.Event)
+		t := conversation.transcript
+		working, known := t.ActiveTurn != 0, t.AgentSessionID != ""
+		t.Apply(event.Event)
+		conversation.timeTurns(now)
+		if event.Event.Kind == "configOptions" {
+			// The backend reports what is in force after it applied or refused a pick.
+			conversation.picks = nil
+		}
+		switch {
+		case working && t.ActiveTurn == 0:
+			// The agent may have named the session during the turn.
+			conversation.titleWanted = true
+		case !known && t.AgentSessionID != "" && conversation.resumed:
+			// A resumed session has its title in the record already.
+			conversation.titleWanted = true
+		}
 	}
 	if batch.Next > v.cursor || len(batch.Events) > 0 {
 		v.cursor = batch.Next
@@ -521,7 +731,10 @@ func (a *App) sendPrompt(p *project, conversation *agentConversation, surface ac
 		a.notify(i18n.Shared(a.language(), "desktop.agents.promptTooLong"))
 		return
 	}
-	conversation.prompt, conversation.busy = "", true
+	conversation.prompt, conversation.busy, conversation.sentAt = "", true, a.now()
+	if conversation.firstLine == "" {
+		conversation.firstLine = agentFirstLine(text)
+	}
 	conversation.transcript.AddPrompt(text)
 	conversation.list.ScrollToEnd()
 	kernel, session := a.agentKernel, conversation.transcript.Session
@@ -531,6 +744,7 @@ func (a *App) sendPrompt(p *project, conversation *agentConversation, surface ac
 			conversation.busy = false
 			if err != nil {
 				restored := conversation.transcript.PromptRefused()
+				conversation.sentAt = time.Time{}
 				if conversation.prompt == "" {
 					conversation.prompt = restored
 				}
@@ -539,6 +753,7 @@ func (a *App) sendPrompt(p *project, conversation *agentConversation, surface ac
 				return
 			}
 			conversation.transcript.PromptAccepted(turn)
+			conversation.timeTurns(a.now())
 		}
 	})
 }
@@ -581,11 +796,52 @@ func (a *App) answerPermission(p *project, conversation *agentConversation, perm
 	})
 }
 
+// setAgentOption picks value for setting of the conversation: the model, the reasoning
+// effort, the mode or another setting its backend reports. The pick shows at once; the backend
+// applies it and reports its settings again, and a pick Core or the backend refuses goes back to
+// the value in force.
+func (a *App) setAgentOption(p *project, conversation *agentConversation, setting, value string) {
+	t := conversation.transcript
+	if !t.Live() {
+		return
+	}
+	at := slices.IndexFunc(t.ConfigOptions, func(option agents.ConfigOption) bool { return option.ID == setting })
+	if at < 0 || conversation.shownValue(&t.ConfigOptions[at]) == value {
+		return
+	}
+	if a.refuseAgent(p, "agents_setting", nil) {
+		return
+	}
+	a.performed("agents.setConfigOption", surfaceButton)
+	if conversation.picks == nil {
+		conversation.picks = map[string]string{}
+	}
+	conversation.picks[setting] = value
+	kernel, session := a.agentKernel, t.Session
+	a.background(p, agentCallTimeout, func(ctx context.Context) func(*App) {
+		err := kernel.SetConfigOption(ctx, session, setting, value)
+		return func(a *App) {
+			if err == nil {
+				return
+			}
+			if conversation.picks[setting] == value {
+				delete(conversation.picks, setting)
+			}
+			if errors.Is(err, context.Canceled) {
+				return
+			}
+			a.operationFailed("agents_setting", err)
+			a.notifyError(i18n.SharedFormat(a.language(), "desktop.agents.settingFailed", map[string]string{"reason": a.agentFailure(err)}))
+		}
+	})
+}
+
 // closeConversation ends the conversation's session and takes it out of the window.
 func (a *App) closeConversation(p *project, conversation *agentConversation) {
 	if conversation == nil {
 		return
 	}
+	a.closeAgentTab(p, conversation)
 	a.performed("agents.close", surfaceButton)
 	v := &a.agentsView
 	if at := slices.Index(v.conversations, conversation); at >= 0 {
@@ -749,6 +1005,10 @@ func (a *App) agentFailure(err error) string {
 		return i18n.Shared(lang, "desktop.agents.reason.sessionEnded")
 	case "agents.invalidResume":
 		return i18n.Shared(lang, "desktop.agents.reason.invalidResume")
+	case "agents.unknownConfigOption":
+		return i18n.Shared(lang, "desktop.agents.reason.unknownSetting")
+	case "agents.unknownConfigValue":
+		return i18n.Shared(lang, "desktop.agents.reason.unknownSettingValue")
 	}
 	return coreErr.Message
 }

@@ -170,6 +170,48 @@ func TestTranscriptFoldsEvents(t *testing.T) {
 	}
 }
 
+func TestTranscriptKeepsTheLatestSettings(t *testing.T) {
+	transcript := NewTranscript("agent-1", "dev.lithe.test.agent", "sample")
+	var event Event
+	if err := json.Unmarshal([]byte(`{"kind":"configOptions","configOptions":[
+		{"id":"model","name":"Model","category":"model","currentValue":"b","options":[{"value":"a","name":"A"},{"value":"b","name":"B"}]},
+		{"id":"effort","name":"Effort","category":"thoughtLevel","currentValue":"high","options":[{"value":"low","name":"Low"},{"value":"high","name":"High"}]}]}`), &event); err != nil {
+		t.Fatal(err)
+	}
+	transcript.Apply(event)
+	model := transcript.Setting("model")
+	if model == nil || model.Current() != 1 || model.Options[1].Name != "B" {
+		t.Fatalf("model = %+v", model)
+	}
+	if effort := transcript.Setting("thoughtLevel"); effort == nil || effort.ID != "effort" || effort.Current() != 1 {
+		t.Fatalf("effort = %+v", effort)
+	}
+	if transcript.Setting("mode") != nil {
+		t.Fatal("no mode was reported")
+	}
+	// Each report replaces the last; an empty one withdraws them.
+	transcript.Apply(Event{Kind: "configOptions"})
+	if transcript.Setting("model") != nil || len(transcript.ConfigOptions) != 0 {
+		t.Fatalf("settings = %+v", transcript.ConfigOptions)
+	}
+	transcript.Apply(event)
+	transcript.Apply(Event{Kind: "exited", Reason: "exited"})
+	if len(transcript.ConfigOptions) != 0 {
+		t.Fatal("an ended session has no settings to change")
+	}
+	if (ConfigOption{CurrentValue: "x", Options: []ConfigValue{{Value: "y"}}}).Current() != -1 {
+		t.Fatal("a current value not listed is no index")
+	}
+
+	core := &fakeCore{}
+	if err := NewClient(core).SetConfigOption(context.Background(), "agent-1", "effort", "low"); err != nil {
+		t.Fatal(err)
+	}
+	if core.commands[0] != "agents.setConfigOption" || core.payloads[0] != `{"option":"effort","session":"agent-1","value":"low"}` {
+		t.Fatalf("sent %v %v", core.commands, core.payloads)
+	}
+}
+
 func TestTranscriptStaysBounded(t *testing.T) {
 	transcript := NewTranscript("agent-1", "p", "a")
 	for turn := uint64(1); turn <= MaxEntries+100; turn++ {

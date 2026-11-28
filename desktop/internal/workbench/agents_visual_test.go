@@ -84,6 +84,26 @@ func TestVisualAgents(t *testing.T) {
 			}
 			shot("chat")
 
+			// A finished conversation: earlier prompts, a turn whose steps fold under its reply,
+			// the files it changed, and the model and reasoning effort it runs with.
+			done := sampleFinishedConversation(v.catalog[0], root)
+			v.conversations = append(v.conversations, done)
+			h.app.selectConversation(done)
+			shot("chat-done")
+			done.settingsOpen = true
+			shot("chat-settings")
+			done.settingsOpen = false
+			done.contextOpen = true
+			shot("chat-context")
+			done.contextOpen = false
+			done.navCard = 1
+			shot("chat-prompts")
+			done.navCard = 0
+			h.app.openAgentTab(h.app.project, done)
+			shot("chat-tab")
+			h.app.dockAgentTab(h.app.project, done)
+			h.app.selectConversation(v.conversations[0])
+
 			now := time.Date(2026, 11, 28, 10, 0, 0, 0, time.UTC).UnixMilli()
 			v.tab = agentsTabHistory
 			v.history = sampleAgentHistory(root, time.Now())
@@ -197,4 +217,62 @@ func sampleConversation(agent agents.CatalogAgent) *agentConversation {
 	cost := 0.42
 	t.Apply(agents.Event{Kind: "usage", ContextUsed: 18_400, ContextWindow: 200_000, Tokens: agents.Tokens{Input: 12_000, Output: 1_800, CacheRead: 4_600}, CostUSD: &cost})
 	return &agentConversation{agent: agent, transcript: t, seen: 1}
+}
+
+// sampleFinishedConversation is a conversation with agent whose third turn has ended: two short
+// turns before it, then one that read, ran and changed files in root for 17 minutes, with the
+// session's settings, the context used and the account's usage limits.
+func sampleFinishedConversation(agent agents.CatalogAgent, root string) *agentConversation {
+	t := agents.NewTranscript("agent-2", agent.PluginID, agent.AgentID)
+	conversation := &agentConversation{agent: agent, transcript: t, seen: 1}
+	start := time.Now().Add(-40 * time.Minute)
+	conversation.sentAt = start
+	t.Apply(agents.Event{Kind: "session", AgentSessionID: "sample-session-2", Model: "sample-large-2"})
+	t.Apply(agents.Event{Kind: "configOptions", ConfigOptions: []agents.ConfigOption{
+		{ID: "model", Name: "Model", Category: "model", CurrentValue: "sample-large-2", Options: []agents.ConfigValue{
+			{Value: "sample-large-2", Name: "Sample Large 2", Description: "Deep reasoning for large changes"},
+			{Value: "sample-fast-2", Name: "Sample Fast 2", Description: "Quick answers and small edits"},
+			{Value: "sample-mini", Name: "Sample Mini"},
+		}},
+		{ID: "effort", Name: "Effort", Category: "thoughtLevel", CurrentValue: "high", Options: []agents.ConfigValue{
+			{Value: "low", Name: "Low"}, {Value: "medium", Name: "Medium"}, {Value: "high", Name: "High"}, {Value: "max", Name: "Max"},
+		}},
+	}})
+	turn := func(n uint64, at time.Time, prompt string, events []agents.Event, took time.Duration) {
+		t.AddPrompt(prompt)
+		t.PromptAccepted(n)
+		conversation.timeTurns(at)
+		for _, event := range events {
+			event.Turn = n
+			t.Apply(event)
+		}
+		t.Apply(agents.Event{Kind: "turnEnded", Turn: n, Reason: "completed"})
+		conversation.timeTurns(at.Add(took))
+	}
+	turn(1, start, "Where is the order total computed?", []agents.Event{
+		{Kind: "toolCall", ToolCallID: "a1", ToolKind: "search", Status: "completed", Title: "Search Total("},
+		{Kind: "message", Role: "assistant", MessageID: "r1", Text: "`Total` in `src/order.go` sums the item prices; checkout and the invoice both call it."},
+	}, 40*time.Second)
+	turn(2, start.Add(5*time.Minute), "Why does it lose a cent on large carts?", []agents.Event{
+		{Kind: "message", Role: "assistant", MessageID: "r2", Text: "It adds `float64` prices, so each addition may round. Over thousands of items the errors add up to a cent."},
+	}, 25*time.Second)
+	order := filepath.Join(root, "src", "order.go")
+	turn(3, start.Add(10*time.Minute), "Fix it and add a test with a large cart\nKeep the public signature of Total.", []agents.Event{
+		{Kind: "message", Role: "thought", MessageID: "t3", Text: "Sum integer cents, convert once at the end."},
+		{Kind: "toolCall", ToolCallID: "c1", ToolKind: "read", Status: "completed", Title: "Read src/order.go", Locations: []agents.ToolLocation{{Path: order}}},
+		{Kind: "toolCall", ToolCallID: "c2", ToolKind: "execute", Status: "completed", Title: "go test ./..."},
+		{Kind: "toolCall", ToolCallID: "c3", ToolKind: "edit", Status: "completed", Title: "Edit src/order.go", Locations: []agents.ToolLocation{{Path: order}}},
+		{Kind: "toolCall", ToolCallID: "c4", ToolKind: "edit", Status: "completed", Title: "Edit src/order_test.go", Locations: []agents.ToolLocation{{Path: filepath.Join(root, "src", "order_test.go")}}},
+		{Kind: "toolCall", ToolCallID: "c5", ToolKind: "execute", Status: "completed", Title: "go test ./..."},
+		{Kind: "message", Role: "assistant", MessageID: "r3", Text: "## Fixed\n\n`Total` now sums **integer cents** and converts once:\n\n" +
+			"- prices are read as cents, so no addition rounds\n- the signature stays `func Total(items []Item) float64`\n\n" +
+			"```go\ncents := int64(0)\nfor _, item := range items {\n\tcents += item.Cents\n}\nreturn float64(cents) / 100\n```\n\n" +
+			"`TestTotalLargeCart` adds 10,000 items at 0.10 and expects exactly 1000.00."},
+	}, 17*time.Minute+7*time.Second)
+	t.Apply(agents.Event{Kind: "usage", ContextUsed: 58_400, ContextWindow: 200_000, Tokens: agents.Tokens{Input: 41_000, Output: 6_200, CacheRead: 11_200}})
+	t.Apply(agents.Event{Kind: "rateLimits", Windows: []agents.RateWindow{
+		{ID: "primary", UsedPercent: 32, WindowMinutes: 300, ResetsAtMs: time.Now().Add(2 * time.Hour).UnixMilli()},
+		{ID: "secondary", UsedPercent: 61, WindowMinutes: 7 * 24 * 60, ResetsAtMs: time.Now().Add(3 * 24 * time.Hour).UnixMilli()},
+	}})
+	return conversation
 }

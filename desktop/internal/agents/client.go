@@ -89,6 +89,15 @@ func (c *Client) RespondPermission(ctx context.Context, session, permission, opt
 	})
 }
 
+// SetConfigOption picks value for one of the settings the backend last reported. ctx must carry
+// the user's operation: Core takes a pick only for origin.source=user. The backend applies it
+// and reports the settings again.
+func (c *Client) SetConfigOption(ctx context.Context, session, option, value string) error {
+	return c.core.Execute(ctx, "agents.setConfigOption", map[string]any{
+		"session": session, "option": option, "value": value,
+	}, nil)
+}
+
 func (c *Client) turn(ctx context.Context, command string, payload any) (uint64, error) {
 	var out struct {
 		Turn uint64 `json:"turn"`

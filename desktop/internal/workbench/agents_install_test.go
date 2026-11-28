@@ -191,7 +191,7 @@ func TestAMissingAgentCLILeadsToItsPluginInPlugins(t *testing.T) {
 	h := showAgentConversation(t, conversation)
 	agent := conversation.agent
 	h.app.agentsView.starting = true
-	h.app.finishConversationStart(h.app.project, agent, "", 0, fmt.Errorf("resolve: %w", &toolchain.UnavailableError{Tool: agent.Tool, Code: "toolchain.notFound"}))
+	h.app.finishConversationStart(h.app.project, agent, "", 0, false, fmt.Errorf("resolve: %w", &toolchain.UnavailableError{Tool: agent.Tool, Code: "toolchain.notFound"}))
 	if h.app.agentsView.starting {
 		t.Fatal("a failed start still shows as starting")
 	}
@@ -207,7 +207,7 @@ func TestAMissingAgentCLILeadsToItsPluginInPlugins(t *testing.T) {
 		t.Fatalf("notification detail = %q, want the explanation of the Plugins action", entry.detail)
 	}
 
-	h.app.finishConversationStart(h.app.project, agent, "", 0, &toolchain.UnavailableError{Terminal: true, Tool: agent.Tool, Code: "toolchain.pinnedUnavailable"})
+	h.app.finishConversationStart(h.app.project, agent, "", 0, false, &toolchain.UnavailableError{Terminal: true, Tool: agent.Tool, Code: "toolchain.pinnedUnavailable"})
 	if entry := h.app.notifications.list[0]; entry.act != nil || entry.text == want {
 		t.Fatalf("a refused pinned CLI was reported as missing: %q", entry.text)
 	}

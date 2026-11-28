@@ -1,6 +1,9 @@
 package agents
 
-import "unicode/utf8"
+import (
+	"slices"
+	"unicode/utf8"
+)
 
 // EntryKind says what a transcript entry shows.
 type EntryKind int
@@ -92,7 +95,9 @@ type Transcript struct {
 	Usage      *Usage
 	RateLimits []RateWindow
 	RatePlan   string
-	Exit       *Exit
+	// ConfigOptions are the settings the user may change, as the backend last reported them.
+	ConfigOptions []ConfigOption
+	Exit          *Exit
 	// Dropped counts entries dropped to keep the bounds, and output lines Core dropped.
 	Dropped int
 	// Missed reports that Core's event buffer lost events of this session.
@@ -106,6 +111,16 @@ type Transcript struct {
 // NewTranscript is an empty transcript of a session.
 func NewTranscript(session, pluginID, agentID string) *Transcript {
 	return &Transcript{Session: session, PluginID: pluginID, AgentID: agentID, index: map[string]int{}}
+}
+
+// Setting is the session's first setting of category, nil when the backend reports none.
+func (t *Transcript) Setting(category string) *ConfigOption {
+	for i := range t.ConfigOptions {
+		if t.ConfigOptions[i].Category == category {
+			return &t.ConfigOptions[i]
+		}
+	}
+	return nil
 }
 
 // Live reports whether the session has not ended.
@@ -198,6 +213,8 @@ func (t *Transcript) Apply(event Event) {
 		if event.Reason != "" && event.Reason != "completed" {
 			t.push(Entry{Kind: EntryNotice, Turn: event.Turn, Level: "warning", Code: Clip(event.Reason, 64), Text: Clip(event.Message, MaxEntryBytes)})
 		}
+	case "configOptions":
+		t.ConfigOptions = slices.Clone(event.ConfigOptions)
 	case "notice":
 		t.push(Entry{Kind: EntryNotice, Turn: t.ActiveTurn, Level: event.Level, Code: Clip(event.Code, 128), Text: Clip(event.Text, MaxEntryBytes)})
 	case "outputLineDropped":
@@ -206,6 +223,7 @@ func (t *Transcript) Apply(event Event) {
 		t.Exit = &Exit{Reason: event.Reason, ExitCode: event.ExitCode}
 		t.ActiveTurn = 0
 		t.Pending = nil
+		t.ConfigOptions = nil
 	}
 }
 

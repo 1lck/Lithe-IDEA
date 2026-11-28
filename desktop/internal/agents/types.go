@@ -117,8 +117,9 @@ type SessionEvent struct {
 }
 
 // Event is any event a session reports; Kind says which fields are set. Backends report
-// session, message, toolCall, plan, permissionRequested, usage, rateLimits, turnEnded and
-// notice; Core adds started, turnStarted, permissionDecided, outputLineDropped and exited.
+// session, message, toolCall, plan, permissionRequested, usage, rateLimits, turnEnded, notice
+// and configOptions; Core adds started, turnStarted, permissionDecided, outputLineDropped and
+// exited.
 type Event struct {
 	Kind string `json:"kind"`
 
@@ -163,10 +164,42 @@ type Event struct {
 	Level string `json:"level,omitempty"`
 	Code  string `json:"code,omitempty"`
 
+	ConfigOptions []ConfigOption `json:"configOptions,omitempty"`
+
 	PluginID string `json:"pluginID,omitempty"`
 	AgentID  string `json:"agentID,omitempty"`
 	Mode     string `json:"mode,omitempty"`
 	Resume   string `json:"resume,omitempty"`
+}
+
+// ConfigOption is a setting of a session the user may change, as its backend last reported it.
+// Category is model, thoughtLevel (the reasoning effort, its values from least to most), mode,
+// or empty for any other; CurrentValue is one of Options' values.
+type ConfigOption struct {
+	ID           string        `json:"id"`
+	Name         string        `json:"name"`
+	Description  string        `json:"description,omitempty"`
+	Category     string        `json:"category,omitempty"`
+	CurrentValue string        `json:"currentValue"`
+	Options      []ConfigValue `json:"options"`
+}
+
+// ConfigValue is one value a setting offers.
+type ConfigValue struct {
+	Value       string `json:"value"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+// Current is the index of the setting's current value among its values, -1 when it lists none
+// such.
+func (o ConfigOption) Current() int {
+	for i, value := range o.Options {
+		if value.Value == o.CurrentValue {
+			return i
+		}
+	}
+	return -1
 }
 
 // ToolLocation is a file a tool call touches.

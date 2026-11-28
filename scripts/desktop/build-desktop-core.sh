@@ -408,7 +408,10 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # and orders by start, answers the whole list's total and per-directory groups (counts), and gives
 # each session its message and subagent counts, main model and last message range for the agent
 # history view.
-PINNED_CORE_REVISION="690c2d708b33c8df6dd4cc61abc932282ffcdbc9"
+# Lithe-core-rust main at 12bf7302 (#220): native agent sessions report the settings the user may
+# change (configOptions: model, thought level, mode), changed through agents.setConfigOption and
+# passed to the plugin backend as lithe/host/agents/didSetConfigOption.
+PINNED_CORE_REVISION="12bf7302a11e034ec8dee226b721092f2e8687c2"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

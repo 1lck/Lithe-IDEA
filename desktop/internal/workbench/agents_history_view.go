@@ -296,7 +296,7 @@ func (a *App) agentHistoryChip(c ui.C, label string, icon *gfx.Icon, chevron, op
 		if icon != nil {
 			ui.Icon(c, *icon).Size(14, 14).Color(a.colors.Subtle).Shrink(0)
 		}
-		ui.Text(c, label).FontSize(metrics.FontSizeS).Color(a.colors.Text)
+		ui.Text(c, label).FontSize(metrics.FontSizeS).Color(a.colors.Text).Ellipsis().Shrink(1).MinWidth(0)
 		if chevron {
 			ui.Icon(c, icons.ChevronDown).Size(12, 12).Color(a.colors.Subtle).Shrink(0)
 		}
