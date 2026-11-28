@@ -58,6 +58,8 @@ func TestGraphArrowJumpUsesVisiblePositionAfterFiltering(t *testing.T) {
 	if p.log.visibleRow(target) != 0 || p.log.visibleRow(hidden) >= 0 {
 		t.Fatalf("filtered projection did not move the target and drop the other commit: %+v", p.log.graph.Rows)
 	}
+	logger := &opRecordingLog{}
+	h.app.logSink = logger
 	h.app.jumpLogGraphArrow(p, target)
 	if err := h.driver.Paint(); err != nil {
 		t.Fatal(err)
@@ -69,6 +71,9 @@ func TestGraphArrowJumpUsesVisiblePositionAfterFiltering(t *testing.T) {
 	h.app.jumpLogGraphArrow(p, hidden)
 	if p.log.selected != target {
 		t.Fatalf("jump selected a filtered-out commit: %s", p.log.selected)
+	}
+	if ops := logger.ops("app.action.performed"); len(ops) != 1 || ops[0] == "" {
+		t.Fatalf("graph arrow jump operation IDs = %q, want one ID for the visible target", ops)
 	}
 }
 
@@ -117,11 +122,16 @@ func TestGraphArrowKeyboardJumpKeepsFocusInCommitList(t *testing.T) {
 		"date":    h.app.logView.date(target),
 	})
 	focusGraphArrow(t, h, h.pageHit(label).ID)
+	logger := &opRecordingLog{}
+	h.app.logSink = logger
 	h.key(gfx.KeyEnter)
 	h.settleChain()
 	revealed := h.pageHit(target.Subject)
 	if got := h.driver.Snapshot().Focused; p.log.selected != target.Hash || got != revealed.ID {
 		t.Fatalf("jump selected %q and focused %v, want %q and %v", p.log.selected, got, target.Hash, revealed.ID)
+	}
+	if ops := logger.ops("app.action.performed"); len(ops) != 1 || ops[0] == "" {
+		t.Fatalf("keyboard arrow jump operation IDs = %q, want one ID", ops)
 	}
 	h.key(gfx.KeyUp)
 	if previous := h.pageHit("step 01"); !previous.Selected || h.driver.Snapshot().Focused != previous.ID {

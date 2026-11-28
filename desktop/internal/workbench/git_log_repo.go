@@ -234,10 +234,10 @@ func (l *gitLogState) takeLogCursors() []logCursor {
 		walk := &l.walks[i]
 		if walk.cursor != "" {
 			cursors = append(cursors, logCursor{walk.root, walk.cursor})
-			walk.cursor = ""
+			walk.cursor, walk.resumeToken = "", ""
 		}
 	}
-	l.cursor, l.cursorRoot, l.hasMore = "", "", false
+	l.cursor, l.resumeToken, l.cursorRoot, l.hasMore = "", "", "", false
 	return cursors
 }
 

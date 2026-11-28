@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -166,7 +167,7 @@ func TestAgentHistoryAppendNewSessions(t *testing.T) {
 // is in it by whole path components.
 func TestAgentHistoryScopeDirectories(t *testing.T) {
 	got := scopeDirectories([]string{"/w/repo/sub", "/w/repo", "", "/w/repo/", "/w/other"})
-	if !reflect.DeepEqual(got, []string{"/w/repo", "/w/other"}) {
+	if !reflect.DeepEqual(got, []string{filepath.FromSlash("/w/repo"), filepath.FromSlash("/w/other")}) {
 		t.Fatalf("scope = %v", got)
 	}
 	for _, test := range []struct {

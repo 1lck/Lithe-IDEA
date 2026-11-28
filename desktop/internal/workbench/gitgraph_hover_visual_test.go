@@ -36,9 +36,10 @@ func TestVisualGitGraphNarrowMetadata(t *testing.T) {
 	}
 	const scale, chain = 1.25, 7
 	a := &App{
-		theme:   ui.DarkTheme(),
-		colors:  palette{Dark: true, Text: gfx.RGB(235, 240, 250)},
-		project: &project{log: newGitLogState()},
+		theme:    ui.DarkTheme(),
+		colors:   palette{Dark: true, Text: gfx.RGB(235, 240, 250)},
+		project:  &project{log: newGitLogState()},
+		sessions: &windowSessions{},
 	}
 	var page *ui.Page
 	m := newGraphMetrics(scale)

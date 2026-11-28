@@ -23,7 +23,7 @@ type mergedLogRetryKernel struct {
 	mergeWithCore bool
 }
 
-func (k *mergedLogRetryKernel) GitHistoryPage(_ context.Context, root, _, cursor string, _, _ int) (core.GitHistoryPage, error) {
+func (k *mergedLogRetryKernel) GitHistoryPage(_ context.Context, root, _, cursor string, _, _ int, _ ...string) (core.GitHistoryPage, error) {
 	k.pageReads = append(k.pageReads, cursor)
 	if root == k.failedRoot {
 		k.failedRoot = ""
@@ -349,7 +349,7 @@ type endlessPager struct {
 	bound      bool
 }
 
-func (f *endlessPager) GitHistoryPage(_ context.Context, _, _, _ string, limit, maxCommits int) (core.GitHistoryPage, error) {
+func (f *endlessPager) GitHistoryPage(_ context.Context, _, _, _ string, limit, maxCommits int, _ ...string) (core.GitHistoryPage, error) {
 	f.limits, f.maxCommits = append(f.limits, limit), append(f.maxCommits, maxCommits)
 	if f.bound {
 		return core.GitHistoryPage{Commits: make([]core.GitCommit, limit), LimitReached: true}, nil

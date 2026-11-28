@@ -124,7 +124,7 @@ func TestAgentCLIInstalledForThePluginIsFoundOffPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tool.Path != canonical {
+	if filepath.Clean(tool.Path) != filepath.Clean(canonical) {
 		t.Fatalf("resolved %q, want the installed %q", tool.Path, canonical)
 	}
 	missing, err = installs.Missing(ctx, agentInstallerPluginID)

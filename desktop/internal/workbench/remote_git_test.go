@@ -186,9 +186,9 @@ func (k *remoteHostKernel) GitReferenceTree(ctx context.Context, names []string,
 		})
 }
 
-func (k *remoteHostKernel) GitHistoryPage(ctx context.Context, root, reference, cursor string, limit, maxCommits int) (core.GitHistoryPage, error) {
+func (k *remoteHostKernel) GitHistoryPage(ctx context.Context, root, reference, cursor string, limit, maxCommits int, resumeToken ...string) (core.GitHistoryPage, error) {
 	return onHost(ctx, k, "git.historyPage", func() (core.GitHistoryPage, error) {
-		return k.Client.GitHistoryPage(ctx, root, reference, cursor, limit, maxCommits)
+		return k.Client.GitHistoryPage(ctx, root, reference, cursor, limit, maxCommits, resumeToken...)
 	}, func(string) (core.GitHistoryPage, error) { return core.GitHistoryPage{}, nil })
 }
 
@@ -501,9 +501,9 @@ func (*reconnectLogKernel) GroupWorkspaceChanges(context.Context, []core.Workspa
 	return core.WorkspaceChangeGroups{}, nil
 }
 
-func (k *reconnectLogKernel) GitHistoryPage(ctx context.Context, root, reference, cursor string, limit, maxCommits int) (core.GitHistoryPage, error) {
+func (k *reconnectLogKernel) GitHistoryPage(ctx context.Context, root, reference, cursor string, limit, maxCommits int, resumeToken ...string) (core.GitHistoryPage, error) {
 	if limit != logPageSize {
-		return k.remoteHostKernel.GitHistoryPage(ctx, root, reference, cursor, limit, maxCommits)
+		return k.remoteHostKernel.GitHistoryPage(ctx, root, reference, cursor, limit, maxCommits, resumeToken...)
 	}
 	session := logRemoteSession(ctx)
 	k.mu.Lock()

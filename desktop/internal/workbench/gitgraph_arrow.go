@@ -247,6 +247,7 @@ func (a *App) drawLogGraphArrows(p *project, row ui.ListRow, graphRow core.Graph
 
 func (a *App) jumpLogGraphArrow(p *project, hash string) {
 	if p == a.project && !p.logReads.retired && p.log.visibleRow(hash) >= 0 {
+		a.performed("git.log.jumpGraphArrow", surfaceButton)
 		a.selectCommit(p, hash)
 		p.log.reveal = logRevealWithFocus
 	}

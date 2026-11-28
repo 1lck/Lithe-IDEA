@@ -18,7 +18,7 @@ type pagingProjectionGate struct {
 	release context.Context
 }
 
-func (k *pagingProjectionGate) GitHistoryPage(_ context.Context, _, _, cursor string, _, _ int) (core.GitHistoryPage, error) {
+func (k *pagingProjectionGate) GitHistoryPage(_ context.Context, _, _, cursor string, _, _ int, _ ...string) (core.GitHistoryPage, error) {
 	if cursor == "second" {
 		return core.GitHistoryPage{Commits: []core.GitCommit{{Hash: "second"}}, HasMore: true, NextCursor: "third"}, nil
 	}
@@ -98,22 +98,19 @@ type filteredLogPagingKernel struct {
 	failGraph     atomic.Bool
 }
 
-func (k *filteredLogPagingKernel) GitHistoryPage(ctx context.Context, root, reference, cursor string, limit, maxCommits int) (core.GitHistoryPage, error) {
+func (k *filteredLogPagingKernel) GitHistoryPage(ctx context.Context, root, reference, cursor string, limit, maxCommits int, resumeToken ...string) (core.GitHistoryPage, error) {
 	if cursor != "" {
 		k.continuations.Add(1)
 		if k.expireNext.Swap(false) {
 			if _, err := k.CloseGitHistoryCursor(ctx, root, cursor); err != nil {
 				return core.GitHistoryPage{}, err
 			}
-			return core.GitHistoryPage{}, &core.Error{
-				Command: "git.historyPage", Code: core.CodeInvalidRequest, Details: cursor,
-			}
 		}
 	} else if limit == logPageSize {
 		// Keep the first page short while letting the wider layout window see both commits.
 		limit = 1
 	}
-	return k.gitKernel.GitHistoryPage(ctx, root, reference, cursor, limit, maxCommits)
+	return k.gitKernel.GitHistoryPage(ctx, root, reference, cursor, limit, maxCommits, resumeToken...)
 }
 
 func (k *filteredLogPagingKernel) GitGraph(ctx context.Context, request core.GraphRequest) (core.Graph, error) {
@@ -169,6 +166,9 @@ func TestLogResumesAnExpiredHistoryCursor(t *testing.T) {
 	dir, k := newFilteredLogPagingFixture(t)
 	h := newHarness(t, k)
 	openLogWithUnmatchedPage(t, h, dir)
+	if h.app.project.log.resumeToken == "" {
+		t.Skip("the linked Core has not enabled Git history recovery")
+	}
 	k.expireNext.Store(true)
 
 	h.clickNamed(h.app.text.Git.LoadMore)
@@ -176,8 +176,8 @@ func TestLogResumesAnExpiredHistoryCursor(t *testing.T) {
 	if _, ok := h.findPageHit("initial"); !ok || h.app.logView.search.Text() != "initial" {
 		t.Fatal("reopening the history cursor did not publish the matching older commit")
 	}
-	if got := k.continuations.Load(); got != 2 {
-		t.Fatalf("got %d continuation requests, want the expired request and one resumed page", got)
+	if got := k.continuations.Load(); got != 1 {
+		t.Fatalf("got %d continuation requests, want one with Core-managed recovery", got)
 	}
 	if got := len(h.app.project.log.commits); got != 2 {
 		t.Fatalf("replayed history was appended to the existing page: got %d commits, want 2", got)
@@ -185,48 +185,44 @@ func TestLogResumesAnExpiredHistoryCursor(t *testing.T) {
 }
 
 type replacedHistoryPager struct {
-	replacement core.GitCommit
-	requests    []string
-	closed      []string
+	wantToken string
+	expired   bool
+	requests  int
 }
 
-func (p *replacedHistoryPager) GitHistoryPage(_ context.Context, _, _, cursor string, _, _ int) (core.GitHistoryPage, error) {
-	p.requests = append(p.requests, cursor)
-	switch cursor {
-	case "expired":
+func (p *replacedHistoryPager) GitHistoryPage(_ context.Context, _, _, cursor string, _, _ int, resumeToken ...string) (core.GitHistoryPage, error) {
+	p.requests++
+	if cursor != "expired" || !slices.Equal(resumeToken, []string{p.wantToken}) {
+		return core.GitHistoryPage{}, errors.New("unexpected history continuation request")
+	}
+	if p.expired {
 		return core.GitHistoryPage{}, &core.Error{
 			Command: "git.historyPage", Code: core.CodeInvalidRequest, Details: cursor,
 		}
-	case "":
-		return core.GitHistoryPage{Commits: []core.GitCommit{p.replacement}, HasMore: true, NextCursor: "fresh"}, nil
-	default:
-		return core.GitHistoryPage{}, errors.New("unexpected continuation of changed history")
 	}
+	return core.GitHistoryPage{HistoryChanged: true}, nil
 }
 
-func (p *replacedHistoryPager) CloseGitHistoryCursor(_ context.Context, _, cursor string) (bool, error) {
-	p.closed = append(p.closed, cursor)
-	return true, nil
+func (*replacedHistoryPager) CloseGitHistoryCursor(context.Context, string, string) (bool, error) {
+	return false, errors.New("the caller does not own a replacement cursor")
 }
 
 func TestLogDoesNotAppendAfterTheExpiredHistoryChanged(t *testing.T) {
 	for _, tc := range []struct {
-		name        string
-		replacement core.GitCommit
+		name  string
+		token string
 	}{
-		{"commit changed", core.GitCommit{Hash: "replacement", Decorations: "tag: release"}},
-		{"tag moved", core.GitCommit{Hash: "old"}},
+		{"Core rejected the changed history", "proof"},
+		{"older Core rejected the expired cursor", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			pager := &replacedHistoryPager{replacement: tc.replacement}
-			loaded := []core.GitCommit{{Hash: "old", Decorations: "tag: release"}}
-			closeCursor := (&App{}).logCursorCloser(t.Context(), pager)
-			page, err := readGitLogPage(t.Context(), pager, "repo", "refs/heads/main", "expired", logPageSize, logWindowSize, loaded, closeCursor)
+			pager := &replacedHistoryPager{wantToken: tc.token, expired: tc.token == ""}
+			page, err := readGitLogPage(t.Context(), pager, "repo", "refs/heads/main", "expired", logPageSize, tc.token)
 			if !errors.Is(err, errLogHistoryChanged) || len(page.Commits) != 0 {
 				t.Fatalf("got page %+v and error %v, want a history reload without an appended page", page, err)
 			}
-			if !slices.Equal(pager.requests, []string{"expired", ""}) || !slices.Equal(pager.closed, []string{"fresh"}) {
-				t.Fatalf("changed history requests %v and closed cursors %v, want the fresh cursor closed without consuming its next page", pager.requests, pager.closed)
+			if pager.requests != 1 {
+				t.Fatalf("got %d reads, want only the attempted continuation", pager.requests)
 			}
 		})
 	}
@@ -263,10 +259,15 @@ func (k *logCursorLifecycleKernel) GitGraph(_ context.Context, request core.Grap
 	return core.Graph{Rows: rows}, nil
 }
 
-func (k *logCursorLifecycleKernel) GitHistoryPage(ctx context.Context, _, reference, cursor string, limit, _ int) (core.GitHistoryPage, error) {
+func (k *logCursorLifecycleKernel) GitHistoryPage(ctx context.Context, _, reference, cursor string, limit, _ int, _ ...string) (core.GitHistoryPage, error) {
 	switch cursor {
 	case "expired":
-		return core.GitHistoryPage{}, &core.Error{Command: "git.historyPage", Code: core.CodeInvalidRequest, Details: cursor}
+		if k.replayStarted != nil {
+			close(k.replayStarted)
+			<-ctx.Done()
+		}
+		// The request may finish just before Core observes cancellation.
+		return core.GitHistoryPage{HasMore: true, NextCursor: "fresh"}, nil
 	case "":
 		if reference == "HEAD" {
 			return core.GitHistoryPage{Commits: []core.GitCommit{{Hash: "replacement"}}}, nil
@@ -275,10 +276,6 @@ func (k *logCursorLifecycleKernel) GitHistoryPage(ctx context.Context, _, refere
 			close(k.windowStarted)
 			<-ctx.Done()
 			return core.GitHistoryPage{NextCursor: "window"}, nil
-		}
-		if k.replayStarted != nil {
-			close(k.replayStarted)
-			<-ctx.Done()
 		}
 		// A read can return a cursor after cancellation if Core already prepared the result.
 		return core.GitHistoryPage{Commits: []core.GitCommit{{Hash: "loaded"}}, HasMore: true, NextCursor: "fresh"}, nil
@@ -449,11 +446,11 @@ type cappedHistoryKernel struct {
 	max []int
 }
 
-func (k *cappedHistoryKernel) GitHistoryPage(ctx context.Context, root, reference, cursor string, limit, maxCommits int) (core.GitHistoryPage, error) {
+func (k *cappedHistoryKernel) GitHistoryPage(ctx context.Context, root, reference, cursor string, limit, maxCommits int, resumeToken ...string) (core.GitHistoryPage, error) {
 	k.mu.Lock()
 	k.max = append(k.max, maxCommits)
 	k.mu.Unlock()
-	page, err := k.gitKernel.GitHistoryPage(ctx, root, reference, cursor, limit, maxCommits)
+	page, err := k.gitKernel.GitHistoryPage(ctx, root, reference, cursor, limit, maxCommits, resumeToken...)
 	page.HasMore, page.NextCursor, page.LimitReached = false, "", true
 	return page, err
 }

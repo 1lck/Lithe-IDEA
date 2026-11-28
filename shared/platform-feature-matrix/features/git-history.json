@@ -13,6 +13,7 @@
       "desktop/internal/workbench/gitgraph_test.go",
       "desktop/internal/workbench/gitgraph_visual_test.go",
       "desktop/internal/workbench/gitgraph_hover_visual_test.go",
+      "desktop/internal/workbench/gitgraph_hover_pointer_test.go",
       "desktop/internal/workbench/gitgraph_hover_test.go",
       "desktop/internal/workbench/gitgraph_arrow_test.go",
       "desktop/internal/workbench/gitgraph_arrow_visual_test.go",
@@ -33,6 +34,7 @@
       "desktop/internal/settingswindow/version_control_view.go",
       "desktop/internal/workbench/gitlog_limits.go",
       "desktop/internal/workbench/gitlog_limits_test.go",
+      "desktop/internal/workbench/git_log_close_test.go",
       "desktop/internal/settingswindow/git_log_limits_view.go",
       "desktop/internal/settingswindow/git_log_limits_view_test.go"
     ]
@@ -47,6 +49,7 @@
       "desktop/internal/workbench/gitgraph_test.go",
       "desktop/internal/workbench/gitgraph_visual_test.go",
       "desktop/internal/workbench/gitgraph_hover_visual_test.go",
+      "desktop/internal/workbench/gitgraph_hover_pointer_test.go",
       "desktop/internal/workbench/gitgraph_hover_test.go",
       "desktop/internal/workbench/gitgraph_arrow_test.go",
       "desktop/internal/workbench/gitgraph_arrow_visual_test.go",
@@ -67,6 +70,7 @@
       "desktop/internal/settingswindow/version_control_view.go",
       "desktop/internal/workbench/gitlog_limits.go",
       "desktop/internal/workbench/gitlog_limits_test.go",
+      "desktop/internal/workbench/git_log_close_test.go",
       "desktop/internal/settingswindow/git_log_limits_view.go",
       "desktop/internal/settingswindow/git_log_limits_view_test.go"
     ]

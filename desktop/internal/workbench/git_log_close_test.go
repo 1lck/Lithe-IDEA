@@ -36,7 +36,7 @@ func (k *logProjectCloseKernel) GitGraph(context.Context, core.GraphRequest) (co
 	return core.Graph{}, nil
 }
 
-func (k *logProjectCloseKernel) GitHistoryPage(ctx context.Context, _, _, cursor string, _, _ int) (core.GitHistoryPage, error) {
+func (k *logProjectCloseKernel) GitHistoryPage(ctx context.Context, _, _, cursor string, _, _ int, _ ...string) (core.GitHistoryPage, error) {
 	if k.page == nil {
 		return core.GitHistoryPage{}, nil
 	}
@@ -126,10 +126,6 @@ func TestGitLogClosesCursorReturnedByReplayDuringRemoteClose(t *testing.T) {
 	k := &logProjectCloseKernel{Kernel: h.app.kernel, page: func(ctx context.Context, cursor string) (core.GitHistoryPage, error) {
 		switch cursor {
 		case "expired":
-			return core.GitHistoryPage{}, &core.Error{Code: core.CodeInvalidRequest, Details: cursor}
-		case "":
-			return core.GitHistoryPage{Commits: []core.GitCommit{{Hash: "loaded"}}, HasMore: true, NextCursor: "reopened"}, nil
-		case "reopened":
 			close(replayStarted)
 			select {
 			case <-ctx.Done():

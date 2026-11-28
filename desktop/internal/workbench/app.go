@@ -67,7 +67,7 @@ type Kernel interface {
 	ReduceChromeLayout(ctx context.Context, catalog []core.ChromeItem, state core.ChromeLayout, action core.ChromeAction) (core.ChromeLayout, bool, error)
 	GitStatus(ctx context.Context, root string) (core.GitStatus, error)
 	GitReferences(ctx context.Context, root string) (core.GitReferences, error)
-	GitHistoryPage(ctx context.Context, root, reference, cursor string, limit, maxCommits int) (core.GitHistoryPage, error)
+	GitHistoryPage(ctx context.Context, root, reference, cursor string, limit, maxCommits int, resumeToken ...string) (core.GitHistoryPage, error)
 	DetectBuildSystems(ctx context.Context, workspaceRoot string, manifests []json.RawMessage) (core.BuildDetection, error)
 	LocalizeBuildOptions(ctx context.Context, language string, plugins []core.BuildOptionPlugin) (core.BuildOptionTexts, error)
 	DetectBuildSystemsWithOptions(ctx context.Context, workspaceRoot string, manifests []json.RawMessage, options core.BuildDetectOptions) (core.BuildDetection, error)

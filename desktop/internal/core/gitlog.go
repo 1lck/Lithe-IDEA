@@ -54,6 +54,10 @@ type GitHistoryPage struct {
 	// NextCursor continues the walk with GitHistoryPage; empty when the page reaches the end.
 	NextCursor string `json:"nextCursor,omitempty"`
 	HasMore    bool   `json:"hasMore"`
+	// ResumeToken lets Core verify the loaded prefix if NextCursor expires.
+	ResumeToken string `json:"resumeToken,omitempty"`
+	// HistoryChanged tells the caller to reload its view instead of appending this page.
+	HistoryChanged bool `json:"historyChanged,omitempty"`
 	// LimitReached says the walk stopped at the most commits its first page asked for while
 	// the history goes on; HasMore is then false.
 	LimitReached bool `json:"limitReached,omitempty"`
@@ -89,7 +93,9 @@ type gitHistoryPageRequest struct {
 	Cursor    string `json:"cursor,omitempty"`
 	Limit     int    `json:"limit"`
 	// MaxCommits is the most commits the walk reads in all; zero leaves it to the kernel.
-	MaxCommits int `json:"maxCommits,omitempty"`
+	MaxCommits  int    `json:"maxCommits,omitempty"`
+	TrackResume bool   `json:"trackResume,omitempty"`
+	ResumeToken string `json:"resumeToken,omitempty"`
 }
 
 type gitCursorRequest struct {
@@ -124,7 +130,8 @@ func (c *Client) GitReferences(ctx context.Context, root string) (GitReferences,
 // The walk starts at reference, a full or short reference name, or at every reference
 // when reference is empty. A non-empty cursor continues the walk of an earlier page and
 // must be asked with the same reference; the kernel drops a cursor that was idle for two
-// minutes and keeps at most eight, so a stale cursor fails and the history is reloaded.
+// minutes and keeps at most eight. To opt in to recovery, supply one resumeToken:
+// empty on the first request, then the token returned with the current cursor.
 // A walk that is not continued to its end should be released with CloseGitHistoryCursor.
 //
 // maxCommits, 1 to 100,000, is the most commits the walk reads in all, fixed by its first
@@ -132,8 +139,11 @@ func (c *Client) GitReferences(ctx context.Context, root string) (GitReferences,
 // The page that stops at the bound while the history goes on says LimitReached.
 //
 // GitHistoryPage starts git and blocks; call it from a background goroutine.
-func (c *Client) GitHistoryPage(ctx context.Context, root, reference, cursor string, limit, maxCommits int) (GitHistoryPage, error) {
+func (c *Client) GitHistoryPage(ctx context.Context, root, reference, cursor string, limit, maxCommits int, resumeToken ...string) (GitHistoryPage, error) {
 	request := gitHistoryPageRequest{Root: root, Reference: reference, Order: "date", Cursor: cursor, Limit: limit, MaxCommits: maxCommits}
+	if len(resumeToken) != 0 {
+		request.TrackResume, request.ResumeToken = true, resumeToken[0]
+	}
 	var page GitHistoryPage
 	if err := c.Execute(ctx, "git.historyPage", request, &page); err != nil {
 		return GitHistoryPage{}, err

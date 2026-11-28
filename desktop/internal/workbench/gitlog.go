@@ -122,6 +122,7 @@ type gitLogState struct {
 	// while the log walks several repositories.
 	byHash      map[string]int
 	cursor      string
+	resumeToken string
 	cursorRoot  string
 	cursorOwner context.Context
 	hasMore     bool
@@ -268,7 +269,7 @@ func (a *App) loadLog(p *project) {
 		l.projStop = nil
 	}
 	l.loading, l.err = true, nil
-	l.commits, l.byHash, l.cursor, l.cursorRoot, l.hasMore = nil, nil, "", "", false
+	l.commits, l.byHash, l.cursor, l.resumeToken, l.cursorRoot, l.hasMore = nil, nil, "", "", "", false
 	l.walks, l.origins, l.pending = nil, nil, nil
 	l.stagedMerge = nil
 	l.loadingMore, l.moreFailed, l.limitReached, l.window = false, false, false, nil
@@ -300,7 +301,7 @@ func (a *App) loadLog(p *project) {
 		var page core.GitHistoryPage
 		var graph core.Graph
 		if err == nil {
-			page, err = kernel.GitHistoryPage(ctx, root, reference, "", min(logPageSize, limit), limit)
+			page, err = kernel.GitHistoryPage(ctx, root, reference, "", min(logPageSize, limit), limit, "")
 		}
 		if err == nil {
 			commits := graphCommits(page.Commits)
@@ -334,6 +335,7 @@ func (a *App) loadLog(p *project) {
 			l.commits = page.Commits
 			l.byHash = indexCommits(page.Commits)
 			l.cursor, l.hasMore, l.limitReached = page.NextCursor, page.HasMore, page.LimitReached
+			l.resumeToken = page.ResumeToken
 			l.cursorRoot = root
 			l.setGraph(graph)
 			if l.filtered() {
@@ -438,10 +440,9 @@ func (a *App) loadMoreLog(p *project) {
 	gen := l.gen
 	kernel, root, reference, cursor := a.kernel, p.logRoot(), l.reference, l.cursor
 	loaded := l.commits
-	limit, owner := a.gitLogLimit(), p.ctx
+	resumeToken, owner := l.resumeToken, p.ctx
 	l.readCancel = a.backgroundLogRead(p, func(ctx context.Context) logReadResult {
-		closeCursor := a.logCursorCloser(ctx, kernel)
-		page, err := readGitLogPage(ctx, kernel, root, reference, cursor, logPageSize, limit, loaded, closeCursor)
+		page, err := readGitLogPage(ctx, kernel, root, reference, cursor, logPageSize, resumeToken)
 		var byHash map[string]int
 		if err == nil {
 			// Readers of the old snapshot use only its immutable prefix.
@@ -464,6 +465,7 @@ func (a *App) loadMoreLog(p *project) {
 			}
 			l.commits, l.byHash = loaded, byHash
 			l.cursor, l.hasMore, l.limitReached = page.NextCursor, page.HasMore, page.LimitReached
+			l.resumeToken = page.ResumeToken
 			a.reproject(p, 0)
 			return true
 		}}
@@ -479,56 +481,16 @@ func (l *gitLogState) stopGitLogRead() {
 
 var errLogHistoryChanged = errors.New("Git history changed while its cursor was idle")
 
-// readGitLogPage resumes a rejected cursor only after a fresh walk reproduces the
-// loaded prefix. The caller reloads the log when refs changed during the pause.
-func readGitLogPage(ctx context.Context, pager historyPager, root, reference, cursor string, pageSize, limit int, loaded []core.GitCommit, closeCursor func(root, cursor string)) (core.GitHistoryPage, error) {
-	page, err := pager.GitHistoryPage(ctx, root, reference, cursor, pageSize, 0)
+// readGitLogPage lets Core verify expired walks. Older remote hosts omit the token,
+// so a rejected cursor there can only be recovered by reloading the whole view.
+func readGitLogPage(ctx context.Context, pager historyPager, root, reference, cursor string, pageSize int, resumeToken string) (core.GitHistoryPage, error) {
+	page, err := pager.GitHistoryPage(ctx, root, reference, cursor, pageSize, 0, resumeToken)
 	var failure *core.Error
-	if cursor == "" || !errors.As(err, &failure) || failure.Code != core.CodeInvalidRequest || failure.Details != cursor {
-		return page, err
+	if page.HistoryChanged || (cursor != "" && resumeToken == "" && errors.As(err, &failure) &&
+		failure.Code == core.CodeInvalidRequest && failure.Details == cursor) {
+		return page, errLogHistoryChanged
 	}
-
-	reopened := ""
-	defer func() {
-		if reopened != "" {
-			closeCursor(root, reopened)
-		}
-	}()
-	for checked := 0; checked < len(loaded); {
-		maxCommits := 0
-		if reopened == "" {
-			maxCommits = limit
-		}
-		want := min(logWindowSize, len(loaded)-checked)
-		page, err = pager.GitHistoryPage(ctx, root, reference, reopened, want, maxCommits)
-		if err != nil {
-			return core.GitHistoryPage{}, err
-		}
-		reopened = page.NextCursor
-		if len(page.Commits) != want || !slices.EqualFunc(loaded[checked:checked+want], page.Commits, func(a, b core.GitCommit) bool {
-			// Commit data is immutable, but decorations can move as refs change.
-			return a.Hash == b.Hash && a.Decorations == b.Decorations
-		}) {
-			return core.GitHistoryPage{}, errLogHistoryChanged
-		}
-		checked += want
-		if !page.HasMore || reopened == "" {
-			if checked < len(loaded) {
-				return core.GitHistoryPage{}, errLogHistoryChanged
-			}
-			return core.GitHistoryPage{LimitReached: page.LimitReached}, nil
-		}
-	}
-	maxCommits := 0
-	if reopened == "" {
-		maxCommits = limit
-	}
-	page, err = pager.GitHistoryPage(ctx, root, reference, reopened, pageSize, maxCommits)
-	if err != nil {
-		return core.GitHistoryPage{}, err
-	}
-	reopened = ""
-	return page, nil
+	return page, err
 }
 
 // setLogReference makes the log walk one reference, or every reference when full is

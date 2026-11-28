@@ -48,7 +48,7 @@ func TestGraphHighlightLeavesRepositoryStripClear(t *testing.T) {
 	const scale, chain = 2, 7
 	var canvas gfx.Canvas
 	canvas.SetPixelScale(scale)
-	a := &App{theme: ui.LightTheme(), colors: palette{Text: gfx.RGB(235, 240, 250)}, project: &project{log: newGitLogState()}}
+	a := &App{theme: ui.LightTheme(), colors: palette{Text: gfx.RGB(235, 240, 250)}, project: &project{log: newGitLogState()}, sessions: &windowSessions{}}
 	a.project.nested = nestedState{
 		repos: []nestedRepo{{id: "nested"}}, showColors: true, slots: map[string]int{"nested": 0}, logRepo: "nested",
 	}
@@ -67,8 +67,7 @@ func TestGraphHighlightLeavesRepositoryStripClear(t *testing.T) {
 	}
 	row := v.graphHover.rows[0].rect
 	m := newGraphMetrics(scale)
-	v.graphHover.inside = true
-	v.graphHover.pointer = gfx.Point{X: row.X + m.laneCenter, Y: row.Y + m.rowCenter}
+	a.sessions.graphPointer = logGraphPointer{position: gfx.Point{X: row.X + m.laneCenter, Y: row.Y + m.rowCenter}, canHover: true}
 	canvas.Reset()
 	canvas.SetInteraction(v.commits.RowID(0), gfx.ID{}, gfx.ID{}, false)
 	page.Paint(&canvas, size)
@@ -95,7 +94,7 @@ func TestGraphLogKeepsMetadataClearInNarrowPane(t *testing.T) {
 	var canvas gfx.Canvas
 	canvas.SetPixelScale(scale)
 	p := &project{log: newGitLogState()}
-	a := &App{theme: ui.LightTheme(), colors: palette{Text: gfx.RGB(235, 240, 250)}, project: p}
+	a := &App{theme: ui.LightTheme(), colors: palette{Text: gfx.RGB(235, 240, 250)}, project: p, sessions: &windowSessions{}}
 	m := newGraphMetrics(scale)
 	size := gfx.Size{Width: logCommitsMin, Height: 65}
 	graphRight := size.Width - a.logView.dateColumn(&canvas) - logMetaGap
@@ -141,8 +140,7 @@ func TestGraphLogKeepsMetadataClearInNarrowPane(t *testing.T) {
 		t.Error("the graph lost its visible arrow")
 	}
 
-	v.graphHover.inside = true
-	v.graphHover.pointer = visible
+	a.sessions.graphPointer = logGraphPointer{position: visible, canHover: true}
 	canvas.Reset()
 	canvas.SetInteraction(v.commits.RowID(0), gfx.ID{}, gfx.ID{}, false)
 	page.Paint(&canvas, size)
@@ -150,7 +148,7 @@ func TestGraphLogKeepsMetadataClearInNarrowPane(t *testing.T) {
 		t.Fatalf("hover chain = %d, want %d", v.graphHover.chain, chain)
 	}
 	assertClipped("chain highlight", a.colors.Text)
-	v.graphHover.pointer = hidden
+	a.sessions.graphPointer.position = hidden
 	canvas.Reset()
 	canvas.SetInteraction(v.commits.RowID(0), gfx.ID{}, gfx.ID{}, false)
 	page.Paint(&canvas, size)
@@ -245,7 +243,7 @@ func TestGraphHoverRequiresVisibleStrokeInJointClip(t *testing.T) {
 
 func TestGraphHoverMeasuresDistanceToVisibleViewportStroke(t *testing.T) {
 	const scale, chain = 1.25, 7
-	a := &App{theme: ui.LightTheme(), project: &project{log: newGitLogState()}}
+	a := &App{theme: ui.LightTheme(), project: &project{log: newGitLogState()}, sessions: &windowSessions{}}
 	p := a.project
 	p.log.commits = []core.GitCommit{{Hash: "commit"}}
 	p.log.byHash = indexCommits(p.log.commits)
@@ -273,12 +271,12 @@ func TestGraphHoverMeasuresDistanceToVisibleViewportStroke(t *testing.T) {
 	canvas.Clip(gfx.Rect{X: painted.X, Y: painted.Y + 5, Width: painted.Width, Height: painted.Height - 5})
 	defer canvas.Unclip()
 	canvas.SetInteraction(v.commits.RowID(0), gfx.ID{}, gfx.ID{}, false)
-	v.graphHover.inside = true
+	a.sessions.graphPointer.canHover = true
 	for _, test := range []struct {
 		x    float32
 		want int
 	}{{180.91, 0}, {187.6, chain}} {
-		v.graphHover.pointer = gfx.Point{X: painted.X + test.x, Y: painted.Y + 5.05}
+		a.sessions.graphPointer.position = gfx.Point{X: painted.X + test.x, Y: painted.Y + 5.05}
 		a.paintLogGraphHover(&ui.DrawContext{Canvas: &canvas, Rect: painted})
 		if got := v.graphHover.chain; got != test.want {
 			t.Errorf("hover at X=%g activated chain %d, want %d", test.x, got, test.want)

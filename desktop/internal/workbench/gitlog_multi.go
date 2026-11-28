@@ -30,7 +30,7 @@ var errNoHistoryMerge = errors.New("the kernel cannot merge repository histories
 
 // historyPager is the part of the kernel that reads a walk's pages.
 type historyPager interface {
-	GitHistoryPage(ctx context.Context, root, reference, cursor string, limit, maxCommits int) (core.GitHistoryPage, error)
+	GitHistoryPage(ctx context.Context, root, reference, cursor string, limit, maxCommits int, resumeToken ...string) (core.GitHistoryPage, error)
 	CloseGitHistoryCursor(ctx context.Context, root, cursor string) (bool, error)
 }
 
@@ -46,22 +46,23 @@ func readWalkPage(ctx context.Context, pager historyPager, w *logWalk, room, lim
 			closeCursor(w.root, w.cursor)
 		}
 		w.capped = w.capped || !w.complete
-		w.cursor, w.complete = "", true
+		w.cursor, w.resumeToken, w.complete = "", "", true
 		return nil
 	}
 	var page core.GitHistoryPage
 	var err error
 	pageSize := min(logPageSize, room)
 	if w.cursor == "" {
-		page, err = pager.GitHistoryPage(ctx, w.root, "", "", pageSize, limit)
+		page, err = pager.GitHistoryPage(ctx, w.root, "", "", pageSize, limit, "")
 	} else {
-		page, err = readGitLogPage(ctx, pager, w.root, "", w.cursor, pageSize, limit, w.commits, closeCursor)
+		page, err = readGitLogPage(ctx, pager, w.root, "", w.cursor, pageSize, w.resumeToken)
 	}
 	if err != nil {
 		return err
 	}
 	w.commits = slices.Concat(w.commits, page.Commits)
 	w.cursor, w.complete, w.capped = page.NextCursor, !page.HasMore, page.LimitReached
+	w.resumeToken = page.ResumeToken
 	return nil
 }
 
@@ -76,10 +77,11 @@ func walkCommits(walks []logWalk) int {
 
 // logWalk is the history of one repository the log walks with others, as far as it is loaded.
 type logWalk struct {
-	id, root string
-	commits  []core.GitCommit
-	cursor   string
-	complete bool
+	id, root    string
+	commits     []core.GitCommit
+	cursor      string
+	resumeToken string
+	complete    bool
 	// own keeps the containing repository's UI identity when discovery gives it a relative ID.
 	own bool
 	// capped says the walk ended at the log's limit while its history goes on.
@@ -354,7 +356,7 @@ func (l *gitLogState) selectedMergedKey(page *logMergedPage) string {
 
 func (l *gitLogState) setMergedPaging(pending []int) {
 	l.pending = pending
-	l.cursor, l.hasMore = "", len(pending) > 0
+	l.cursor, l.resumeToken, l.hasMore = "", "", len(pending) > 0
 	l.limitReached = slices.ContainsFunc(l.walks, func(w logWalk) bool { return w.capped })
 }
 

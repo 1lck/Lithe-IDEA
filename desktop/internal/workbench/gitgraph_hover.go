@@ -19,39 +19,45 @@ type logGraphRowBounds struct {
 type logGraphHover struct {
 	rows     []logGraphRowBounds
 	viewport gfx.Rect
-	pointer  gfx.Point
-	inside   bool
 	active   bool
 	scale    float32
 	chain    int
 }
 
+// logGraphPointer follows the window's pointer across project tabs.
+type logGraphPointer struct {
+	position gfx.Point
+	canHover bool
+}
+
 func (a *App) trackLogGraphPointer(event gfx.PointerEvent) bool {
-	h := &a.logView.graphHover
-	h.pointer = gfx.Point{X: event.X, Y: event.Y}
+	pointer := &a.sessions.graphPointer
+	pointer.position = gfx.Point{X: event.X, Y: event.Y}
 	// Viva delivers the release to the pressed control before ending capture.
 	// The next paint can already use the pointer's actual hovered control.
 	dragging := event.Captured && event.Kind != gfx.PointerUp
-	h.inside = event.Kind != gfx.PointerExit && event.Device != gfx.PointerTouch && !dragging
+	pointer.canHover = event.Kind != gfx.PointerExit && event.Device != gfx.PointerTouch && !dragging
+
+	h := &a.logView.graphHover
 	chain := 0
-	if h.active && h.inside && a.project != nil {
-		chain = a.logGraphChainAt(event.Target)
+	if h.active && pointer.canHover && a.project != nil {
+		chain = a.logGraphChainAt(event.Target, pointer.position)
 	}
 	return chain != h.chain
 }
 
-func (a *App) logGraphChainAt(target gfx.ID) int {
+func (a *App) logGraphChainAt(target gfx.ID, point gfx.Point) int {
 	if target.IsZero() {
 		return 0
 	}
 	v := &a.logView
 	h := &v.graphHover
-	if !pointInGraphClip(h.viewport, h.pointer) {
+	if !pointInGraphClip(h.viewport, point) {
 		return 0
 	}
 	for _, visible := range h.rows {
 		r := visible.rect
-		if h.pointer.Y < r.Y || h.pointer.Y >= r.Y+r.Height || h.pointer.X < r.X+visible.inset {
+		if point.Y < r.Y || point.Y >= r.Y+r.Height || point.X < r.X+visible.inset {
 			continue
 		}
 		if visible.index >= len(a.project.log.graph.Rows) || target != v.commits.RowID(visible.index) {
@@ -62,7 +68,7 @@ func (a *App) logGraphChainAt(target gfx.ID) int {
 			gfx.Rect{X: h.viewport.X - r.X, Y: h.viewport.Y - r.Y, Width: h.viewport.Width, Height: h.viewport.Height},
 		)
 		return graphChainInClip(a.project.log.graph.Rows[visible.index], newGraphMetrics(h.scale), clip,
-			gfx.Point{X: h.pointer.X - r.X, Y: h.pointer.Y - r.Y})
+			gfx.Point{X: point.X - r.X, Y: point.Y - r.Y})
 	}
 	return 0
 }
@@ -74,10 +80,11 @@ func (a *App) paintLogGraphHover(d *ui.DrawContext) {
 	for _, clip := range d.Canvas.Clips() {
 		h.viewport = intersectGraphClip(h.viewport, clip.Bounds)
 	}
-	if a.project == nil || !h.inside || !pointInGraphClip(h.viewport, h.pointer) {
+	pointer := a.sessions.graphPointer
+	if a.project == nil || !pointer.canHover {
 		return
 	}
-	h.chain = a.logGraphChainAt(d.Canvas.Hovered())
+	h.chain = a.logGraphChainAt(d.Canvas.Hovered(), pointer.position)
 	if h.chain == 0 {
 		return
 	}
