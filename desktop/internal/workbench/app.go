@@ -67,7 +67,7 @@ type Kernel interface {
 	ReduceChromeLayout(ctx context.Context, catalog []core.ChromeItem, state core.ChromeLayout, action core.ChromeAction) (core.ChromeLayout, bool, error)
 	GitStatus(ctx context.Context, root string) (core.GitStatus, error)
 	GitReferences(ctx context.Context, root string) (core.GitReferences, error)
-	GitHistoryPage(ctx context.Context, root, reference, cursor string, limit, maxCommits int) (core.GitHistoryPage, error)
+	GitHistoryPage(ctx context.Context, root, reference, cursor string, limit, maxCommits int, resumeToken ...string) (core.GitHistoryPage, error)
 	DetectBuildSystems(ctx context.Context, workspaceRoot string, manifests []json.RawMessage) (core.BuildDetection, error)
 	LocalizeBuildOptions(ctx context.Context, language string, plugins []core.BuildOptionPlugin) (core.BuildOptionTexts, error)
 	DetectBuildSystemsWithOptions(ctx context.Context, workspaceRoot string, manifests []json.RawMessage, options core.BuildDetectOptions) (core.BuildDetection, error)
@@ -575,6 +575,7 @@ type project struct {
 	// gitStatusGeneration orders status reads, including reads begun after background writes.
 	gitStatusGeneration atomic.Uint64
 	log                 gitLogState
+	logReads            logCursorReads
 	commit              commitState
 	// lists are the repository's local ChangeLists and the list each change belongs to.
 	lists changeListState
@@ -1885,6 +1886,15 @@ func (a *App) disposeProject(p *project) {
 	a.cancelPrompts()
 	a.ideAPIDisable(p)
 	a.closeAgentSessions(p)
+	if p.remote == nil {
+		finishLog := a.prepareLogClose(p, gitTimeout)
+		if finishLog != nil {
+			a.background(nil, 0, func(ctx context.Context) func(*App) {
+				finishLog(ctx)
+				return nil
+			})
+		}
+	}
 	a.closeRemoteWorkspace(p)
 	p.cancel()
 	a.closePluginPages()

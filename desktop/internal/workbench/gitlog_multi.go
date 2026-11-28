@@ -30,7 +30,7 @@ var errNoHistoryMerge = errors.New("the kernel cannot merge repository histories
 
 // historyPager is the part of the kernel that reads a walk's pages.
 type historyPager interface {
-	GitHistoryPage(ctx context.Context, root, reference, cursor string, limit, maxCommits int) (core.GitHistoryPage, error)
+	GitHistoryPage(ctx context.Context, root, reference, cursor string, limit, maxCommits int, resumeToken ...string) (core.GitHistoryPage, error)
 	CloseGitHistoryCursor(ctx context.Context, root, cursor string) (bool, error)
 }
 
@@ -40,25 +40,29 @@ type historyPager interface {
 // so no walk stops at Core's own bound first. With no room left, a walk that was not complete
 // ends where it is, its cursor closed and marked capped, and the merged list places everything
 // it holds and says the log reached its limit.
-func readWalkPage(ctx context.Context, pager historyPager, w *logWalk, room, limit int) error {
+func readWalkPage(ctx context.Context, pager historyPager, w *logWalk, room, limit int, closeCursor func(root, cursor string)) error {
 	if room <= 0 {
 		if w.cursor != "" {
-			_, _ = pager.CloseGitHistoryCursor(ctx, w.root, w.cursor)
+			closeCursor(w.root, w.cursor)
 		}
 		w.capped = w.capped || !w.complete
-		w.cursor, w.complete = "", true
+		w.cursor, w.resumeToken, w.complete = "", "", true
 		return nil
 	}
-	maxCommits := 0
+	var page core.GitHistoryPage
+	var err error
+	pageSize := min(logPageSize, room)
 	if w.cursor == "" {
-		maxCommits = limit
+		page, err = pager.GitHistoryPage(ctx, w.root, "", "", pageSize, limit, "")
+	} else {
+		page, err = readGitLogPage(ctx, pager, w.root, "", w.cursor, pageSize, w.resumeToken)
 	}
-	page, err := pager.GitHistoryPage(ctx, w.root, "", w.cursor, min(logPageSize, room), maxCommits)
 	if err != nil {
 		return err
 	}
 	w.commits = slices.Concat(w.commits, page.Commits)
 	w.cursor, w.complete, w.capped = page.NextCursor, !page.HasMore, page.LimitReached
+	w.resumeToken = page.ResumeToken
 	return nil
 }
 
@@ -73,10 +77,13 @@ func walkCommits(walks []logWalk) int {
 
 // logWalk is the history of one repository the log walks with others, as far as it is loaded.
 type logWalk struct {
-	id, root string
-	commits  []core.GitCommit
-	cursor   string
-	complete bool
+	id, root    string
+	commits     []core.GitCommit
+	cursor      string
+	resumeToken string
+	complete    bool
+	// own keeps the containing repository's UI identity when discovery gives it a relative ID.
+	own bool
 	// capped says the walk ended at the log's limit while its history goes on.
 	capped bool
 	// remotes are the names of the repository's remote branches, which the graph tells from its
@@ -127,6 +134,28 @@ func (p *project) logCommitRepo(key string) string {
 	return p.logRepoID()
 }
 
+// logCommitIdentity is stable when Core gives a commit a repository-qualified key.
+type logCommitIdentity struct {
+	repository, hash string
+}
+
+func (p *project) logCommitIdentity(key string) logCommitIdentity {
+	l := &p.log
+	if l.origins != nil {
+		if i, ok := l.byHash[key]; ok && i < len(l.origins) {
+			walk := &l.walks[l.origins[i].walk]
+			if walk.own {
+				return logCommitIdentity{commitRepositoryID, l.commits[i].Hash}
+			}
+			return logCommitIdentity{walk.id, l.commits[i].Hash}
+		}
+	}
+	if repo := p.nested.logRepo; repo != "" {
+		return logCommitIdentity{repo, key}
+	}
+	return logCommitIdentity{commitRepositoryID, key}
+}
+
 // referencesAt is the references of the repository at root as the reference pane last read them,
 // for a branch dialog that acts in a repository other than the one the log reads its references
 // with.
@@ -165,17 +194,19 @@ func (a *App) loadLogRepos(p *project, gen int) {
 	walks := make([]logWalk, 0, len(p.nested.chosen))
 	for _, id := range p.nested.chosen {
 		if root := p.rootOf(id); root != "" {
-			walks = append(walks, logWalk{id: id, root: root})
+			walks = append(walks, logWalk{id: id, root: root, own: p.isOwnID(id)})
 		}
 	}
-	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
+	owner := p.ctx
+	l.readCancel = a.backgroundLogRead(p, func(ctx context.Context) logReadResult {
+		closeCursor := a.logCursorCloser(ctx, kernel)
 		refs, sections, current, err := readReferences(ctx, kernel, active)
 		for i := range walks {
 			if err != nil {
 				break
 			}
 			w := &walks[i]
-			if err = readWalkPage(ctx, kernel, w, limit-walkCommits(walks), limit); err != nil {
+			if err = readWalkPage(ctx, kernel, w, limit-walkCommits(walks), limit, closeCursor); err != nil {
 				break
 			}
 			if i == 0 {
@@ -200,17 +231,16 @@ func (a *App) loadLogRepos(p *project, gen int) {
 				CheckedOutHeads: true,
 			})
 		}
-		return func(a *App) {
-			if l.gen != gen {
-				a.closeWalkCursors(p, walks)
-				return
+		return logReadResult{logWalkCursors(walks), func(a *App) bool {
+			if a.project != p || l.gen != gen || owner.Err() != nil {
+				return false
 			}
+			l.stopGitLogRead()
 			l.loading = false
 			if err != nil {
-				a.closeWalkCursors(p, walks)
 				l.err = err
 				l.refs, l.sections, l.current = core.GitReferences{}, [3]logSection{}, ""
-				return
+				return false
 			}
 			l.refs, l.sections, l.current = refs, sections, current
 			l.walks = walks
@@ -219,64 +249,114 @@ func (a *App) loadLogRepos(p *project, gen int) {
 			if l.filtered() {
 				a.reproject(p, 0)
 			}
-		}
+			return true
+		}}
 	})
 }
 
-// loadMoreLogRepos reads the next page of each repository the merged list waits on and merges
-// again; the rows placed before stay where they were.
+// loadMoreLogRepos reads the pages still needed for this merge and keeps any
+// consumed pages if a later read or merge fails.
 func (a *App) loadMoreLogRepos(p *project) {
 	l := &p.log
 	merger, ok := a.kernel.(historyMerger)
-	if !ok || l.loading || !l.hasMore || l.loadingMore || l.moreFailed || len(l.pending) == 0 {
+	if !ok || l.loading || !l.hasMore || l.loadingMore || l.moreFailed {
 		return
 	}
 	l.loadingMore = true
 	gen, kernel, limit := l.gen, a.kernel, a.gitLogMergedLimit()
 	walks := slices.Clone(l.walks)
-	pending := slices.Clone(l.pending)
-	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
+	pending := l.pending
+	owner := p.ctx
+	l.readCancel = a.backgroundLogRead(p, func(ctx context.Context) logReadResult {
+		closeCursor := a.logCursorCloser(ctx, kernel)
 		var err error
-		for _, i := range pending {
-			w := &walks[i]
-			if w.complete || w.cursor == "" {
-				continue
+		for len(pending) > 0 {
+			w := &walks[pending[0]]
+			if !w.complete && w.cursor != "" {
+				if err = readWalkPage(ctx, kernel, w, limit-walkCommits(walks), limit, closeCursor); err != nil {
+					break
+				}
 			}
-			if err = readWalkPage(ctx, kernel, w, limit-walkCommits(walks), limit); err != nil {
-				break
-			}
+			pending = pending[1:]
 		}
 		var commits []core.GitCommit
 		var origins []logOrigin
+		var nextPending []int
+		var merged *logMergedPage
 		if err == nil {
-			commits, origins, pending, err = mergeLogWalks(ctx, merger, walks)
-		}
-		return func(a *App) {
-			if l.gen != gen {
-				a.closeWalkCursors(p, walks)
-				return
+			commits, origins, nextPending, err = mergeLogWalks(ctx, merger, walks)
+			if err == nil {
+				merged = newLogMergedPage(commits, origins)
 			}
+		}
+		return logReadResult{logWalkCursors(walks), func(a *App) bool {
+			if a.project != p || l.gen != gen || owner.Err() != nil {
+				return false
+			}
+			l.stopGitLogRead()
 			l.loadingMore = false
-			if err != nil {
-				l.moreFailed = true
-				return
-			}
 			l.walks = walks
-			l.setMerged(commits, origins, pending)
+			if errors.Is(err, errLogHistoryChanged) {
+				a.loadLog(p)
+				return true
+			}
+			if err != nil {
+				l.pending = pending
+				l.moreFailed = true
+				return true
+			}
+			l.setMergedPaging(nextPending)
+			l.stagedMerge = merged
 			a.reproject(p, 0)
-		}
+			return true
+		}}
 	})
 }
 
 // setMerged keeps the merged list of the walks and what it waits on, and whether a walk ended at
 // the log's limit.
 func (l *gitLogState) setMerged(commits []core.GitCommit, origins []logOrigin, pending []int) {
-	l.commits, l.origins, l.pending = commits, origins, pending
-	l.byHash = make(map[string]int, len(origins))
-	for i := range origins {
-		l.byHash[origins[i].key] = i
+	l.publishMerged(newLogMergedPage(commits, origins))
+	l.setMergedPaging(pending)
+}
+
+// A later page can cause Core to disambiguate a previously published hash with
+// its repository ID. Keep these identities with the graph that uses them.
+type logMergedPage struct {
+	commits []core.GitCommit
+	origins []logOrigin
+	byHash  map[string]int
+}
+
+func newLogMergedPage(commits []core.GitCommit, origins []logOrigin) *logMergedPage {
+	byHash := make(map[string]int, len(origins))
+	for i, origin := range origins {
+		byHash[origin.key] = i
 	}
-	l.cursor, l.hasMore = "", len(pending) > 0
+	return &logMergedPage{commits: commits, origins: origins, byHash: byHash}
+}
+
+func (l *gitLogState) publishMerged(page *logMergedPage) {
+	l.commits, l.origins, l.byHash = page.commits, page.origins, page.byHash
+	l.stagedMerge = nil
+}
+
+// selectedMergedKey follows the selected repository and commit when Core
+// qualifies its key. The merge keeps previously placed commits in order.
+func (l *gitLogState) selectedMergedKey(page *logMergedPage) string {
+	if _, ok := page.byHash[l.selected]; ok {
+		return l.selected
+	}
+	i, ok := l.byHash[l.selected]
+	if !ok || i >= len(page.origins) || l.origins[i].walk != page.origins[i].walk || l.commits[i].Hash != page.commits[i].Hash {
+		return ""
+	}
+	return page.origins[i].key
+}
+
+func (l *gitLogState) setMergedPaging(pending []int) {
+	l.pending = pending
+	l.cursor, l.resumeToken, l.hasMore = "", "", len(pending) > 0
 	l.limitReached = slices.ContainsFunc(l.walks, func(w logWalk) bool { return w.capped })
 }
 
@@ -321,26 +401,26 @@ func graphInput(commits []core.GitCommit, origins []logOrigin) []core.GraphCommi
 }
 
 // logKeys are the keys of the merged list's rows, nil while the log walks one repository.
-func (l *gitLogState) logKeys() []string {
-	if l.origins == nil {
+func logKeys(origins []logOrigin) []string {
+	if origins == nil {
 		return nil
 	}
-	keys := make([]string, len(l.origins))
-	for i := range l.origins {
-		keys[i] = l.origins[i].key
+	keys := make([]string, len(origins))
+	for i, origin := range origins {
+		keys[i] = origin.key
 	}
 	return keys
 }
 
 // logRoots are the repository roots of the merged list's rows, nil while the log walks one
 // repository.
-func (l *gitLogState) logRoots() []string {
-	if l.origins == nil {
+func logRoots(walks []logWalk, origins []logOrigin) []string {
+	if origins == nil {
 		return nil
 	}
-	roots := make([]string, len(l.origins))
-	for i := range l.origins {
-		roots[i] = l.walks[l.origins[i].walk].root
+	roots := make([]string, len(origins))
+	for i, origin := range origins {
+		roots[i] = walks[origin.walk].root
 	}
 	return roots
 }
@@ -378,30 +458,22 @@ func remoteRefNames(refs []core.GitReference) []string {
 	return names
 }
 
-// closeWalkCursors releases the history walks of walks the log no longer continues.
-func (a *App) closeWalkCursors(p *project, walks []logWalk) {
-	kernel := a.kernel
-	type open struct{ root, cursor string }
-	var cursors []open
+func logWalkCursors(walks []logWalk) []logCursor {
+	var cursors []logCursor
 	for _, w := range walks {
 		if w.cursor != "" {
-			cursors = append(cursors, open{w.root, w.cursor})
+			cursors = append(cursors, logCursor{w.root, w.cursor})
 		}
 	}
-	if len(cursors) == 0 {
-		return
-	}
-	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
-		for _, c := range cursors {
-			_, _ = kernel.CloseGitHistoryCursor(ctx, c.root, c.cursor)
-		}
-		return nil
-	})
+	return cursors
 }
 
 // chooseLogRepos makes the log walk the repositories with ids, in the order Core lists them, and
 // reads it again. One repository walks it alone, as setLogRepo does.
 func (a *App) chooseLogRepos(p *project, ids []string) {
+	if p.logReads.retired {
+		return
+	}
 	if len(ids) == 1 {
 		a.setLogRepo(p, ids[0], "", "")
 		return

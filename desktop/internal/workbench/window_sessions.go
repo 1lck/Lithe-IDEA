@@ -44,6 +44,8 @@ type windowSessions struct {
 	list []*App
 	// active is the workbench the window shows.
 	active *App
+	// The pointer stays with the window when the active project tab changes.
+	graphPointer logGraphPointer
 	// retired are the workbenches whose tab closed. Run still waits for their work when the
 	// window closes.
 	retired []*App
@@ -111,7 +113,15 @@ func (s *windowSessions) config() app.Config {
 		return nil
 	}
 	window.OnPointer = func(event gfx.PointerEvent) gfx.EventResult {
-		return timedEvent(meter, shown().OnPointer, event)
+		meter.begin(true)
+		defer meter.end()
+		active := s.active
+		// Observe motion within a list row without replacing Viva's row hit,
+		// which still owns selection, focus and the context menu.
+		repaint := active.trackLogGraphPointer(event)
+		result := s.of(active).OnPointer(event)
+		result.Repaint = result.Repaint || repaint
+		return result
 	}
 	window.OnKey = func(event gfx.KeyEvent) gfx.EventResult { return timedEvent(meter, shown().OnKey, event) }
 	window.OnShortcut = func(event gfx.KeyEvent) gfx.EventResult {

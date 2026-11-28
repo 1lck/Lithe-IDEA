@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -185,9 +186,9 @@ func (k *remoteHostKernel) GitReferenceTree(ctx context.Context, names []string,
 		})
 }
 
-func (k *remoteHostKernel) GitHistoryPage(ctx context.Context, root, reference, cursor string, limit, maxCommits int) (core.GitHistoryPage, error) {
+func (k *remoteHostKernel) GitHistoryPage(ctx context.Context, root, reference, cursor string, limit, maxCommits int, resumeToken ...string) (core.GitHistoryPage, error) {
 	return onHost(ctx, k, "git.historyPage", func() (core.GitHistoryPage, error) {
-		return k.Client.GitHistoryPage(ctx, root, reference, cursor, limit, maxCommits)
+		return k.Client.GitHistoryPage(ctx, root, reference, cursor, limit, maxCommits, resumeToken...)
 	}, func(string) (core.GitHistoryPage, error) { return core.GitHistoryPage{}, nil })
 }
 
@@ -425,6 +426,222 @@ func TestRemoteReconnectRechecksWorkspaceTrust(t *testing.T) {
 			}
 			if failed && countFailures(logger, "remote_trust_read") != 1 {
 				t.Fatal("the failed trust read was not logged")
+			}
+		})
+	}
+}
+
+type reconnectLogKernel struct {
+	*remoteHostKernel
+	connectStarted  chan struct{}
+	releaseConnect  <-chan struct{}
+	firstSession    string
+	workspaceRoot   string
+	reconnectedRepo string
+	failDiscovery   bool
+	failSelection   bool
+	discoveries     int
+	rootStatusReads int
+	history         []reconnectLogRead
+}
+
+type reconnectLogRead struct{ session, root string }
+
+func (k *reconnectLogKernel) RemoteConnect(ctx context.Context, request core.RemoteConnectRequest) (core.RemoteConnectResult, error) {
+	close(k.connectStarted)
+	select {
+	case <-k.releaseConnect:
+		return k.remoteHostKernel.RemoteConnect(ctx, request)
+	case <-ctx.Done():
+		return core.RemoteConnectResult{}, ctx.Err()
+	}
+}
+
+func (k *reconnectLogKernel) DiscoverWorkspaceRepositories(ctx context.Context, root string) ([]core.WorkspaceRepository, error) {
+	id := "nested"
+	if logRemoteSession(ctx) != k.firstSession {
+		k.mu.Lock()
+		k.discoveries++
+		if k.failDiscovery {
+			k.failDiscovery = false
+			k.mu.Unlock()
+			return nil, &core.Error{Code: core.CodePermissionDenied}
+		}
+		k.mu.Unlock()
+		id = k.reconnectedRepo
+	}
+	if id == "" {
+		return nil, nil
+	}
+	return []core.WorkspaceRepository{{ID: id, Name: id, Path: filepath.ToSlash(filepath.Join(root, id)), Role: core.RepositoryNested}}, nil
+}
+
+func (k *reconnectLogKernel) GitStatus(ctx context.Context, root string) (core.GitStatus, error) {
+	if root == k.workspaceRoot && logRemoteSession(ctx) != k.firstSession {
+		k.mu.Lock()
+		k.rootStatusReads++
+		k.mu.Unlock()
+	}
+	return k.remoteHostKernel.GitStatus(ctx, root)
+}
+
+func (*reconnectLogKernel) AssignRepositoryColors(context.Context, core.RepositoryColorRequest) (core.RepositoryColors, error) {
+	return core.RepositoryColors{}, nil
+}
+
+func (k *reconnectLogKernel) SelectWorkspaceRepository(ctx context.Context, repos []core.WorkspaceRepository, selected string) (core.WorkspaceRepositorySelection, error) {
+	if k.failSelection && len(repos) == 1 && repos[0].ID == k.reconnectedRepo {
+		k.failSelection = false
+		return core.WorkspaceRepositorySelection{}, &core.Error{Code: core.CodePermissionDenied}
+	}
+	return k.remoteHostKernel.SelectWorkspaceRepository(ctx, repos, selected)
+}
+
+func (*reconnectLogKernel) GroupWorkspaceChanges(context.Context, []core.WorkspaceRepositoryChanges) (core.WorkspaceChangeGroups, error) {
+	return core.WorkspaceChangeGroups{}, nil
+}
+
+func (k *reconnectLogKernel) GitHistoryPage(ctx context.Context, root, reference, cursor string, limit, maxCommits int, resumeToken ...string) (core.GitHistoryPage, error) {
+	if limit != logPageSize {
+		return k.remoteHostKernel.GitHistoryPage(ctx, root, reference, cursor, limit, maxCommits, resumeToken...)
+	}
+	session := logRemoteSession(ctx)
+	k.mu.Lock()
+	k.history = append(k.history, reconnectLogRead{session, root})
+	k.mu.Unlock()
+	return core.GitHistoryPage{Commits: []core.GitCommit{{Hash: session}}, NextCursor: session, HasMore: true}, nil
+}
+
+func (*reconnectLogKernel) CloseGitHistoryCursor(context.Context, string, string) (bool, error) {
+	return true, nil
+}
+
+// settleReconnectLog drains published results and any work their callbacks start.
+func (h *harness) settleReconnectLog(t *testing.T) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	for ctx.Err() == nil {
+		h.settleWithin(ctx)
+		if h.app.tasks.running.Count() != 0 {
+			continue
+		}
+		h.app.tasks.mu.Lock()
+		idle := len(h.app.tasks.pending) == 0
+		h.app.tasks.mu.Unlock()
+		if idle {
+			return
+		}
+	}
+	t.Fatalf("reconnect results did not settle: %v (%s)", ctx.Err(), h.taskState())
+}
+
+func TestGitLogRestartsNestedHistoryAfterRemoteReconnect(t *testing.T) {
+	for _, test := range []struct {
+		name, reconnectedRepo string
+		recheckTrust          bool
+		retryDiscovery        bool
+		retrySelection        bool
+		watchRepository       bool
+	}{
+		{name: "current-trust", reconnectedRepo: "nested"},
+		{name: "watch-refreshes-current-trust", reconnectedRepo: "nested", watchRepository: true},
+		{name: "trust-edited-while-connecting", reconnectedRepo: "nested", recheckTrust: true},
+		{name: "repository-replaced", reconnectedRepo: "replacement"},
+		{name: "repository-removed"},
+		{name: "refresh-retries-discovery", reconnectedRepo: "replacement", retryDiscovery: true},
+		{name: "refresh-retries-selection", reconnectedRepo: "replacement", retrySelection: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			h, host, _, _ := remoteWorkspaceHarness(t)
+			rootRepo := ""
+			if test.watchRepository {
+				rootRepo = "."
+			}
+			host.trustAtHost(core.WorkspaceTrusted, rootRepo)
+			p := h.openRemoteTestProject(t)
+			release, unblock := context.WithCancel(t.Context())
+			defer unblock()
+			firstSession := p.remote.session
+			k := &reconnectLogKernel{
+				remoteHostKernel: host, connectStarted: make(chan struct{}), releaseConnect: release.Done(),
+				firstSession: firstSession, workspaceRoot: p.root, reconnectedRepo: test.reconnectedRepo,
+				failDiscovery: test.retryDiscovery, failSelection: test.retrySelection,
+			}
+			h.app.kernel = k
+			h.app.loadNestedRepos(p)
+			h.await("the nested repository selected for Git Log", func() bool { return p.nested.logRepo == "nested" })
+			h.app.loadLog(p)
+			h.settleReconnectLog(t)
+			if p.log.cursor == "" || p.log.cursor != firstSession {
+				t.Fatalf("opening history in session %q yielded cursor %q, more %v, load error %v", firstSession, p.log.cursor, p.log.hasMore, p.log.err)
+			}
+			k.mu.Lock()
+			beforeReconnect := len(k.history)
+			k.mu.Unlock()
+
+			h.app.loseRemote(p, p.remote.session, &core.Error{Code: core.CodeConnectionClosed})
+			h.app.reconnectRemote(p, true)
+			wait, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			select {
+			case <-k.connectStarted:
+			case <-wait.Done():
+				t.Fatal("the second connection did not reach its gate")
+			}
+			if test.recheckTrust {
+				// The settings callback invalidates the trust read for the in-flight connection.
+				h.app.reloadProjectTrust(p)
+			}
+			unblock()
+			h.await("the trusted second session", func() bool {
+				return p.remote.session != "" && p.remote.session != firstSession && !p.safeMode()
+			})
+			if test.watchRepository {
+				h.awaitRemoteGit(p)
+			}
+			h.settleReconnectLog(t)
+
+			if p.git.safeMode {
+				t.Error("the Git view still presents the trusted session as safe mode")
+			}
+			wantDiscoveries := 1
+			if test.watchRepository {
+				// Resolving Git metadata requests a scan. The watch reports startup separately,
+				// which requests another scan to catch changes during installation.
+				wantDiscoveries = 2
+			}
+			if test.retryDiscovery || test.retrySelection {
+				if p.log.hasMore || p.nested.logRepo != "nested" {
+					t.Fatal("the failed repository refresh changed the selection or resumed paging")
+				}
+				if test.retrySelection && p.logRepo() != nil {
+					t.Fatal("the failed selection did not see the replacement repository list")
+				}
+				h.app.runLogView(p, logViewRefresh)
+				h.settleReconnectLog(t)
+				wantDiscoveries++
+			}
+			k.mu.Lock()
+			history := slices.Clone(k.history[beforeReconnect:])
+			discoveries := k.discoveries
+			rootStatusReads := k.rootStatusReads
+			k.mu.Unlock()
+			if test.watchRepository && rootStatusReads != wantDiscoveries {
+				t.Errorf("the watched workspace refreshed Git status %d times, want %d", rootStatusReads, wantDiscoveries)
+			}
+			if discoveries != wantDiscoveries {
+				t.Errorf("new session discovered repositories %d times, want %d", discoveries, wantDiscoveries)
+			}
+			if test.reconnectedRepo == "" {
+				if len(history) != 0 || p.nested.logRepo != "" || len(p.log.commits) != 0 || p.log.hasMore {
+					t.Fatalf("removing the last repository left history reads %v, selected repository %q and %d commits", history, p.nested.logRepo, len(p.log.commits))
+				}
+				return
+			}
+			want := []reconnectLogRead{{p.remote.session, filepath.Join(p.root, test.reconnectedRepo)}}
+			if !slices.Equal(history, want) || p.nested.logRepo != test.reconnectedRepo || p.log.cursor != p.remote.session || !p.log.hasMore {
+				t.Fatalf("nested history reads after reconnect %q, selected repository %q, cursor %q, can load more %v", history, p.nested.logRepo, p.log.cursor, p.log.hasMore)
 			}
 		})
 	}

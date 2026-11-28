@@ -58,8 +58,8 @@ func TestLogCommitMenuCopiesTheHashesOfEveryChosenCommit(t *testing.T) {
 	h, p, _ := logWithTwoCommits(t)
 	rows := p.log.graph.Rows
 	v := &h.app.logView
-	v.chosen.Add(v.hashKey(rows[0].CommitHash))
-	v.chosen.Add(v.hashKey(rows[1].CommitHash))
+	v.chosen.Add(h.app.logCommitKey(0))
+	v.chosen.Add(h.app.logCommitKey(1))
 	h.settle()
 
 	if got := h.app.logMenuRevisions(p, 1); len(got) != 2 || got[0] != rows[0].CommitHash || got[1] != rows[1].CommitHash {
@@ -75,7 +75,7 @@ func TestLogCommitMenuCopiesTheHashesOfEveryChosenCommit(t *testing.T) {
 
 	// A row outside the chosen ones acts on its own commit only.
 	v.chosen.Clear()
-	v.chosen.Add(v.hashKey(rows[0].CommitHash))
+	v.chosen.Add(h.app.logCommitKey(0))
 	if got := h.app.logMenuRevisions(p, 1); len(got) != 1 || got[0] != rows[1].CommitHash {
 		t.Fatalf("the menu of an unchosen row acts on %v, want only %s", got, rows[1].CommitHash)
 	}
@@ -122,9 +122,10 @@ func TestLogCommitMenuOffersUndoAndSquashOnlyAsCoreHints(t *testing.T) {
 // A loading footer participates in List's row identities even though it is not
 // a selectable commit. Its key must be valid and distinct from every commit.
 func TestLogCommitKeysKeepFooterInRangeAndSeparate(t *testing.T) {
-	v := logView{keyRows: []core.GraphRow{{CommitHash: "first"}, {CommitHash: "second"}}}
-	first, second := v.logCommitKey(0), v.logCommitKey(1)
-	footer := v.logCommitKey(len(v.keyRows))
+	rows := []core.GraphRow{{CommitHash: "first"}, {CommitHash: "second"}}
+	a := App{project: &project{log: gitLogState{graph: core.Graph{Rows: rows}}}}
+	first, second := a.logCommitKey(0), a.logCommitKey(1)
+	footer := a.logCommitKey(len(rows))
 	for _, key := range []int{first, second, footer} {
 		if key < 0 || uint64(key) >= 1<<31 {
 			t.Fatalf("row key %d is outside Viva's supported range", key)
@@ -133,8 +134,8 @@ func TestLogCommitKeysKeepFooterInRangeAndSeparate(t *testing.T) {
 	if first == second || first == footer || second == footer {
 		t.Fatalf("commit and footer keys collide: %d %d %d", first, second, footer)
 	}
-	v.keyRows[0], v.keyRows[1] = v.keyRows[1], v.keyRows[0]
-	if v.logCommitKey(0) != second || v.logCommitKey(1) != first || v.logCommitKey(len(v.keyRows)) != footer {
+	rows[0], rows[1] = rows[1], rows[0]
+	if a.logCommitKey(0) != second || a.logCommitKey(1) != first || a.logCommitKey(len(rows)) != footer {
 		t.Fatal("commit identities or the loading footer changed after reordering")
 	}
 }

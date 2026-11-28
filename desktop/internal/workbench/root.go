@@ -116,6 +116,8 @@ func (a *App) sessionConfig() app.Config {
 // beginPaint settles the look of the paint about to be declared and forgets what the last
 // paint declared that this one declares afresh.
 func (a *App) beginPaint() {
+	a.logView.arrowTips.beginFrame()
+	a.logView.graphHover.active = false
 	a.wakeForEarlyResults()
 	a.applyLook(a.settings.Theme)
 	a.rememberWindowBackground(a.colors.Ground)
@@ -133,6 +135,12 @@ func (a *App) beginPaint() {
 
 // endPaint settles what the paint declared.
 func (a *App) endPaint() {
+	a.logView.arrowTips.endFrame()
+	a.logView.arrowPainters.endFrame()
+	if !a.logView.graphHover.active {
+		a.logView.graphHover.chain = 0
+		a.logView.pressedGraphArrow = logGraphArrowPress{}
+	}
 	a.endTerminalFrame()
 	a.treeApps.endFrame()
 	a.endPluginPageFrame()

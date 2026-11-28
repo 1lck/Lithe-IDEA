@@ -184,10 +184,16 @@ func (a *App) keepRemoteAndClose(p *project, count int, proceed func()) {
 	a.closeGitObservation(p)
 	// Core stops the session's forwards with the connection.
 	r.ports.reset()
+	closeLog := a.prepareLogClose(p, remoteLogCloseTimeout)
 	r.binding.Detach()
 	r.session, r.resume = "", nil
 	kernel, secrets, connectionID := a.kernel, a.remoteSecrets(), r.connectionID
-	a.background(nil, remoteDisconnectTimeout, func(ctx context.Context) func(*App) {
+	a.background(nil, 0, func(ctx context.Context) func(*App) {
+		if closeLog != nil {
+			closeLog(ctx)
+		}
+		ctx, cancel := context.WithTimeout(ctx, remoteDisconnectTimeout)
+		defer cancel()
 		kept, err := keepRemoteSession(ctx, kernel, secrets, connectionID, session, resume)
 		return func(a *App) {
 			r.leaving = false

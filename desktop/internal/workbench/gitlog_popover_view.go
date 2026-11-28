@@ -84,7 +84,7 @@ func (a *App) drawLogMenu(c ui.C, p *project, button ui.Box) {
 			c.After(func() { a.openPullDialog(p) })
 		}
 		if menu.Item(g.RefreshLog).Clicked() {
-			c.After(func() { a.loadLog(p) })
+			c.After(func() { a.runLogView(p, logViewRefresh) })
 		}
 		if menu.Item(i18n.Shared(a.language(), "desktop.github.pullRequests")).Clicked() {
 			c.After(func() { a.openPullRequests(p) })

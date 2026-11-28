@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"time"
@@ -86,6 +87,14 @@ type logSection struct {
 	nodes []core.ReferenceTreeNode
 }
 
+type logReveal uint8
+
+const (
+	logRevealNone logReveal = iota
+	logRevealSelection
+	logRevealWithFocus
+)
+
 // gitLogState is what the log tab of an open project knows. It belongs to the project,
 // so a project opened later starts from nothing.
 type gitLogState struct {
@@ -111,30 +120,42 @@ type gitLogState struct {
 	commits []core.GitCommit
 	// byHash finds a loaded commit by the key the graph knows it by: its hash, or the merged key
 	// while the log walks several repositories.
-	byHash  map[string]int
-	cursor  string
-	hasMore bool
+	byHash      map[string]int
+	cursor      string
+	resumeToken string
+	cursorRoot  string
+	cursorOwner context.Context
+	hasMore     bool
 	// walks are the repositories the log walks while it walks several, origins where each of the
 	// commits comes from and pending the walks whose next page the list waits on; all nil while
 	// the log walks one repository (gitlog_multi.go).
 	walks   []logWalk
 	origins []logOrigin
 	pending []int
+	// A merged continuation can change row keys. Publish its identities only
+	// when the corresponding graph is ready.
+	stagedMerge *logMergedPage
 	// loadingMore and moreFailed are the state of the next page.
 	loadingMore bool
 	moreFailed  bool
+	readCancel  context.CancelFunc
 	// limitReached says the log read as many commits as the Git Log settings let it while the
 	// history goes on; the list ends there with a note offering the settings (gitlog_limits.go).
 	limitReached bool
 	// window is the wider history the graph's lanes and colors stay stable against.
-	window []core.GraphCommit
+	window       []core.GraphCommit
+	windowCancel context.CancelFunc
 
 	// graph is the kernel's layout of the commits the filters keep, and projGen counts
 	// the layouts asked for, so the newest one wins.
 	graph       core.Graph
 	projGen     int
 	projStop    chan struct{}
+	projFailed  bool
 	currentRows map[string]bool
+	// projectedRows maps a loaded commit index to its one-based visible row when
+	// filtering or the repository context changes the order. Nil uses the loaded index.
+	projectedRows []int32
 
 	// The filters as applied, and the files of the commits the path filter has seen.
 	text, user, path string
@@ -163,8 +184,8 @@ type gitLogState struct {
 	// refSelected is the full name of the reference selected in the pane.
 	refSelected string
 	popover     logPopover
-	// reveal asks the next frame to scroll the selected commit into view.
-	reveal bool
+	// reveal scrolls the selected commit into view and can give its row keyboard focus.
+	reveal logReveal
 
 	// users is the sorted list of authors of the loaded commits, for the user filter;
 	// usersFor is the number of commits it was made from.
@@ -215,18 +236,30 @@ func (l *gitLogState) findReference(full string) (core.GitReference, bool) {
 	return core.GitReference{}, false
 }
 
+// refreshLog retries discovery when an open log has yet to learn the replacement session's repositories.
+func (a *App) refreshLog(p *project) {
+	if p.logReads.retired {
+		return
+	}
+	if p.awaitsRemoteLogRoots() {
+		a.loadGit(p)
+		return
+	}
+	a.loadLog(p)
+}
+
 // loadLog loads the log of p from the start: the references, the first page of history
 // and its graph, then the wider window the graph is kept stable against.
 func (a *App) loadLog(p *project) {
+	if p.logReads.retired {
+		return
+	}
 	l := &p.log
 	if !l.started {
 		*l = newGitLogState()
 		l.started = true
 	}
-	if l.cursor != "" {
-		a.closeLogCursor(p, l.cursor)
-	}
-	a.closeWalkCursors(p, l.walks)
+	a.releaseLogCursor(p)
 	l.gen++
 	gen := l.gen
 	// A projection still running for the old commits must not land on the new ones.
@@ -236,10 +269,12 @@ func (a *App) loadLog(p *project) {
 		l.projStop = nil
 	}
 	l.loading, l.err = true, nil
-	l.commits, l.byHash, l.cursor, l.hasMore = nil, nil, "", false
+	l.commits, l.byHash, l.cursor, l.resumeToken, l.cursorRoot, l.hasMore = nil, nil, "", "", "", false
 	l.walks, l.origins, l.pending = nil, nil, nil
+	l.stagedMerge = nil
 	l.loadingMore, l.moreFailed, l.limitReached, l.window = false, false, false, nil
-	l.graph, l.currentRows = core.Graph{}, nil
+	l.graph, l.currentRows, l.projectedRows = core.Graph{}, nil, nil
+	l.projFailed = false
 	l.pathFiles = nil
 	// The upstreams the graph paints were read for the repository before this one.
 	a.logView.upstream, a.logView.upstreamFor = nil, nil
@@ -257,7 +292,8 @@ func (a *App) loadLog(p *project) {
 	}
 	kernel, root, reference := a.kernel, p.logRoot(), l.reference
 	expanded, limit := l.expanded, a.gitLogLimit()
-	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
+	owner := p.ctx
+	l.readCancel = a.backgroundLogRead(p, func(ctx context.Context) logReadResult {
 		refs, sections, current, err := readReferences(ctx, kernel, root)
 		if err == nil && reference != "" && reference != headReference.FullName && !hasReference(refs.References, reference) {
 			reference = ""
@@ -265,7 +301,7 @@ func (a *App) loadLog(p *project) {
 		var page core.GitHistoryPage
 		var graph core.Graph
 		if err == nil {
-			page, err = kernel.GitHistoryPage(ctx, root, reference, "", min(logPageSize, limit), limit)
+			page, err = kernel.GitHistoryPage(ctx, root, reference, "", min(logPageSize, limit), limit, "")
 		}
 		if err == nil {
 			commits := graphCommits(page.Commits)
@@ -274,19 +310,17 @@ func (a *App) loadLog(p *project) {
 				Expanded: expanded, CurrentBranch: current,
 			})
 		}
-		return func(a *App) {
-			if l.gen != gen {
-				if page.NextCursor != "" {
-					a.closeLogCursor(p, page.NextCursor)
-				}
-				return
+		return logReadResult{logPageCursor(root, page.NextCursor), func(a *App) bool {
+			if a.project != p || l.gen != gen || owner.Err() != nil {
+				return false
 			}
+			l.stopGitLogRead()
 			l.loading = false
 			if err != nil {
 				// Once the walked repository cannot be read, the references shown before are not its own.
 				l.err = err
 				l.refs, l.sections, l.current = core.GitReferences{}, [3]logSection{}, ""
-				return
+				return false
 			}
 			l.refs, l.sections, l.current = refs, sections, current
 			if reference == "" && l.reference != "" {
@@ -301,6 +335,8 @@ func (a *App) loadLog(p *project) {
 			l.commits = page.Commits
 			l.byHash = indexCommits(page.Commits)
 			l.cursor, l.hasMore, l.limitReached = page.NextCursor, page.HasMore, page.LimitReached
+			l.resumeToken = page.ResumeToken
+			l.cursorRoot = root
 			l.setGraph(graph)
 			if l.filtered() {
 				a.reproject(p, 0)
@@ -308,7 +344,8 @@ func (a *App) loadLog(p *project) {
 			if page.HasMore {
 				a.loadLogWindow(p, gen)
 			}
-		}
+			return true
+		}}
 	})
 }
 
@@ -359,28 +396,39 @@ func readReferences(ctx context.Context, kernel Kernel, root string) (core.GitRe
 func (a *App) loadLogWindow(p *project, gen int) {
 	kernel, root, reference := a.kernel, p.logRoot(), p.log.reference
 	size := min(logWindowSize, a.gitLogLimit())
-	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
+	p.log.windowCancel = a.backgroundLogRead(p, func(ctx context.Context) logReadResult {
 		page, err := kernel.GitHistoryPage(ctx, root, reference, "", size, size)
-		if err == nil && page.NextCursor != "" {
-			_, _ = kernel.CloseGitHistoryCursor(ctx, root, page.NextCursor)
-		}
-		if err != nil {
-			return nil
+		if page.NextCursor != "" {
+			closeCursor := a.logCursorCloser(ctx, kernel)
+			closeCursor(root, page.NextCursor)
 		}
 		window := graphCommits(page.Commits)
-		return func(a *App) {
-			if p.log.gen != gen {
-				return
+		return logReadResult{publish: func(a *App) bool {
+			if a.project != p || p.log.gen != gen {
+				return false
+			}
+			p.log.windowCancel = nil
+			if err != nil {
+				return false
 			}
 			p.log.window = window
 			a.reproject(p, 0)
-		}
+			return true
+		}}
 	})
 }
 
-// loadMoreLog reads the next page of history when there is one and none is on its way.
+// loadMoreLog reads the next page once the current projection has been published.
 func (a *App) loadMoreLog(p *project) {
+	if p.logReads.retired {
+		return
+	}
 	l := &p.log
+	if l.projStop != nil || l.projFailed {
+		// Until the new rows land, the viewport still sees the old end of
+		// the list. Another page here would cancel and redo that projection.
+		return
+	}
 	if l.walks != nil {
 		a.loadMoreLogRepos(p)
 		return
@@ -391,39 +439,65 @@ func (a *App) loadMoreLog(p *project) {
 	l.loadingMore = true
 	gen := l.gen
 	kernel, root, reference, cursor := a.kernel, p.logRoot(), l.reference, l.cursor
-	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
-		page, err := kernel.GitHistoryPage(ctx, root, reference, cursor, logPageSize, 0)
-		return func(a *App) {
-			if l.gen != gen {
-				return
+	loaded := l.commits
+	resumeToken, owner := l.resumeToken, p.ctx
+	l.readCancel = a.backgroundLogRead(p, func(ctx context.Context) logReadResult {
+		page, err := readGitLogPage(ctx, kernel, root, reference, cursor, logPageSize, resumeToken)
+		var byHash map[string]int
+		if err == nil {
+			// Readers of the old snapshot use only its immutable prefix.
+			loaded = append(loaded, page.Commits...)
+			byHash = indexCommits(loaded)
+		}
+		return logReadResult{logPageCursor(root, page.NextCursor), func(a *App) bool {
+			if a.project != p || l.gen != gen || owner.Err() != nil {
+				return false
 			}
+			l.stopGitLogRead()
 			l.loadingMore = false
+			if errors.Is(err, errLogHistoryChanged) {
+				a.loadLog(p)
+				return false
+			}
 			if err != nil {
 				l.moreFailed = true
-				return
+				return false
 			}
-			l.commits = slices.Concat(l.commits, page.Commits)
-			l.byHash = indexCommits(l.commits)
+			l.commits, l.byHash = loaded, byHash
 			l.cursor, l.hasMore, l.limitReached = page.NextCursor, page.HasMore, page.LimitReached
+			l.resumeToken = page.ResumeToken
 			a.reproject(p, 0)
-		}
+			return true
+		}}
 	})
 }
 
-// closeLogCursor releases a history walk the log no longer continues.
-func (a *App) closeLogCursor(p *project, cursor string) {
-	kernel, root := a.kernel, p.logRoot()
-	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
-		_, _ = kernel.CloseGitHistoryCursor(ctx, root, cursor)
-		return nil
-	})
+func (l *gitLogState) stopGitLogRead() {
+	if l.readCancel != nil {
+		l.readCancel()
+		l.readCancel = nil
+	}
+}
+
+var errLogHistoryChanged = errors.New("Git history changed while its cursor was idle")
+
+// readGitLogPage lets Core verify expired walks. Older remote hosts omit the token,
+// so a rejected cursor there can only be recovered by reloading the whole view.
+func readGitLogPage(ctx context.Context, pager historyPager, root, reference, cursor string, pageSize int, resumeToken string) (core.GitHistoryPage, error) {
+	page, err := pager.GitHistoryPage(ctx, root, reference, cursor, pageSize, 0, resumeToken)
+	var failure *core.Error
+	if page.HistoryChanged || (cursor != "" && resumeToken == "" && errors.As(err, &failure) &&
+		failure.Code == core.CodeInvalidRequest && failure.Details == cursor) {
+		return page, errLogHistoryChanged
+	}
+	return page, err
 }
 
 // setLogReference makes the log walk one reference, or every reference when full is
 // empty, and loads it again.
 func (a *App) setLogReference(p *project, full, short string) {
 	l := &p.log
-	if l.reference == full {
+	if p.logReads.retired || l.reference == full {
 		return
 	}
 	if p.walksSeveral() {
@@ -497,6 +571,9 @@ type logProjection struct {
 // reproject lays the graph out again for the loaded commits and the filters, after
 // delay. A newer call replaces one that has not answered yet.
 func (a *App) reproject(p *project, delay time.Duration) {
+	if p.logReads.retired {
+		return
+	}
 	l := &p.log
 	l.projGen++
 	gen := l.projGen
@@ -505,11 +582,16 @@ func (a *App) reproject(p *project, delay time.Duration) {
 	}
 	stop := make(chan struct{})
 	l.projStop = stop
+	commits, origins, byHash := l.commits, l.origins, l.byHash
+	staged := l.stagedMerge
+	if staged != nil {
+		commits, origins, byHash = staged.commits, staged.origins, staged.byHash
+	}
 	in := logProjection{
-		commits:  l.commits,
-		keys:     l.logKeys(),
-		roots:    l.logRoots(),
-		origins:  l.origins,
+		commits:  commits,
+		keys:     logKeys(origins),
+		roots:    logRoots(l.walks, origins),
+		origins:  origins,
 		window:   l.window,
 		remotes:  l.logRemoteNames(),
 		current:  l.current,
@@ -543,25 +625,47 @@ func (a *App) reproject(p *project, delay time.Duration) {
 			case <-stop:
 				return nil
 			case <-ctx.Done():
-				return nil
+				return func(*App) {
+					if l.projGen == gen {
+						l.projStop = nil
+					}
+				}
 			}
 		}
 		ctx, cancel := untilStopped(ctx, stop)
 		defer cancel()
 		graph, files, err := in.run(ctx, kernel, root, dated)
+		var projectedRows []int32
+		if err == nil {
+			projectedRows = in.indexProjectedRows(graph.Rows, byHash)
+		}
 		return func(a *App) {
 			if l.projGen != gen {
 				return
 			}
+			l.projStop = nil
 			if files != nil {
 				l.pathFiles = files
 			}
 			if err != nil {
+				l.projFailed = true
 				a.operationFailed("git_log_project", err)
 				a.notifyError(a.text.Git.Failed(err.Error()))
 				return
 			}
+			if staged != nil {
+				if selected := l.selectedMergedKey(staged); selected != l.selected {
+					if selected == "" {
+						a.selectCommit(p, "")
+					} else {
+						l.selected = selected
+					}
+				}
+				l.publishMerged(staged)
+			}
 			l.setGraph(graph)
+			l.projectedRows = projectedRows
+			l.projFailed = false
 		}
 	})
 }
@@ -569,12 +673,6 @@ func (a *App) reproject(p *project, delay time.Duration) {
 // run filters the commits and asks the kernel for the layout of what is left. It
 // returns the files the path filter read, so the next run does not read them again.
 func (in logProjection) run(ctx context.Context, kernel Kernel, root string, dated bool) (core.Graph, map[string][]core.GitCommitFile, error) {
-	key := func(i int) string {
-		if in.keys != nil {
-			return in.keys[i]
-		}
-		return in.commits[i].Hash
-	}
 	rootAt := func(i int) string {
 		if in.roots != nil {
 			return in.roots[i]
@@ -601,13 +699,14 @@ func (in logProjection) run(ctx context.Context, kernel Kernel, root string, dat
 				if !keep[i] {
 					continue
 				}
-				files, ok := in.pathFiles[key(i)]
+				key := in.keyAt(i)
+				files, ok := in.pathFiles[key]
 				if !ok {
 					var err error
 					if files, err = kernel.GitCommitFiles(filtering, rootAt(i), c.Hash); err != nil {
 						return core.Graph{}, in.pathFiles, err
 					}
-					in.pathFiles[key(i)] = files
+					in.pathFiles[key] = files
 				}
 				keep[i] = slices.ContainsFunc(files, func(f core.GitCommitFile) bool {
 					return strings.Contains(strings.ToLower(f.Path), in.path)
@@ -617,7 +716,7 @@ func (in logProjection) run(ctx context.Context, kernel Kernel, root string, dat
 		visible = make([]string, 0, len(in.commits))
 		for i := range in.commits {
 			if keep[i] {
-				visible = append(visible, key(i))
+				visible = append(visible, in.keyAt(i))
 			}
 		}
 	}
@@ -699,26 +798,65 @@ func logDateBounds(date logDate, now time.Time) (after, before *int64) {
 // setGraph keeps a layout and drops a selection the filters no longer show.
 func (l *gitLogState) setGraph(graph core.Graph) {
 	l.graph = graph
+	l.projectedRows = nil
 	l.currentRows = make(map[string]bool, len(graph.CurrentBranchHashes))
 	for _, h := range graph.CurrentBranchHashes {
 		l.currentRows[h] = true
 	}
 }
 
+func (in *logProjection) keyAt(i int) string {
+	if in.keys != nil {
+		return in.keys[i]
+	}
+	return in.commits[i].Hash
+}
+
+func (in *logProjection) indexProjectedRows(rows []core.GraphRow, byHash map[string]int) []int32 {
+	loaded := len(in.commits)
+	for row, entry := range rows {
+		if row >= loaded || entry.CommitHash != in.keyAt(row) {
+			indices := make([]int32, loaded)
+			for i, entry := range rows {
+				if index, ok := byHash[entry.CommitHash]; ok && index >= 0 && index < loaded {
+					indices[index] = int32(i + 1)
+				}
+			}
+			return indices
+		}
+	}
+	return nil
+}
+
+// visibleRow resolves a commit against the published graph. The hash check also
+// protects a lookup made while a new history page is being projected.
+func (l *gitLogState) visibleRow(hash string) int {
+	row, ok := l.byHash[hash]
+	if !ok || row < 0 {
+		return -1
+	}
+	if l.projectedRows != nil {
+		if row >= len(l.projectedRows) {
+			return -1
+		}
+		row = int(l.projectedRows[row]) - 1
+	}
+	if row < 0 || row >= len(l.graph.Rows) || l.graph.Rows[row].CommitHash != hash {
+		return -1
+	}
+	return row
+}
+
 // selectCommit selects the commit with hash, empty for none, and loads its files and
 // details once the selection has rested.
 func (a *App) selectCommit(p *project, hash string) {
 	l := &p.log
-	if hash != "" && l.selected == hash && l.filesState != logFilesFailed {
+	if p.logReads.retired || hash != "" && l.selected == hash && l.filesState != logFilesFailed {
 		return
 	}
 	l.selected = hash
-	l.selGen++
+	l.stopLogSelection()
 	gen := l.selGen
-	if l.selStop != nil {
-		close(l.selStop)
-		l.selStop = nil
-	}
 	l.files, l.folders, l.detail = nil, nil, nil
 	clear(l.closedFolders)
 	if hash == "" {
@@ -769,6 +907,14 @@ func (a *App) selectCommit(p *project, hash string) {
 			}
 		}
 	})
+}
+
+func (l *gitLogState) stopLogSelection() {
+	l.selGen++
+	if l.selStop != nil {
+		close(l.selStop)
+		l.selStop = nil
+	}
 }
 
 // untilStopped is ctx, cancelled as well once stop is closed. A newer selection or filter
@@ -831,11 +977,14 @@ func commitFilePaths(files []core.GitCommitFile) []string {
 // locateReference selects the newest loaded commit that the reference with short name
 // points at.
 func (a *App) locateReference(p *project, short string) {
+	if p.logReads.retired {
+		return
+	}
 	for _, row := range p.log.graph.Rows {
 		for _, label := range row.Labels {
 			if label.Title == short {
 				a.selectCommit(p, row.CommitHash)
-				p.log.reveal = true
+				p.log.reveal = logRevealSelection
 				return
 			}
 		}

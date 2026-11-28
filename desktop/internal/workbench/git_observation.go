@@ -55,16 +55,27 @@ type gitObservation struct {
 // workspace's Git runs on its host, which watches the metadata too, so it is observed while it
 // has a session (remote_git.go).
 func (a *App) startGitObservation(p *project) {
-	kernel, ok := a.kernel.(gitObserveKernel)
-	if !ok || p.safeMode() || p.observe.metadata != nil || p.observe.watches != nil || p.observe.remote != nil {
+	a.startGitObservationWithFallback(p, false)
+}
+
+func (a *App) startGitObservationWithFallback(p *project, refreshWithoutWatch bool) {
+	if p.safeMode() || p.observe.metadata != nil || p.observe.watches != nil || p.observe.remote != nil {
 		return
 	}
 	remote := p.remote != nil
 	if remote && (p.remote.closed || p.remote.session == "") {
 		return
 	}
+	kernel, ok := a.kernel.(gitObserveKernel)
+	if !ok {
+		if refreshWithoutWatch {
+			a.loadGit(p)
+		}
+		return
+	}
 	p.observe.gen++
 	gen, root := p.observe.gen, p.root
+	statusGen := p.gitStatusGeneration.Load()
 	a.background(p, gitTimeout, func(ctx context.Context) func(*App) {
 		watch, found, err := kernel.GitWatchContextOf(core.AutomaticRefresh(ctx), root)
 		var dirs []string
@@ -89,9 +100,11 @@ func (a *App) startGitObservation(p *project) {
 			}
 			if err != nil {
 				a.backgroundFailed("git_metadata_watch", p.logError(documentLogError(err)))
-				return
 			}
-			if !found {
+			if err != nil || !found {
+				if refreshWithoutWatch && statusGen == p.gitStatusGeneration.Load() {
+					a.loadGit(p)
+				}
 				return
 			}
 			o.metadata = &core.GitMetadataContext{

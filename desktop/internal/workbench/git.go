@@ -78,6 +78,9 @@ func (a *App) readGit(p *project, policy func(context.Context) context.Context) 
 				return
 			}
 			if g.remoteAbove {
+				if p.awaitsRemoteLogRoots() {
+					a.loadNestedRepos(p)
+				}
 				// log-exempt: 预期的缺失：远程工作区的文件夹在更上层的仓库里，Git 视图说明原因，不是失败。
 				return
 			}
