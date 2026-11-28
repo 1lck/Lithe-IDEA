@@ -32,7 +32,7 @@ func (a *App) agentSessionsLoader() settingswindow.AgentSessionsLoader {
 func (a *App) publishAgentSettings() {
 	v := &a.agentsView
 	consent := agents.Consent(a.settings.AgentSessionConsent)
-	state := settingswindow.AgentSessionsState{Loaded: v.configured}
+	state := settingswindow.AgentSessionsState{Loaded: v.configured, MCPSearch: a.settings.AgentSessionsMCPSearch}
 	for _, plugin := range v.plugins {
 		if !slices.Contains(plugin.Permissions, agents.PermissionReadSessions) {
 			continue
@@ -92,6 +92,7 @@ func (a *App) setAgentSessionConsent(pluginID string, allowed bool) {
 	}
 	a.saveSettings()
 	a.recordAgentSettingsFailure(nil)
+	a.refreshIDEAPISessionTools()
 	var forget []string
 	if !allowed {
 		for _, plugin := range a.agentsView.plugins {
@@ -153,4 +154,27 @@ func (s agentSessionSettings) State() settingswindow.AgentSessionsState {
 // SetAllowed hands the choice to the window thread, which owns the settings.
 func (s agentSessionSettings) SetAllowed(pluginID string, allowed bool) {
 	s.a.post(func(a *App) { a.setAgentSessionConsent(pluginID, allowed) })
+}
+
+// SetMCPSearch hands the choice to the window thread, which owns the settings.
+func (s agentSessionSettings) SetMCPSearch(allowed bool) {
+	s.a.post(func(a *App) { a.setAgentMCPSearch(allowed) })
+}
+
+// setAgentMCPSearch saves whether the MCP clients of an IDE connection may search and read the
+// sessions Lithe may read, and reconnects an open connection to offer or withdraw the tools.
+func (a *App) setAgentMCPSearch(allowed bool) {
+	if a.settings.AgentSessionsMCPSearch == allowed {
+		return
+	}
+	action := "agents.sessions.mcpSearch.revoke"
+	if allowed {
+		action = "agents.sessions.mcpSearch.allow"
+	}
+	a.performed(action, surfaceButton)
+	a.settings.AgentSessionsMCPSearch = allowed
+	a.saveSettings()
+	a.recordAgentSettingsFailure(nil)
+	a.refreshIDEAPISessionTools()
+	a.publishAgentSettings()
 }

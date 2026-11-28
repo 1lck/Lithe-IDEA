@@ -24,6 +24,8 @@ type recordCore struct {
 	changed  bool
 	sessions []agents.RecordedSession
 	reads    []agents.ByteRange
+	// text is the message text of line i; nil answers "line i".
+	text func(int) string
 }
 
 func (f *recordCore) size() uint64 {
@@ -56,7 +58,11 @@ func (f *recordCore) Execute(_ context.Context, command string, params, result a
 		for i, length := range f.lines {
 			lineEnd := at + length
 			if at >= span.Start && lineEnd <= span.End {
-				read.Messages = append(read.Messages, agents.RecordedMessage{Role: "assistant", Text: "line " + strconv.Itoa(i)})
+				text := "line " + strconv.Itoa(i)
+				if f.text != nil {
+					text = f.text(i)
+				}
+				read.Messages = append(read.Messages, agents.RecordedMessage{Role: "assistant", Text: text})
 				read.End = lineEnd
 			}
 			at = lineEnd

@@ -289,6 +289,7 @@ func (a *App) applyAgentCatalog(result agentCatalogResult) {
 		a.notify(i18n.SharedFormat(a.language(), "desktop.agents.pluginRejected", map[string]string{"plugin": rejected.PluginID, "reason": rejected.Message}))
 	}
 	a.publishAgentSettings()
+	a.refreshIDEAPISessionTools()
 	v.history.loaded = false
 }
 

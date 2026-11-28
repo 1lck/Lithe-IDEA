@@ -7,6 +7,9 @@ type AgentSessionsState struct {
 	// Loaded is false until the workbench configured the agents once.
 	Loaded  bool
 	Plugins []AgentSessionPlugin
+	// MCPSearch is the user's choice to let the MCP clients of an IDE connection search and
+	// read the sessions of the allowed plugins' agents.
+	MCPSearch bool
 	// Error is the last failure of saving a choice or forgetting a plugin's records.
 	Error string
 }
@@ -32,4 +35,7 @@ type AgentSessionsLoader interface {
 	// SetAllowed saves the choice for a plugin and configures the agents again; taking it back
 	// also drops the records Lithe cached from that plugin's session files.
 	SetAllowed(pluginID string, allowed bool)
+	// SetMCPSearch saves whether MCP clients may search local sessions; an open IDE connection
+	// reconnects to offer or withdraw the session tools.
+	SetMCPSearch(allowed bool)
 }

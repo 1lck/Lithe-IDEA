@@ -9,7 +9,8 @@ import (
 
 // agentsPage is the Agents page under AI: one switch per plugin that asks to read the session
 // files its agents' CLIs write. Lithe reads none of them until the user turns a switch on, and
-// turning it off drops what Lithe cached from them.
+// turning it off drops what Lithe cached from them. A separate switch lets the MCP clients of
+// an IDE connection search the sessions the user allowed.
 func (w *window) agentsPage(c ui.C) {
 	loader := w.ctrl.opts.Agents
 	st := loader.State()
@@ -32,6 +33,15 @@ func (w *window) agentsPage(c ui.C) {
 				}
 			})
 		})
+		if st.Loaded && len(st.Plugins) > 0 {
+			w.card(c, i18n.Shared(lang, "desktop.agents.settings.mcpSearch"), i18n.Shared(lang, "desktop.agents.settings.mcpSearchHelp"), func() {
+				allowed := st.MCPSearch
+				ui.Switch(c.Key("mcpSearch"), &allowed, i18n.Shared(lang, "desktop.agents.settings.mcpSearchSwitch"))
+				if allowed != st.MCPSearch {
+					c.After(func() { loader.SetMCPSearch(allowed) })
+				}
+			})
+		}
 		if st.Error != "" {
 			ui.Wrap(c, i18n.SharedFormat(lang, "desktop.agents.settings.failed", map[string]string{"reason": st.Error})).FontSize(12).Color(p.muted)
 		}

@@ -191,12 +191,18 @@ func (a *App) applyRecordPages(record *agentRecord, pages agentRecordPages) {
 	record.done = record.limited || pages.changed || pages.tooLong || record.next >= record.size
 }
 
-// readRecordPages reads a session file from next on, a page at a time, until a page holds a
-// message, the reads reach size or agentRecordReadsPerLoad reads were made. A page that lies
-// inside one line is asked again four times larger, up to agentRecordMaxPage.
+// readRecordPages reads a session file from next on, agentRecordPage bytes at a time; see
+// readRecordSpans.
 func readRecordPages(ctx context.Context, kernel *agents.Client, agent, path string, next, size uint64) agentRecordPages {
+	return readRecordSpans(ctx, kernel, agent, path, next, size, agentRecordPage)
+}
+
+// readRecordSpans reads a session file from next on, span bytes at a time, until a read holds a
+// message, the reads reach size or agentRecordReadsPerLoad reads were made. A read that lies
+// inside one line is asked again four times larger, up to agentRecordMaxPage.
+func readRecordSpans(ctx context.Context, kernel *agents.Client, agent, path string, next, size, span uint64) agentRecordPages {
 	pages := agentRecordPages{next: next}
-	page := uint64(agentRecordPage)
+	page := span
 	for range agentRecordReadsPerLoad {
 		if pages.next >= size || len(pages.messages) > 0 {
 			break
@@ -219,7 +225,7 @@ func readRecordPages(ctx context.Context, kernel *agents.Client, agent, path str
 			page = min(page*4, agentRecordMaxPage)
 			continue
 		}
-		page = agentRecordPage
+		page = span
 		pages.next = min(result.End, end)
 		pages.messages = append(pages.messages, result.Messages...)
 	}

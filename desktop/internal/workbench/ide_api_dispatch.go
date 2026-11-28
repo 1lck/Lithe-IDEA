@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -43,11 +44,16 @@ var ideAPIServedTools = []string{
 // serves one call at a time.
 const ideAPILaunchWait = 5 * time.Second
 
-// ideAPIToolExposure is the Core selection matching ideAPIServedTools. No argument
-// narrowing is requested, so every served tool keeps its canonical schema.
-func ideAPIToolExposure() []core.IDEToolExposure {
-	exposure := make([]core.IDEToolExposure, 0, len(ideAPIServedTools))
-	for _, name := range ideAPIServedTools {
+// ideAPIToolExposure is the Core selection matching ideAPIServedTools, followed by the session
+// tools when sessions is set (ide_api_sessions.go). No argument narrowing is requested, so
+// every served tool keeps its canonical schema.
+func ideAPIToolExposure(sessions bool) []core.IDEToolExposure {
+	names := ideAPIServedTools
+	if sessions {
+		names = append(slices.Clone(names), ideAPISessionTools...)
+	}
+	exposure := make([]core.IDEToolExposure, 0, len(names))
+	for _, name := range names {
 		exposure = append(exposure, core.IDEToolExposure{Name: name})
 	}
 	return exposure
@@ -218,10 +224,14 @@ func (p *project) ideAPIOperationText(operation *ideAPIOperation) string {
 func (a *App) ideAPIDispatch(ctx context.Context, conn *ideAPIConnection, name string, arguments json.RawMessage) any {
 	switch name {
 	case "lithe_project_inspect":
+		tools := make([]string, len(conn.exposure))
+		for index, tool := range conn.exposure {
+			tools[index] = tool.Name
+		}
 		return map[string]any{
 			"workspaceKey": conn.workspaceKey,
 			"permissions":  conn.permissions,
-			"tools":        ideAPIServedTools,
+			"tools":        tools,
 		}
 	case "lithe_build_inspect":
 		return a.ideAPIOnProject(ctx, conn, func(p *project) any { return ideAPIBuildInspect(p) })
@@ -321,6 +331,31 @@ func (a *App) ideAPIDispatch(ctx context.Context, conn *ideAPIConnection, name s
 		return a.ideAPIOnProject(ctx, conn, func(p *project) any {
 			return a.ideAPIOperationStop(p, args.OperationID)
 		})
+	case "lithe_sessions_search":
+		var args struct {
+			Query string `json:"query"`
+			Agent string `json:"agent"`
+		}
+		if err := ideAPIDecodeArguments(arguments, &args); err != nil || strings.TrimSpace(args.Query) == "" {
+			return ideAPIFailure("INVALID_ARGUMENTS", "query is required")
+		}
+		started := time.Now()
+		result, results := a.ideAPISessionsSearch(ctx, conn, args.Query, args.Agent)
+		a.ideAPISessionsLogged(ctx, "lithe_sessions_search", results, started)
+		return result
+	case "lithe_sessions_read":
+		var args struct {
+			SessionID string `json:"sessionID"`
+			Agent     string `json:"agent"`
+			Cursor    string `json:"cursor"`
+		}
+		if err := ideAPIDecodeArguments(arguments, &args); err != nil || args.SessionID == "" {
+			return ideAPIFailure("INVALID_ARGUMENTS", "sessionID is required")
+		}
+		started := time.Now()
+		result, results := a.ideAPISessionsRead(ctx, conn, args.SessionID, args.Agent, args.Cursor)
+		a.ideAPISessionsLogged(ctx, "lithe_sessions_read", results, started)
+		return result
 	}
 	return ideAPIFailure("NOT_SUPPORTED", "This client does not serve this tool")
 }

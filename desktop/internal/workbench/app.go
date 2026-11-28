@@ -537,6 +537,10 @@ type settings struct {
 	// AgentSessionConsent names, by plugin ID, the agent plugins whose local session files the
 	// user lets Lithe read (agents.go). Absent is no: installing a plugin never grants it.
 	AgentSessionConsent map[string]bool `json:"agentSessionConsent,omitempty"`
+	// AgentSessionsMCPSearch is the user's choice to let the MCP clients of an IDE connection
+	// search and read the sessions of the agents in AgentSessionConsent (ide_api_sessions.go).
+	// Absent is no.
+	AgentSessionsMCPSearch bool `json:"agentSessionsMcpSearch,omitempty"`
 }
 
 const (
@@ -832,6 +836,9 @@ type App struct {
 	inline inlineEditState
 	// ideAPIBridgeState lets the IDE Connection settings page reach the open project (settings_ide_api.go).
 	ideAPIBridgeState ideAPIBridge
+	// ideAPISessionsDeclared is whether a connection opened now declares the session tools; the
+	// window thread sets it (refreshIDEAPISessionTools) and any goroutine opening one reads it.
+	ideAPISessionsDeclared atomic.Bool
 	// pluginServers are the language servers this window started, keyed by plugin.
 	pluginServers map[string]*pluginServer
 	// Native restart tokens prevent a late stop completion from restarting a

@@ -833,6 +833,27 @@
       "parameters": {
         "reason": "string"
       }
+    },
+    {
+      "id": "desktop.agents.settings.mcpSearch",
+      "description": "Card title for letting MCP clients search agent sessions",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.settings.mcpSearchSwitch",
+      "description": "Switch that lets MCP clients search and read local agent sessions",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.settings.mcpSearchHelp",
+      "description": "Information about what the MCP session search switch exposes",
+      "platforms": [
+        "desktop"
+      ]
     }
   ],
   "locales": {
@@ -935,7 +956,7 @@
       "desktop.agents.record.agent": "Agent",
       "desktop.agents.record.failed": "Could not read the session: {reason}",
       "desktop.agents.record.changed": "The session file changed since Lithe read it. Read the sessions again to see it.",
-      "desktop.agents.record.limit": "Showing the first {count} messages.",
+      "desktop.agents.record.limit": "Only the first {count} of this session's messages are shown.",
       "desktop.agents.record.tooLong": "The rest of the session has a record line too long to show.",
       "desktop.agents.record.empty": "This part of the session holds no messages.",
       "desktop.agents.settings.title": "Agents",
@@ -944,7 +965,10 @@
       "desktop.agents.settings.readSessionsHelp": "Turning a switch on lets Lithe read the files in the directories the plugin names. Turning it off stops reading them and drops what Lithe cached from them.",
       "desktop.agents.settings.noPlugins": "No installed plugin asks to read session files.",
       "desktop.agents.settings.roots": "Reads:\n{roots}",
-      "desktop.agents.settings.failed": "The change could not be applied: {reason}"
+      "desktop.agents.settings.failed": "The change could not be applied: {reason}",
+      "desktop.agents.settings.mcpSearch": "MCP Session Search",
+      "desktop.agents.settings.mcpSearchSwitch": "Allow MCP clients to search local sessions",
+      "desktop.agents.settings.mcpSearchHelp": "Lets the MCP clients of a project's IDE connection search and read the sessions of the agents allowed above, from every project. They get the agent, session ID, time and message text, never file paths. It takes effect while the IDE connection is on in Settings › Tools › IDE Connection; changing it reconnects the connection."
     },
     "zh-CN": {
       "desktop.agents.title": "Agent",
@@ -1054,7 +1078,10 @@
       "desktop.agents.settings.readSessionsHelp": "打开开关后，Lithe 会读取插件指定目录中的文件。关闭开关后，Lithe 停止读取，并删除从这些文件缓存的内容。",
       "desktop.agents.settings.noPlugins": "没有已安装的插件请求读取会话文件。",
       "desktop.agents.settings.roots": "读取：\n{roots}",
-      "desktop.agents.settings.failed": "无法应用更改：{reason}"
+      "desktop.agents.settings.failed": "无法应用更改：{reason}",
+      "desktop.agents.settings.mcpSearch": "MCP 会话搜索",
+      "desktop.agents.settings.mcpSearchSwitch": "允许 MCP 客户端搜索本地会话",
+      "desktop.agents.settings.mcpSearchHelp": "让项目 IDE 连接上的 MCP 客户端搜索和读取上面已允许的 Agent 的会话，包括所有项目的会话。客户端拿到 Agent、会话 ID、时间和消息文字，拿不到文件路径。只在“设置 › 工具 › IDE 连接”打开时生效；改动后 IDE 连接会重新连接。"
     }
   }
 }

@@ -401,7 +401,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # merges): per-model output speeds in usage and stats, paged session reads
 # (agentSessions.list's sessionID and readBytes, agentSessions.read's end), and command
 # installers for agent CLIs (requirements' "agent" consumers).
-PINNED_CORE_REVISION="8a8d13c7996ee0f97884a92e8178d72dde368dbb"
+PINNED_CORE_REVISION="1cfc556ea66649b7e072533d6e0e4f5128aacaee"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do
