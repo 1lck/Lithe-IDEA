@@ -318,6 +318,59 @@ func (h *harness) tabToBuildOption(id gfx.ID) {
 	h.t.Fatalf("Tab did not reach %v", id)
 }
 
+func TestBuildOptionsKeepFocusAtScrollEdge(t *testing.T) {
+	h, p := openIgnoredPathsProject(t, "", nil)
+	for i := range 20 {
+		group := p.build.pluginIgnoredPaths[0]
+		group.BuildSystemID = fmt.Sprintf("fixture-%d", i)
+		group.DisplayName = group.BuildSystemID
+		p.build.pluginIgnoredPaths = append(p.build.pluginIgnoredPaths, group)
+	}
+	// The last source wraps, while the preceding rules have a one-line source.
+	longID := "dev." + strings.Repeat("example.", 15) + "last"
+	p.build.pluginIgnoredPaths[len(p.build.pluginIgnoredPaths)-1].PluginID = longID
+	h.clickNamed(h.shared("desktop.build.ignoredPaths"))
+	h.awaitIgnoredPathsLoaded(p)
+	h.scrollBuildOptionsToBottom()
+
+	const caption = "Defaults for fixture-19: snapshots/"
+	rule := h.pageHit(caption)
+	var viewport gfx.Rect
+	for _, hit := range h.driver.Snapshot().Hits {
+		if hit.ID == p.build.options.scrollID {
+			viewport = hit.Bounds
+			break
+		}
+	}
+	if viewport.Height == 0 {
+		t.Fatal("missing rule viewport")
+	}
+	// Leave only the top two pixels of the last rule inside the viewport.
+	at := center(viewport)
+	if err := h.driver.Scroll(gfx.ScrollEvent{X: at.X, Y: at.Y, DeltaY: rule.Bounds.Y - (viewport.Bottom() - 2), Precise: true}); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+	if y := h.pageHit(caption).Bounds.Y; y <= viewport.Bottom()-5 || y >= viewport.Bottom() {
+		t.Fatalf("rule top = %v, want it just inside viewport bottom %v", y, viewport.Bottom())
+	}
+	scroll := h.app.root.View.ScrollState(p.build.options.scrollID)
+	height := scroll.Viewport
+	h.tabToBuildOption(rule.ID)
+	h.app.invalidator.Invalidate()
+	h.settle()
+	if scroll.Viewport != height {
+		t.Fatalf("viewport height changed from %v to %v on focus", height, scroll.Viewport)
+	}
+	if h.driver.Snapshot().Focused != rule.ID || !h.showsWrapped(longID) {
+		t.Fatal("the partially visible rule lost its focus or source after repaint")
+	}
+	h.key(gfx.KeyTab)
+	if h.driver.Snapshot().Focused != h.pageHit(h.shared("desktop.git.cancel")).ID || h.showsWrapped(longID) {
+		t.Fatal("Tab did not advance from the last rule to Cancel and clear its source")
+	}
+}
+
 // A build system's options open with the ignored paths above them, here the team file's list. A pattern
 // Core refuses keeps the dialog open, names its line in the field and stores nothing.
 func TestBuildOptionsNameTheLineOfARefusedIgnoredPath(t *testing.T) {
