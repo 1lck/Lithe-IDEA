@@ -89,6 +89,9 @@ type agentsState struct {
 
 	tab     agentsTab
 	history agentHistory
+	// recordSync keeps the session records current for the views that read usage
+	// (agents_records_sync.go).
+	recordSync agentRecordSync
 }
 
 // agentsMenu is a menu of the Agent tool window's header.
@@ -291,6 +294,7 @@ func (a *App) applyAgentCatalog(result agentCatalogResult) {
 	a.publishAgentSettings()
 	a.refreshIDEAPISessionTools()
 	v.history.loaded = false
+	a.syncAgentRecords(true)
 }
 
 // currentConversation is the conversation the window shows, nil when there is none.
