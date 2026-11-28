@@ -961,6 +961,7 @@ func (a *App) removeDocument(p *project, d *document) {
 			p.docs.list = slices.DeleteFunc(p.docs.list, func(x *document) bool { return x.id == d.id })
 			// The preview's language features may have opened it in a server.
 			a.closeDocumentInSession(p, d)
+			d.abortPendingChecks()
 		}
 		return
 	}
@@ -976,6 +977,17 @@ func (a *App) removeDocument(p *project, d *document) {
 	a.unwatchDocument(p, d)
 	a.closeDocumentInSession(p, d)
 	a.focusSelected(p, group)
+	d.abortPendingChecks()
+}
+
+// Once the document is removed, a queued or in-flight disk check can no
+// longer deliver its result. Release its callers after teardown is complete.
+func (d *document) abortPendingChecks() {
+	waiters := d.checkWaiters
+	d.checkWaiters = nil
+	for _, done := range waiters {
+		done(false)
+	}
 }
 
 // saveProjectDocuments drains writes and verifies each current document before closing.
