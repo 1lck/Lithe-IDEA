@@ -10,6 +10,31 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/contractfixture"
 )
 
+func TestWorkspaceDirectoryTreeUsesDeferredLeaves(t *testing.T) {
+	data, err := os.ReadFile(contractfixture.CoreFixture("workspace/directory-listing-leaves-v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Directories         []string
+		Request             struct{ Paths []string }
+		DirectoriesExpected []DirectoryListing
+	}
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	for _, dir := range fixture.Directories {
+		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(dir)), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := NewClient().ListDirectories(testContext(t), root, fixture.Request.Paths)
+	if err != nil || !reflect.DeepEqual(got, fixture.DirectoriesExpected) {
+		t.Fatalf("deferred listings = %+v, %v; want %+v", got, err, fixture.DirectoriesExpected)
+	}
+}
+
 // The desktop tree displays Core's order directly on both platforms. The
 // release-notes fixture avoids case-only names, which cannot coexist on the
 // default Windows and macOS filesystems.

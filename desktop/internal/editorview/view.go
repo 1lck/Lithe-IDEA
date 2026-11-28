@@ -402,6 +402,31 @@ func (v *View) SetMarkers(markers []Marker) {
 // Close stops the view's background highlighter.
 func (v *View) Close() { v.hl.Close() }
 
+// SetSyntax replaces the view's syntax grammar and restarts highlighting on the current text.
+func (v *View) SetSyntax(s *syntax.Syntax) {
+	if v.hl != nil && v.hl.Syntax() == s {
+		return
+	}
+	if v.hl != nil {
+		v.hl.Close()
+	}
+	v.cfg.Syntax = s
+	notify := v.cfg.Notify
+	v.hl = syntax.NewHighlighter(s, v.text, syntax.HighlighterOptions{
+		CollectCandidates: true,
+		OnChange: func(first, last int) {
+			v.hlGen.Add(1)
+			if notify != nil {
+				notify()
+			}
+		},
+	})
+	v.hlGen.Add(1)
+	if notify != nil {
+		notify()
+	}
+}
+
 // IsComposing reports input method text that has not been committed to the document.
 func (v *View) IsComposing() bool { return v.preedit.Composing }
 

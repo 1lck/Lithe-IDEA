@@ -159,21 +159,34 @@ func (a *App) filterTreeEvents(p *project) {
 }
 
 func (a *App) resyncTreeListings(p *project) {
-	// The stream may have lost names or begun after a listing. Re-read only
-	// directories already loaded and expanded, not the whole filesystem.
+	// Even a hidden cached leaf can have changed during the gap. Walk cached
+	// nodes, but only read open branches or supersede an in-flight listing.
 	var paths []string
-	var collect func(*treeNode)
-	collect = func(n *treeNode) {
-		if n == nil || !n.dir || !n.expanded {
+	var collect func(*treeNode, bool)
+	collect = func(n *treeNode, visible bool) {
+		if n == nil || !n.dir {
 			return
 		}
-		paths = append(paths, n.path)
+		open := visible && n.expanded
+		if !invalidateCollapsedEmpty(n) && (open || n.loading) {
+			paths = append(paths, n.path)
+		}
 		for _, child := range n.children {
-			collect(child)
+			collect(child, open)
 		}
 	}
-	collect(p.tree.root)
+	collect(p.tree.root, true)
 	a.listTree(p, paths...)
+}
+
+// A lost or ambiguous change makes an empty result unknown. A later click resolves it.
+// An in-flight listing must instead be queued again so its older result is discarded.
+func invalidateCollapsedEmpty(n *treeNode) bool {
+	if !n.empty || n.expanded || n.loading {
+		return false
+	}
+	n.empty, n.listed = false, false
+	return true
 }
 
 func (a *App) applyFilteredTreeEvents(p *project, names []string) {
@@ -206,11 +219,19 @@ func (a *App) applyFilteredTreeEvents(p *project, names []string) {
 	}
 	selected := make(map[string]struct{})
 	for _, name := range names {
+		// A rename into place may report just this path, not its new contents.
+		if n := lookup(name); n != nil && n.dir {
+			if n.loading {
+				selected[n.path] = struct{}{}
+			} else {
+				invalidateCollapsedEmpty(n)
+			}
+		}
 		parent := treeParentPath(name)
 		for {
 			n := lookup(parent)
 			if n != nil && n.dir {
-				if n != p.tree.root && !n.expanded {
+				if n != p.tree.root && !n.expanded && !n.empty {
 					parent = treeParentPath(n.path)
 				} else {
 					parent = n.path
@@ -227,7 +248,7 @@ func (a *App) applyFilteredTreeEvents(p *project, names []string) {
 	// Native recursive streams report physical target paths. Loaded linked listings
 	// must refresh too; Core revalidates their canonical boundary and cycles.
 	for name, node := range p.tree.byPath {
-		if node.linked && node.expanded {
+		if node.linked && (node.expanded || node.empty) && !invalidateCollapsedEmpty(node) {
 			selected[name] = struct{}{}
 		}
 	}
@@ -279,11 +300,7 @@ func (a *App) drainTreeWatch(p *project, path string, slot *documentWatch) {
 		}
 	}
 	if changed {
-		refresh := path
-		if n := p.tree.find(path); n != nil && n.empty && !n.expanded {
-			refresh = treeParentPath(path)
-		}
-		a.listTree(p, refresh)
+		a.listTree(p, path)
 	}
 }
 

@@ -403,6 +403,8 @@ type Options struct {
 	SearchPreferences SearchPreferencesSource
 	// DirectoryMarks loads and saves workspace directory marks, custom types and config file paths.
 	DirectoryMarks DirectoryMarksSource
+	// FileTypeMappings loads and saves global and workspace file type mappings.
+	FileTypeMappings FileTypeMappingsSource
 	// PluginInstallsClosed releases downloads retained by the settings session.
 	PluginInstallsClosed func()
 	// GitHub is the account the Git settings page shows and drives; nil hides the card.

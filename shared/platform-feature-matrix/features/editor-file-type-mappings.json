@@ -1,0 +1,41 @@
+{
+  "id": "editor-file-type-mappings",
+  "area": "编辑器",
+  "group": "语言与高亮",
+  "capability": "内置常见 lockfile 与配置文件映射（如 uv.lock、Cargo.lock、poetry.lock -> toml，bun.lock -> jsonc），并在设置页提供全局与项目级自定义文件类型映射及实时重高亮",
+  "owner": "Editor / Settings",
+  "verification": "运行 Core 共享夹具测试 TestFileTypeMappingsSharedFixture、桌面端 workbench 测试（uv.lock 高亮与注释、优先级与实时重高亮、配置冲突与安装目录只读保护）及 settingswindow 单元与四组无头视觉测试（明暗 × 中英）。在 macOS 和 Windows 原生窗口打开设置页，新增/保存自定义映射并验证已打开编辑器、Git Diff 视图与行注释即时生效，随后置为 verified。",
+  "notes": "内置映射与用户自定义规则校验、去重、通配符匹配和优先级裁决由 Rust Core（editor.fileTypeMappings.normalize / .resolve）统一承担；桌面端配置保存在应用偏好目录（file-type-mappings.json）和工作区（.lithe/file-type-mappings.json），支持读取基准校验与原子替换，并在保存后即时更新已打开编辑器和 Diff 视图的语法高亮、行注释与语言服务会话。",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/file_type_mappings.go",
+      "desktop/internal/core/file_type_mappings_test.go",
+      "desktop/internal/editor/syntax/language.go",
+      "desktop/internal/editorview/view.go",
+      "desktop/internal/workbench/file_type_mappings.go",
+      "desktop/internal/workbench/file_type_mappings_test.go",
+      "desktop/internal/settingswindow/file_type_mappings_types.go",
+      "desktop/internal/settingswindow/file_type_mappings_view.go",
+      "desktop/internal/settingswindow/file_type_mappings_test.go",
+      "desktop/internal/settingswindow/file_type_mappings_visual_test.go"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/file_type_mappings.go",
+      "desktop/internal/core/file_type_mappings_test.go",
+      "desktop/internal/editor/syntax/language.go",
+      "desktop/internal/editorview/view.go",
+      "desktop/internal/workbench/file_type_mappings.go",
+      "desktop/internal/workbench/file_type_mappings_test.go",
+      "desktop/internal/settingswindow/file_type_mappings_types.go",
+      "desktop/internal/settingswindow/file_type_mappings_view.go",
+      "desktop/internal/settingswindow/file_type_mappings_test.go",
+      "desktop/internal/settingswindow/file_type_mappings_visual_test.go"
+    ]
+  }
+}

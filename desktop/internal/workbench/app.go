@@ -644,7 +644,8 @@ type project struct {
 	rebase rebaseState
 	// gitHistory is the history actions of the log's commit menu and the merge, cherry-pick or
 	// revert Git holds active (git_history.go).
-	gitHistory historyState
+	gitHistory       historyState
+	fileTypeMappings *projectFileTypeMappings
 }
 
 // App is the state of the window.
@@ -729,7 +730,9 @@ type App struct {
 	recommendationFetcher  func(ctx context.Context, sources []PluginRecommendationSource) ([]core.MarketplaceRecommendationCatalog, error)
 	tasks                  taskQueue
 	// languages are the languages the editor knows, made when the first file is opened.
-	languages *syntax.Registry
+	languages               *syntax.Registry
+	globalFileTypeMappings  atomic.Pointer[[]core.FileTypeMapping]
+	activeProjectMappings   atomic.Pointer[projectFileTypeMappings]
 	// initialLanguageLoad lets early opens of unknown extensionless files wait for the
 	// enabled language snapshot while the project restores known paths immediately.
 	initialLanguageLoad atomic.Pointer[languageLoad]
@@ -1128,6 +1131,7 @@ func New(options Options) *App {
 		a.backgroundFailed("update_snapshot", restoreErr)
 	}
 	a.loadSearchPreferences()
+	a.loadGlobalFileTypeMappings()
 	if !a.documentOnly {
 		a.openPlugins(options)
 	}
@@ -1764,7 +1768,7 @@ func (a *App) openProjectHere(path string) {
 func (a *App) openProjectWithTrust(root string, trusted bool) {
 	a.requestCloseProject(func() {
 		a.changeRecent(core.RecordRecent(root, a.now()), nil)
-		p := &project{root: root, name: filepath.Base(root), commit: newCommitState()}
+		p := &project{root: root, name: filepath.Base(root), commit: newCommitState(), fileTypeMappings: newProjectFileTypeMappings(root)}
 		p.trust.codeAllowed.Store(trusted)
 		// Every Git command the project runs is kept in the Git console, and in safe mode Core
 		// runs none: the repository's configuration can name programs Git runs (#2208).
@@ -1773,6 +1777,8 @@ func (a *App) openProjectWithTrust(root string, trusted bool) {
 		a.searchView.reset()
 		a.openTerminals(p)
 		a.project = p
+		a.activeProjectMappings.Store(p.fileTypeMappings)
+		a.loadProjectFileTypeMappings(p, p.fileTypeMappings)
 		a.ideAPISetProject(p)
 		if a.plugins != nil && a.plugins.Contexts != nil {
 			p.pluginContext = a.plugins.Contexts.Open(root).ContextRef
@@ -1906,6 +1912,7 @@ func (a *App) disposeProject(p *project) {
 	a.problems.reset()
 	a.toolchainRoot.Store(nil)
 	a.publishWorkspaceBuildOptions(nil)
+	a.activeProjectMappings.Store(nil)
 	a.project = nil
 	a.chrome.setRemote(false)
 	a.ideAPISetProject(nil)

@@ -411,7 +411,11 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # Lithe-core-rust main at 12bf7302 (#220): native agent sessions report the settings the user may
 # change (configOptions: model, thought level, mode), changed through agents.setConfigOption and
 # passed to the plugin backend as lithe/host/agents/didSetConfigOption.
-PINNED_CORE_REVISION="12bf7302a11e034ec8dee226b721092f2e8687c2"
+# Lithe-core-rust main after #213 includes deferred empty-directory probes and partial expansion
+# diagnostics.
+# Lithe-core-rust main at 76ab4756 (#221, on top of #220): editor.fileTypeMappings.normalize and
+# .resolve for built-in and custom file type mappings.
+PINNED_CORE_REVISION="76ab4756319acb097dc6417659febf4fdd955716"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

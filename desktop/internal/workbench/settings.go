@@ -45,6 +45,7 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		},
 		SearchPreferences: appSearchPreferences{app: a},
 		DirectoryMarks:    appDirectoryMarks{app: a},
+		FileTypeMappings:  appFileTypeMappings{app: a},
 		PluginInstallsClosed: func() {
 			a.post(func(a *App) { a.closePluginDownloads() })
 		},

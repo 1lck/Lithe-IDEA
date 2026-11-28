@@ -11,6 +11,7 @@ func settingsMessages(language Language) SettingsMessages {
 		General:            Shared(language, "settings.tabs.general"),
 		Network:            Shared(language, "settings.network.title"),
 		Editor:             Shared(language, "settings.editor.section"),
+		FileTypeMappings:   Shared(language, "desktop.fileTypeMappings.pageTitle"),
 		DirectoryMarks:     Shared(language, "desktop.directoryMarks.pageTitle"),
 		Fonts:              Shared(language, "desktop.settings.fonts"),
 		Keymap:             Shared(language, "settings.tabs.keyboard"),

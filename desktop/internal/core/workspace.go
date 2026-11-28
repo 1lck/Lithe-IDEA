@@ -271,8 +271,9 @@ type DirectoryListing struct {
 
 // directoryListingRequest is the payload of workspace.listDirectories.
 type directoryListingRequest struct {
-	Root  string   `json:"root"`
-	Paths []string `json:"paths"`
+	DeferEmptyCheck bool     `json:"deferEmptyCheck"`
+	Root            string   `json:"root"`
+	Paths           []string `json:"paths"`
 }
 
 // rawWorkspaceNode tells a directory the kernel left unlisted, whose children it omits,
@@ -298,7 +299,7 @@ func (c *Client) ListDirectories(ctx context.Context, root string, paths []strin
 			Children []rawWorkspaceNode `json:"children"`
 		} `json:"directories"`
 	}
-	if err := c.Execute(ctx, "workspace.listDirectories", directoryListingRequest{Root: root, Paths: paths}, &response); err != nil {
+	if err := c.Execute(ctx, "workspace.listDirectories", directoryListingRequest{Root: root, Paths: paths, DeferEmptyCheck: true}, &response); err != nil {
 		return nil, err
 	}
 	listings := make([]DirectoryListing, 0, len(response.Directories))

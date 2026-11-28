@@ -24,6 +24,7 @@ const (
 	pageGeneral
 	pageNetwork
 	pageEditor
+	pageFileTypeMappings
 	pageDirectoryMarks
 	pageFonts
 	pageKeymap
@@ -74,6 +75,7 @@ var parents = [pageCount]pageID{
 	pageGeneral:            pageAppearance,
 	pageNetwork:            pageAppearance,
 	pageEditor:             pageAppearance,
+	pageFileTypeMappings:   pageAppearance,
 	pageDirectoryMarks:     pageAppearance,
 	pageFonts:              pageAppearance,
 	pageKeymap:             pageAppearance,
@@ -139,6 +141,8 @@ func titleOf(messages *i18n.SettingsMessages, id pageID) string {
 		return messages.Network
 	case pageEditor:
 		return messages.Editor
+	case pageFileTypeMappings:
+		return messages.FileTypeMappings
 	case pageDirectoryMarks:
 		return messages.DirectoryMarks
 	case pageFonts:
@@ -359,6 +363,8 @@ func pageKeywords(language i18n.Language, id pageID) string {
 			i18n.Shared(language, "desktop.editorPrefs.rainbowVariables") + " " +
 			i18n.Shared(language, "desktop.editorPrefs.indentGuides") + " " +
 			i18n.Shared(language, "desktop.editorPrefs.rainbowIndentGuides")
+	case pageFileTypeMappings:
+		return i18n.Shared(language, "desktop.fileTypeMappings.keywords")
 	case pageBuild:
 		return i18n.Shared(language, "desktop.buildSettings.keywordsBuild")
 	case pageToolchains:
