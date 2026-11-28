@@ -134,14 +134,9 @@ func TestClangdExplicitCompletionAcceptsItem(t *testing.T) {
 	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
-	awaitStateWithin(t, h, 20*time.Second, "the accepted completion text", func() bool {
-		data, _ := d.view.Text()
-		return strings.Contains(string(data), "add") && !strings.Contains(string(data), "adadd")
+	awaitStateWithin(t, h, 20*time.Second, "the completion to replace ad with add at the caret", func() bool {
+		return strings.Contains(d.view.TextSnapshot().Line(line), "return add")
 	})
-	data, _ := d.view.Text()
-	if !strings.Contains(string(data), "add") || strings.Contains(string(data), "adadd") {
-		t.Fatalf("text after accepting add = %q", string(data))
-	}
 	h.app.closeProject()
 	awaitStateWithin(t, h, 20*time.Second, "the closed project", func() bool { return h.app.project == nil })
 	h.settle()
