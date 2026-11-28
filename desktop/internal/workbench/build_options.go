@@ -421,11 +421,12 @@ func (a *App) buildOptionsDialog(c ui.C, p *project) {
 		title = i18n.SharedFormat(language, "desktop.build.instanceOptions", map[string]string{"name": e.name})
 	}
 	closed := ui.Modal(c, &open, title, ui.ModalSpec{Width: 460, Height: 480}, func() {
+		var focusedPluginID string
 		body := ui.Scroll(c.Part("build-options")).Scrollbars().FillWidth().Grow(1).MinHeight(0).Gap(10)
 		e.scrollID = body.ScrollState().ID
 		body.HitWith(e.scrollID, title, gfx.HitOptions{Role: gfx.RoleGroup}).
 			Focus(ui.Look{}.Ring(2, a.theme.Ring)).Children(func() {
-			a.buildIgnoredPathsSection(c.Part("detection"), p, ready)
+			focusedPluginID = a.buildIgnoredPathsSection(c.Part("detection"), p, ready)
 			if e.instance != "" {
 				k := c.Part("instance")
 				ui.Row(k).FillWidth().Items(ui.Center).Gap(6).MarginTop(6).Children(func() {
@@ -447,6 +448,10 @@ func (a *App) buildOptionsDialog(c ui.C, p *project) {
 				ui.Text(c, i18n.Shared(language, "native.loading")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 			}
 		})
+		if focusedPluginID != "" {
+			source := i18n.SharedFormat(language, "desktop.buildSettings.providedBy", map[string]string{"plugin": focusedPluginID})
+			ui.Wrap(c, source).Shrink(0).MarginTop(6).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Text)
+		}
 		if e.failure != "" {
 			ui.Paragraph(c, e.failure, 4).Shrink(0).MarginTop(10).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)
 		}
@@ -477,10 +482,11 @@ func (a *App) buildOptionsHeading(c ui.C, title string) {
 
 // buildIgnoredPathsSection declares the Detection section of the dialog: the ignored paths, one pattern a
 // line, with an ⓘ on how they are written, the layer the shown list comes from, and Restore Default while it
-// comes from this machine.
-func (a *App) buildIgnoredPathsSection(c ui.C, p *project, ready bool) {
+// comes from this machine. It returns the focused rule's source for display outside the scroll area.
+func (a *App) buildIgnoredPathsSection(c ui.C, p *project, ready bool) string {
 	g, language := &p.build.options.ignored, a.language()
 	label := i18n.Shared(language, "desktop.build.ignoredPaths")
+	var focusedPluginID string
 	ui.Column(c).FillWidth().Gap(10).Children(func() {
 		a.buildOptionsHeading(c, i18n.Shared(language, "desktop.build.detection"))
 		ui.Row(c).FillWidth().Items(ui.Center).Gap(4).Children(func() {
@@ -517,8 +523,13 @@ func (a *App) buildIgnoredPathsSection(c ui.C, p *project, ready bool) {
 			caption := i18n.SharedFormat(language, "desktop.build.ignoredPathsPlugin", map[string]string{
 				"system": group.DisplayName, "patterns": strings.Join(group.Patterns, separator),
 			})
-			ui.Wrap(row, caption).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).
-				Hit(ui.ID(row), caption).Tooltip(group.PluginID)
+			rule := ui.Wrap(row, caption).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).
+				HitWith(ui.ID(row), caption, gfx.HitOptions{Role: gfx.RoleGroup}).Tooltip(group.PluginID).
+				Focus(ui.Look{}.Ring(2, a.theme.Ring))
+			if rule.State().Focused {
+				focusedPluginID = group.PluginID
+			}
 		}
 	})
+	return focusedPluginID
 }

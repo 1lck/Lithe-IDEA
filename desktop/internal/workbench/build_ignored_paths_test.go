@@ -188,12 +188,21 @@ func TestBuildOptionsIgnoredPathsAreSavedOnThisMachineAndRestored(t *testing.T) 
 		t.Fatalf("the header opened the options of instance %q with %d fields, want the ignored paths alone", e.instance, len(e.fields))
 	}
 	const caption = "Defaults for Fixture Build: snapshots/"
+	const pluginID = "dev.lithe.test.ignored-paths"
+	h.tabToBuildOption(h.pageHit(caption).ID)
+	if !h.shows(pluginID) {
+		t.Fatal("focusing the rule with Tab did not show its source plugin")
+	}
+	h.key(gfx.KeyTab)
+	if h.shows(pluginID) {
+		t.Fatal("the source plugin is still shown after Tab left the rule")
+	}
 	at := center(h.hitLabeled(caption))
 	if err := h.driver.Move(at.X, at.Y); err != nil {
 		t.Fatal(err)
 	}
 	h.settle()
-	if tips := h.tooltips(); !h.showsWrapped(caption) || len(tips) != 1 || tips[0].Value != "dev.lithe.test.ignored-paths" {
+	if tips := h.tooltips(); !h.showsWrapped(caption) || len(tips) != 1 || tips[0].Value != pluginID {
 		t.Fatalf("want %q with the declaring plugin in its tooltip, got %v", caption, tips)
 	}
 	if e.ignored.text != ".*" || !h.showsWrapped(h.shared("desktop.build.ignoredPathsDefault")) {
@@ -289,23 +298,24 @@ func TestBuildOptionsScrollToLastPluginRule(t *testing.T) {
 	// Open an instance form and use only the keyboard to reach and edit its option below the rules.
 	h.app.openBuildOptions(p, p.selectedBuildInstance())
 	h.settleUntil("the instance options", func() bool { return !p.build.options.loading && p.build.options.ignored.loaded })
-	tabTo := func(id gfx.ID) {
-		t.Helper()
-		for range len(h.driver.Snapshot().Hits) + 1 {
-			if !id.IsZero() && h.driver.Snapshot().Focused == id {
-				return
-			}
-			h.key(gfx.KeyTab)
-		}
-		t.Fatalf("Tab did not reach %v", id)
-	}
-	tabTo(p.build.options.scrollID)
+	h.tabToBuildOption(p.build.options.scrollID)
 	h.key(gfx.KeyEnd)
-	tabTo(h.pageHit("Release Profile").ID)
+	h.tabToBuildOption(h.pageHit("Release Profile").ID)
 	h.key(gfx.KeySpace)
 	if !p.build.options.fields[0].flag {
 		t.Fatal("Space did not select the offscreen option after scrolling to it")
 	}
+}
+
+func (h *harness) tabToBuildOption(id gfx.ID) {
+	h.t.Helper()
+	for range len(h.driver.Snapshot().Hits) + 1 {
+		if !id.IsZero() && h.driver.Snapshot().Focused == id {
+			return
+		}
+		h.key(gfx.KeyTab)
+	}
+	h.t.Fatalf("Tab did not reach %v", id)
 }
 
 // A build system's options open with the ignored paths above them, here the team file's list. A pattern

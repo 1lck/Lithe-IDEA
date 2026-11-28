@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginstate"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/vivaui/viva/app"
@@ -92,6 +93,16 @@ func TestVisualBuildIgnoredPaths(t *testing.T) {
 					t.Fatalf("the opened dialog does not show title %q", triggerLabel)
 				}
 				if err := session.Screenshot(filepath.Join(out, "build-ignored-paths-dialog-"+name+".png")); err != nil {
+					t.Fatal(err)
+				}
+				caption := i18n.SharedFormat(h.app.language(), "desktop.build.ignoredPathsPlugin", map[string]string{
+					"system": "Fixture Build", "patterns": "snapshots/",
+				})
+				h.tabToBuildOption(h.pageHit(caption).ID)
+				if !h.shows("dev.lithe.test.ignored-paths") {
+					t.Fatal("the focused rule does not show its plugin")
+				}
+				if err := session.Screenshot(filepath.Join(out, "build-ignored-paths-focus-"+name+".png")); err != nil {
 					t.Fatal(err)
 				}
 			})
