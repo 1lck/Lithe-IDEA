@@ -17,8 +17,8 @@ const installedPackageWorkflows = [
   ["desktop/internal/plugininstall/pending_test.go", "TestStageUpdateLeavesInstalledPackageUnchanged"],
   ["desktop/internal/pluginservice/package_lifecycle_test.go", "TestUninstallWaitsForPackagePublicationInAnotherProcess"],
   ["desktop/internal/workbench/editor_preferences_publication_test.go", "TestEditorPreferencesLeavesInstalledPackageUnchanged"],
+  ["desktop/internal/workbench/file_type_mappings_test.go", "TestFileTypeMappingsStayOutsideInstalledPackage"],
   ["desktop/internal/workbench/welcome_recent_test.go", "TestRecentProjectsLeaveInstalledPackageUnchanged"],
-  ["desktop/internal/workbench/remote_devcontainer_form_test.go", "TestRemoteDevcontainerConfigurationLeavesInstalledPackageUnchanged"],
 ];
 
 function workflowTest(name, body = "\tif !installedpackagetest.Run(t) {\n\t\treturn\n\t}\n") {
@@ -44,7 +44,7 @@ function fixture(t) {
     writeFileSync(file, content);
   };
   for (const [name, testName] of installedPackageWorkflows) write(name, workflowTest(testName));
-  const run = () => spawnSync("zsh", [resolve(root, script)], { cwd: root, encoding: "utf8", timeout: 5000 });
+  const run = () => spawnSync("zsh", [script], { cwd: root, encoding: "utf8", timeout: 5000 });
   return { root, write, run };
 }
 

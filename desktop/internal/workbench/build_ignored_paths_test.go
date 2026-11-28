@@ -3,9 +3,11 @@ package workbench
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginstate"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
+	"github.com/vivaui/viva/gfx"
 )
 
 // ignoredPathsManifest is a declarative build system found wherever a fixture.build file is, with one
@@ -31,7 +34,7 @@ const ignoredPathsManifest = `{
   "buildSystems": [{
     "id": "fixture-ignored",
     "displayName": "Fixture Build",
-    "detection": {"markers": ["fixture.build"]},
+    "detection": {"markers": ["fixture.build"], "ignoredPaths": ["snapshots/"]},
     "invocation": {"executables": [{"kind": "command", "command": "fixture-build"}]},
     "options": [{"id": "release", "displayName": "Release Profile", "kind": "boolean", "arguments": ["--release"]}],
     "tasks": [{"id": "build", "displayName": "Fixture Task", "group": "build", "scopes": ["workspace", "project"], "arguments": ["build"]}]
@@ -184,6 +187,24 @@ func TestBuildOptionsIgnoredPathsAreSavedOnThisMachineAndRestored(t *testing.T) 
 	if e.instance != "" || len(e.fields) != 0 {
 		t.Fatalf("the header opened the options of instance %q with %d fields, want the ignored paths alone", e.instance, len(e.fields))
 	}
+	const caption = "Defaults for Fixture Build: snapshots/"
+	const pluginID = "dev.lithe.test.ignored-paths"
+	h.tabToBuildOption(h.pageHit(caption).ID)
+	if !h.shows(pluginID) {
+		t.Fatal("focusing the rule with Tab did not show its source plugin")
+	}
+	h.key(gfx.KeyTab)
+	if h.shows(pluginID) {
+		t.Fatal("the source plugin is still shown after Tab left the rule")
+	}
+	at := center(h.hitLabeled(caption))
+	if err := h.driver.Move(at.X, at.Y); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+	if tips := h.tooltips(); !h.showsWrapped(caption) || len(tips) != 1 || tips[0].Value != pluginID {
+		t.Fatalf("want %q with the declaring plugin in its tooltip, got %v", caption, tips)
+	}
 	if e.ignored.text != ".*" || !h.showsWrapped(h.shared("desktop.build.ignoredPathsDefault")) {
 		t.Fatalf("the field holds %q under %q, want the default", e.ignored.text, e.ignored.source)
 	}
@@ -223,6 +244,130 @@ func TestBuildOptionsIgnoredPathsAreSavedOnThisMachineAndRestored(t *testing.T) 
 	}
 	if got := h.storedIgnoredPaths(p); got.Source != core.BuildIgnoredPathsDefault {
 		t.Fatalf("after Restore Default the project stores %+v, want no list", got)
+	}
+}
+
+// scrollBuildOptionsToBottom wheels over the Detection heading of a newly opened dialog.
+func (h *harness) scrollBuildOptionsToBottom() {
+	h.t.Helper()
+	at := center(h.labelBounds(h.shared("desktop.build.detection")))
+	if err := h.driver.Scroll(gfx.ScrollEvent{X: at.X, Y: at.Y, DeltaY: 20000, Precise: true}); err != nil {
+		h.t.Fatal(err)
+	}
+	h.settle()
+}
+
+func TestBuildOptionsScrollToLastPluginRule(t *testing.T) {
+	h, p := openIgnoredPathsProject(t, "", nil)
+	if err := h.driver.Resize(minWindowWidth, minWindowHeight); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+	var patterns []string
+	for i := range 64 {
+		patterns = append(patterns, fmt.Sprintf("generated/dependencies/fixture-%03d/cache/", i))
+	}
+	const last = "tail/"
+	p.build.pluginIgnoredPaths[0].Patterns = append(patterns, last)
+	h.clickNamed(h.shared("desktop.build.ignoredPaths"))
+	h.awaitIgnoredPathsLoaded(p)
+	save := h.pageHit(h.shared("ui.save")).Bounds
+	cancel := h.pageHit(h.shared("desktop.git.cancel")).Bounds
+	var lastBounds gfx.Rect
+	lastVisible := func() bool {
+		for _, label := range h.driver.Snapshot().Labels {
+			if strings.HasSuffix(label.Value, last) {
+				lastBounds = label.Bounds
+				return label.Bounds.Y >= 0 && label.Bounds.Y+label.Bounds.Height <= save.Y
+			}
+		}
+		return false
+	}
+	if save.Y+save.Height > minWindowHeight || lastVisible() {
+		t.Fatalf("expected a visible footer and an offscreen last rule, Save at %v", save)
+	}
+	h.scrollBuildOptionsToBottom()
+	if !lastVisible() || h.pageHit(h.shared("ui.save")).Bounds != save || h.pageHit(h.shared("desktop.git.cancel")).Bounds != cancel {
+		t.Fatalf("after scrolling, last rule at %v, Save at %v (was %v), Cancel at %v (was %v)", lastBounds, h.pageHit(h.shared("ui.save")).Bounds, save, h.pageHit(h.shared("desktop.git.cancel")).Bounds, cancel)
+	}
+	h.click(center(cancel))
+	if p.build.options.open {
+		t.Fatal("Cancel did not close the scrolled dialog")
+	}
+
+	// Open an instance form and use only the keyboard to reach and edit its option below the rules.
+	h.app.openBuildOptions(p, p.selectedBuildInstance())
+	h.settleUntil("the instance options", func() bool { return !p.build.options.loading && p.build.options.ignored.loaded })
+	h.tabToBuildOption(p.build.options.scrollID)
+	h.key(gfx.KeyEnd)
+	h.tabToBuildOption(h.pageHit("Release Profile").ID)
+	h.key(gfx.KeySpace)
+	if !p.build.options.fields[0].flag {
+		t.Fatal("Space did not select the offscreen option after scrolling to it")
+	}
+}
+
+func (h *harness) tabToBuildOption(id gfx.ID) {
+	h.t.Helper()
+	for range len(h.driver.Snapshot().Hits) + 1 {
+		if !id.IsZero() && h.driver.Snapshot().Focused == id {
+			return
+		}
+		h.key(gfx.KeyTab)
+	}
+	h.t.Fatalf("Tab did not reach %v", id)
+}
+
+func TestBuildOptionsKeepFocusAtScrollEdge(t *testing.T) {
+	h, p := openIgnoredPathsProject(t, "", nil)
+	for i := range 20 {
+		group := p.build.pluginIgnoredPaths[0]
+		group.BuildSystemID = fmt.Sprintf("fixture-%d", i)
+		group.DisplayName = group.BuildSystemID
+		p.build.pluginIgnoredPaths = append(p.build.pluginIgnoredPaths, group)
+	}
+	// The last source wraps, while the preceding rules have a one-line source.
+	longID := "dev." + strings.Repeat("example.", 15) + "last"
+	p.build.pluginIgnoredPaths[len(p.build.pluginIgnoredPaths)-1].PluginID = longID
+	h.clickNamed(h.shared("desktop.build.ignoredPaths"))
+	h.awaitIgnoredPathsLoaded(p)
+	h.scrollBuildOptionsToBottom()
+
+	const caption = "Defaults for fixture-19: snapshots/"
+	rule := h.pageHit(caption)
+	var viewport gfx.Rect
+	for _, hit := range h.driver.Snapshot().Hits {
+		if hit.ID == p.build.options.scrollID {
+			viewport = hit.Bounds
+			break
+		}
+	}
+	if viewport.Height == 0 {
+		t.Fatal("missing rule viewport")
+	}
+	// Leave only the top two pixels of the last rule inside the viewport.
+	at := center(viewport)
+	if err := h.driver.Scroll(gfx.ScrollEvent{X: at.X, Y: at.Y, DeltaY: rule.Bounds.Y - (viewport.Bottom() - 2), Precise: true}); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+	if y := h.pageHit(caption).Bounds.Y; y <= viewport.Bottom()-5 || y >= viewport.Bottom() {
+		t.Fatalf("rule top = %v, want it just inside viewport bottom %v", y, viewport.Bottom())
+	}
+	scroll := h.app.root.View.ScrollState(p.build.options.scrollID)
+	height := scroll.Viewport
+	h.tabToBuildOption(rule.ID)
+	h.app.invalidator.Invalidate()
+	h.settle()
+	if scroll.Viewport != height {
+		t.Fatalf("viewport height changed from %v to %v on focus", height, scroll.Viewport)
+	}
+	if h.driver.Snapshot().Focused != rule.ID || !h.showsWrapped(longID) {
+		t.Fatal("the partially visible rule lost its focus or source after repaint")
+	}
+	h.key(gfx.KeyTab)
+	if h.driver.Snapshot().Focused != h.pageHit(h.shared("desktop.git.cancel")).ID || h.showsWrapped(longID) {
+		t.Fatal("Tab did not advance from the last rule to Cancel and clear its source")
 	}
 }
 

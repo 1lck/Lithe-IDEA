@@ -35,12 +35,21 @@ type BuildShadowed struct {
 	By            string `json:"by"`
 }
 
+// BuildPluginIgnoredPaths names the plugin defaults that apply to one build system.
+type BuildPluginIgnoredPaths struct {
+	PluginID      string   `json:"pluginID"`
+	BuildSystemID string   `json:"buildSystemID"`
+	DisplayName   string   `json:"displayName"`
+	Patterns      []string `json:"patterns"`
+}
+
 // BuildDetection is Core's complete answer to build.detect. Invalid manifests
 // are reported per entry rather than failing the whole detection.
 type BuildDetection struct {
-	Instances []BuildInstance           `json:"instances"`
-	Rejected  []BuildDetectionRejection `json:"rejected"`
-	Shadowed  []BuildShadowed           `json:"shadowed"`
+	PluginIgnoredPaths []BuildPluginIgnoredPaths `json:"pluginIgnoredPaths"`
+	Instances          []BuildInstance           `json:"instances"`
+	Rejected           []BuildDetectionRejection `json:"rejected"`
+	Shadowed           []BuildShadowed           `json:"shadowed"`
 }
 
 // BuildSelection is one project, target, or model task selected from a decoded

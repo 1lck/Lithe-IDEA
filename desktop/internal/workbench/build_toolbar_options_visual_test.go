@@ -138,6 +138,7 @@ func TestVisualBuildOptionsRuntimeAndDroppedOptions(t *testing.T) {
 				return e.open && !e.loading && e.runtimesLoaded && len(e.dropped) == 1
 			})
 			h.settle()
+			h.scrollBuildOptionsToBottom()
 			if err := session.Screenshot(filepath.Join(out, "build-instance-runtime-"+name+".png")); err != nil {
 				t.Fatal(err)
 			}

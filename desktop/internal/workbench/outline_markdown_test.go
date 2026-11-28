@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -18,10 +19,11 @@ import (
 // or hold them until release, so a test decides when an answer arrives.
 type outlineKernel struct {
 	*testKernel
-	mu    sync.Mutex
-	calls int
-	err   error
-	held  chan struct{}
+	mu      sync.Mutex
+	calls   int
+	err     error
+	held    chan struct{}
+	started chan string
 }
 
 func newOutlineKernel() *outlineKernel {
@@ -31,9 +33,14 @@ func newOutlineKernel() *outlineKernel {
 func (k *outlineKernel) MarkdownOutline(ctx context.Context, source string) ([]core.DocumentSymbol, error) {
 	k.mu.Lock()
 	k.calls++
-	err, held := k.err, k.held
+	err, held, started := k.err, k.held, k.started
 	k.mu.Unlock()
 	if held != nil {
+		select {
+		case started <- source:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 		select {
 		case <-held:
 		case <-ctx.Done():
@@ -58,17 +65,18 @@ func (k *outlineKernel) fail(err error) {
 	k.err = err
 }
 
-// hold keeps the next answers back until the returned release runs; release may run twice.
-func (k *outlineKernel) hold() (release func()) {
+// hold reports each source as its request starts and keeps the answers back until release runs.
+func (k *outlineKernel) hold() (started <-chan string, release func()) {
 	held := make(chan struct{})
+	requests := make(chan string, 2)
 	k.mu.Lock()
-	k.held = held
+	k.held, k.started = held, requests
 	k.mu.Unlock()
 	var once sync.Once
-	return func() {
+	return requests, func() {
 		once.Do(func() {
 			k.mu.Lock()
-			k.held = nil
+			k.held, k.started = nil, nil
 			k.mu.Unlock()
 			close(held)
 		})
@@ -256,7 +264,7 @@ func TestMarkdownOutlineDropsTheAnswerForAnotherFile(t *testing.T) {
 	h := newHarness(t, kernel)
 	documents := openMarkdownFiles(t, h, [2]string{"a.md", "# Alpha\n"}, [2]string{"b.md", "# Beta\n"})
 	a, b := documents[0], documents[1]
-	release := kernel.hold()
+	started, release := kernel.hold()
 	// The harness waits for every task when the test ends: the held answers must come first.
 	t.Cleanup(release)
 	pump := func() {
@@ -273,12 +281,19 @@ func TestMarkdownOutlineDropsTheAnswerForAnotherFile(t *testing.T) {
 	if s.documentID != a.id || s.outlining == nil {
 		t.Fatalf("a.md is not being outlined: document = %d, outlining = %v", s.documentID, s.outlining)
 	}
+	if got := awaitValueWithin(t, h, 5*time.Second, started, "the first outline request"); got != "# Alpha\n" {
+		t.Fatalf("first outline source = %q", got)
+	}
 	h.app.selectDocument(h.app.project, b.id)
 	pump()
 	if s.documentID != b.id || s.outlining == nil {
 		t.Fatalf("b.md is not being outlined: document = %d, outlining = %v", s.documentID, s.outlining)
 	}
+	if got := awaitValueWithin(t, h, 5*time.Second, started, "the second outline request"); got != "# Beta\n" {
+		t.Fatalf("second outline source = %q", got)
+	}
 	release()
+	h.settle()
 	h.settleUntil("b.md's outline", func() bool { return s.loaded })
 	if got := outlineNames(s); s.documentID != b.id || !slices.Equal(got, []string{"Beta"}) {
 		t.Fatalf("document = %d, rows = %q, want b.md's Beta", s.documentID, got)

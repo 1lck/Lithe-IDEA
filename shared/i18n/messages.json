@@ -7084,6 +7084,17 @@
       ]
     },
     {
+      "id": "desktop.build.ignoredPathsPlugin",
+      "description": "Read-only list of paths a build system ignores by default",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "system": "string",
+        "patterns": "string"
+      }
+    },
+    {
       "id": "desktop.build.ignoredPathsTeam",
       "description": "Caption under the ignored paths field when the list shown comes from the team Build options file; file is that file's path relative to the project",
       "platforms": [

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -90,6 +91,7 @@ func buildDetectOptions(storage core.BuildStoredOptions) (core.BuildDetectOption
 // instance, empty when the dialog was opened from the window's header. session tells this opening of the
 // dialog from earlier ones, so an answer that arrives after it was closed or opened again is dropped.
 type buildOptionsEditor struct {
+	scrollID gfx.ID
 	open     bool
 	session  int
 	instance string
@@ -419,9 +421,14 @@ func (a *App) buildOptionsDialog(c ui.C, p *project) {
 	if e.instance != "" {
 		title = i18n.SharedFormat(language, "desktop.build.instanceOptions", map[string]string{"name": e.name})
 	}
-	closed := ui.Modal(c, &open, title, ui.ModalSpec{Width: 460}, func() {
-		ui.Column(c.Part("build-options")).FillWidth().Gap(10).Children(func() {
-			a.buildIgnoredPathsSection(c.Part("detection"), p, ready)
+	closed := ui.Modal(c, &open, title, ui.ModalSpec{Width: 460, Height: 480}, func() {
+		var source string
+		var sourceLines int
+		body := ui.Scroll(c.Part("build-options")).Scrollbars().FillWidth().Grow(1).MinHeight(0).Gap(10)
+		e.scrollID = body.ScrollState().ID
+		body.HitWith(e.scrollID, title, gfx.HitOptions{Role: gfx.RoleGroup}).
+			Focus(ui.Look{}.Ring(2, a.theme.Ring)).Children(func() {
+			source, sourceLines = a.buildIgnoredPathsSection(c.Part("detection"), p, ready, body.ScrollState().ViewportWidth)
 			if e.instance != "" {
 				k := c.Part("instance")
 				ui.Row(k).FillWidth().Items(ui.Center).Gap(6).MarginTop(6).Children(func() {
@@ -442,10 +449,16 @@ func (a *App) buildOptionsDialog(c ui.C, p *project) {
 			if e.loading {
 				ui.Text(c, i18n.Shared(language, "native.loading")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 			}
-			if e.failure != "" {
-				ui.Paragraph(c, e.failure, 4).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)
-			}
 		})
+		if sourceLines > 0 {
+			fontSize := a.theme.Metrics.FontSizeS
+			lineHeight := fontSize + 7
+			ui.Wrap(c, source).FillWidth().Height(float32(sourceLines) * lineHeight).LineHeight(lineHeight).
+				Shrink(0).MarginTop(6).FontSize(fontSize).Color(a.colors.Text)
+		}
+		if e.failure != "" {
+			ui.Paragraph(c, e.failure, 4).Shrink(0).MarginTop(10).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)
+		}
 	}, func() {
 		if ui.Button(c, i18n.Shared(language, "desktop.git.cancel")).Outline().Clicked() {
 			c.After(func() { p.build.options = buildOptionsEditor{} })
@@ -473,8 +486,9 @@ func (a *App) buildOptionsHeading(c ui.C, title string) {
 
 // buildIgnoredPathsSection declares the Detection section of the dialog: the ignored paths, one pattern a
 // line, with an ⓘ on how they are written, the layer the shown list comes from, and Restore Default while it
-// comes from this machine.
-func (a *App) buildIgnoredPathsSection(c ui.C, p *project, ready bool) {
+// comes from this machine. The source area reserves enough lines for any plugin so focusing a rule
+// at the edge of the viewport cannot push it out of the tab order.
+func (a *App) buildIgnoredPathsSection(c ui.C, p *project, ready bool, sourceWidth float32) (focusedSource string, sourceLines int) {
 	g, language := &p.build.options.ignored, a.language()
 	label := i18n.Shared(language, "desktop.build.ignoredPaths")
 	ui.Column(c).FillWidth().Gap(10).Children(func() {
@@ -507,5 +521,23 @@ func (a *App) buildIgnoredPathsSection(c ui.C, p *project, ready bool) {
 			source = i18n.Shared(language, "desktop.build.ignoredPathsDefault")
 		}
 		ui.Wrap(c, source).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+		separator := i18n.Shared(language, "desktop.buildSettings.listSeparator")
+		var lines []string
+		for _, group := range p.build.pluginIgnoredPaths {
+			row := c.Key(group.PluginID).Key(group.BuildSystemID)
+			caption := i18n.SharedFormat(language, "desktop.build.ignoredPathsPlugin", map[string]string{
+				"system": group.DisplayName, "patterns": strings.Join(group.Patterns, separator),
+			})
+			rule := ui.Wrap(row, caption).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).
+				HitWith(ui.ID(row), caption, gfx.HitOptions{Role: gfx.RoleGroup}).Tooltip(group.PluginID).
+				Focus(ui.Look{}.Ring(2, a.theme.Ring))
+			provider := i18n.SharedFormat(language, "desktop.buildSettings.providedBy", map[string]string{"plugin": group.PluginID})
+			lines = c.Canvas().WrapLines(lines[:0], provider, a.theme.Metrics.FontSizeS, gfx.WeightRegular, sourceWidth, math.MaxInt32)
+			sourceLines = max(sourceLines, 1, len(lines))
+			if rule.State().Focused {
+				focusedSource = provider
+			}
+		}
 	})
+	return focusedSource, sourceLines
 }

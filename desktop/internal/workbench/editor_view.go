@@ -540,6 +540,10 @@ func (a *App) onKey(event gfx.KeyEvent) gfx.EventResult {
 	if event.Release {
 		return gfx.EventResult{}
 	}
+	// Only the focused Build options viewport owns scrolling keys. Its fields keep their own navigation.
+	if p := a.project; p != nil && p.build.options.open && !event.Target.IsZero() && event.Target == p.build.options.scrollID && event.Modifiers == 0 {
+		return a.root.View.ScrollState(event.Target).Key(event, 0)
+	}
 	if r := a.splitterKey(event); r.Handled {
 		return r
 	}

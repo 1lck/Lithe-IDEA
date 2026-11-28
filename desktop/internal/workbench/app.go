@@ -718,9 +718,9 @@ type App struct {
 	recommendationFetcher  func(ctx context.Context, sources []PluginRecommendationSource) ([]core.MarketplaceRecommendationCatalog, error)
 	tasks                  taskQueue
 	// languages are the languages the editor knows, made when the first file is opened.
-	languages               *syntax.Registry
-	globalFileTypeMappings  atomic.Pointer[[]core.FileTypeMapping]
-	activeProjectMappings   atomic.Pointer[projectFileTypeMappings]
+	languages              *syntax.Registry
+	globalFileTypeMappings atomic.Pointer[[]core.FileTypeMapping]
+	activeProjectMappings  atomic.Pointer[projectFileTypeMappings]
 	// initialLanguageLoad lets early opens of unknown extensionless files wait for the
 	// enabled language snapshot while the project restores known paths immediately.
 	initialLanguageLoad atomic.Pointer[languageLoad]
