@@ -381,6 +381,8 @@ func (w *window) content(c ui.C) {
 			w.generalPage(c)
 		case w.sess.page == pageEditor:
 			w.editorPage(c)
+		case w.sess.page == pageFileTypeMappings:
+			w.fileTypeMappingsPage(c)
 		case w.sess.page == pageDirectoryMarks:
 			w.directoryMarksPage(c)
 		case w.sess.page == pageFonts:

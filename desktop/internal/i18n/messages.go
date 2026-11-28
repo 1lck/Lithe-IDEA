@@ -571,6 +571,7 @@ type SettingsMessages struct {
 	General            string
 	Network            string
 	Editor             string
+	FileTypeMappings   string
 	Fonts              string
 	Keymap             string
 	DirectoryMarks     string

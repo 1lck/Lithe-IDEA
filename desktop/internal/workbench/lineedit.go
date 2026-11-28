@@ -117,11 +117,11 @@ func (a *App) runLineOperation(p *project, d *document, op core.LineEditOperatio
 		// Use the resolved document language for an extensionless file. Path lookup
 		// also preserves the bundled fallback and handles plugin virtual documents.
 		registry := a.syntaxRegistry()
-		token := registry.CommentsForPath(d.name).Line
-		if token == "" && d.languageID != "" {
-			if language, ok := registry.Language(d.languageID); ok {
-				token = language.Comments.Line
-			}
+		var token string
+		if d.languageID != "" {
+			token = registry.CommentsForLanguage(d.languageID, d.name).Line
+		} else {
+			token = registry.CommentsForPath(d.name).Line
 		}
 		if token == "" {
 			a.notifyInfo(i18n.Shared(a.language(), "desktop.editor.noLineComment"))
