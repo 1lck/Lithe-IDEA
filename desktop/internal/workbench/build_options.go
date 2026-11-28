@@ -90,6 +90,7 @@ func buildDetectOptions(storage core.BuildStoredOptions) (core.BuildDetectOption
 // instance, empty when the dialog was opened from the window's header. session tells this opening of the
 // dialog from earlier ones, so an answer that arrives after it was closed or opened again is dropped.
 type buildOptionsEditor struct {
+	scrollID gfx.ID
 	open     bool
 	session  int
 	instance string
@@ -420,7 +421,10 @@ func (a *App) buildOptionsDialog(c ui.C, p *project) {
 		title = i18n.SharedFormat(language, "desktop.build.instanceOptions", map[string]string{"name": e.name})
 	}
 	closed := ui.Modal(c, &open, title, ui.ModalSpec{Width: 460, Height: 480}, func() {
-		ui.Scroll(c.Part("build-options")).Scrollbars().FillWidth().Grow(1).MinHeight(0).Gap(10).Children(func() {
+		body := ui.Scroll(c.Part("build-options")).Scrollbars().FillWidth().Grow(1).MinHeight(0).Gap(10)
+		e.scrollID = body.ScrollState().ID
+		body.HitWith(e.scrollID, title, gfx.HitOptions{Role: gfx.RoleGroup}).
+			Focus(ui.Look{}.Ring(2, a.theme.Ring)).Children(func() {
 			a.buildIgnoredPathsSection(c.Part("detection"), p, ready)
 			if e.instance != "" {
 				k := c.Part("instance")

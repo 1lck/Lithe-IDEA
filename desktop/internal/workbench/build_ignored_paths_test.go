@@ -273,6 +273,27 @@ func TestBuildOptionsScrollToLastPluginRule(t *testing.T) {
 	if p.build.options.open {
 		t.Fatal("Cancel did not close the scrolled dialog")
 	}
+
+	// Open an instance form and use only the keyboard to reach and edit its option below the rules.
+	h.app.openBuildOptions(p, p.selectedBuildInstance())
+	h.settleUntil("the instance options", func() bool { return !p.build.options.loading && p.build.options.ignored.loaded })
+	tabTo := func(id gfx.ID) {
+		t.Helper()
+		for range len(h.driver.Snapshot().Hits) + 1 {
+			if !id.IsZero() && h.driver.Snapshot().Focused == id {
+				return
+			}
+			h.key(gfx.KeyTab)
+		}
+		t.Fatalf("Tab did not reach %v", id)
+	}
+	tabTo(p.build.options.scrollID)
+	h.key(gfx.KeyEnd)
+	tabTo(h.pageHit("Release Profile").ID)
+	h.key(gfx.KeySpace)
+	if !p.build.options.fields[0].flag {
+		t.Fatal("Space did not select the offscreen option after scrolling to it")
+	}
 }
 
 // A build system's options open with the ignored paths above them, here the team file's list. A pattern
