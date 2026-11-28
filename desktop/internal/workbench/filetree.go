@@ -158,7 +158,8 @@ func (t *fileTree) forgetNode(n *treeNode) {
 
 // replaceChildren keeps the identities and loaded descendants of entries that still exist.
 // The rows are laid out again after it, which moves a selection whose node went away.
-func (t *fileTree) replaceChildren(parent *treeNode, entries []core.WorkspaceNode) {
+func (p *project) replaceChildren(parent *treeNode, entries []core.WorkspaceNode) {
+	t := &p.tree
 	old := make(map[string]*treeNode, len(parent.children))
 	for _, child := range parent.children {
 		old[child.path] = child
@@ -181,7 +182,7 @@ func (t *fileTree) replaceChildren(parent *treeNode, entries []core.WorkspaceNod
 					t.forgetNode(descendant)
 				}
 				child.children = nil
-			} else if child.empty && !child.expanded && !t.recursiveWatch && t.watches[child.path] == nil {
+			} else if child.empty && !child.expanded && !t.recursiveWatch && t.watches[child.path] == nil && !p.remoteWatching() {
 				// A collapsed directory without a watch may have changed since its last read.
 				child.empty, child.listed = false, false
 			}
@@ -304,7 +305,7 @@ func (a *App) pumpTreeListings(p *project) {
 				}
 				if listing, ok := byPath[path]; ok {
 					n.linked = listing.Linked
-					t.replaceChildren(n, listing.Children)
+					p.replaceChildren(n, listing.Children)
 					if n != t.root && !n.listed && len(n.children) == 0 {
 						n.expanded = false
 						// A deferred probe found no rows to open. Another folder can use its slot.
