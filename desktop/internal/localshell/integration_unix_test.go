@@ -434,8 +434,7 @@ func assertJobSurvived(t *testing.T, pid int) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
-	state, err := exec.CommandContext(ctx, "ps", "-o", "stat=", "-p", strconv.Itoa(pid)).Output()
-	status := strings.TrimSpace(string(state))
+	status, err := jobState(ctx, pid)
 	if err != nil || status == "" || strings.HasPrefix(status, "Z") {
 		t.Fatalf("the job %d did not survive the closed terminal: state=%q, err=%v", pid, state, err)
 	}
@@ -507,17 +506,44 @@ func closeAndAwaitEnd(t *testing.T, shell *Shell) {
 	}
 }
 
-// awaitProcessEnd waits for the process pid, which is not this test's child, to end.
+// jobState reports the Unix process state, including Z after exit and before reaping.
+func jobState(ctx context.Context, pid int) (string, error) {
+	output, err := exec.CommandContext(ctx, "ps", "-o", "stat=", "-p", strconv.Itoa(pid)).Output()
+	return strings.TrimSpace(string(output)), err
+}
+
+// The job belongs to the shell. Its next parent may reap it after the test finishes.
 func awaitProcessEnd(t *testing.T, pid int) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for !errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) {
-		if time.Now().After(deadline) {
-			t.Fatalf("the shell's job %d outlived the closed terminal by 5s", pid)
+	// jobOf also calls this during cleanup, when t.Context() is already cancelled.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	poll := time.NewTicker(50 * time.Millisecond)
+	defer poll.Stop()
+	for {
+		state, err := jobState(ctx, pid)
+		if (err == nil && strings.HasPrefix(state, "Z")) || errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) {
+			return
 		}
-		// test-stability: allow(go-real-sleep) reason: the end of a process that is not this test's child has no event to wait on.
-		time.Sleep(10 * time.Millisecond)
+		if err != nil {
+			t.Fatalf("checking the shell's job %d: %v", pid, err)
+		}
+		select {
+		case <-poll.C:
+		case <-ctx.Done():
+			t.Fatalf("the shell's job %d outlived the closed terminal by 5s: state=%q", pid, state)
+		}
 	}
+}
+
+func TestAwaitProcessEndBeforeParentReaps(t *testing.T) {
+	cmd := exec.CommandContext(t.Context(), "/bin/sh", "-c", "exit 0")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	// Only this test can reap the child. Wait after observing its exit.
+	t.Cleanup(func() { _ = cmd.Wait() })
+	awaitProcessEnd(t, cmd.Process.Pid)
 }
 
 // A shell closed while its startup files still run never reaches the point
