@@ -2,6 +2,10 @@
 
 状态：已实现
 
+归档日期：2026-11-28
+
+> 已被 [工程看板加入跨仓库 PR 与 Issue，发版时发布快照](../../implemented/process/2026-11-28-engineering-board-prs-issues-and-release-snapshots.md) 取代：看板改为同时展示 PR 与 Issue，Pages 改为桌面端发版后发布，`--init` 和 `--bundle` 两种构建模式已删除。
+
 ## 先说结论
 
 看板只是 `.agents/notes/` 的只读网页，不保存第二份决策内容。每次 Note 变化时，PR 阶段先做格式和链接校验；合并到 `main` 后再生成并发布 Pages，这样错误会在合并前暴露，网页内容也始终来自当前 Note。

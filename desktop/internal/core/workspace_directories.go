@@ -36,6 +36,30 @@ type CustomDirectoryIcon struct {
 	Path string `json:"path"`
 }
 
+// PluginDirectoryType is a directory type dynamically contributed by a plugin session.
+type PluginDirectoryType struct {
+	PluginID        string `json:"pluginId"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Tag             string `json:"tag,omitempty"`
+	Icon            string `json:"icon"`
+	Color           string `json:"color"`
+	TintBg          bool   `json:"tintBg"`
+	TintText        bool   `json:"tintText"`
+	InheritBg       bool   `json:"inheritBg"`
+	ExcludeIndexing bool   `json:"excludeIndexing"`
+	ReadOnlyHint    bool   `json:"readOnlyHint"`
+	MatchGlob       string `json:"matchGlob,omitempty"`
+}
+
+// PluginDirectoryMark is a directory mark dynamically contributed by a plugin session.
+type PluginDirectoryMark struct {
+	PluginID string `json:"pluginId"`
+	Path     string `json:"path"`
+	Role     string `json:"role"`
+	Color    string `json:"color,omitempty"`
+}
+
 // DirectoryRulesState is a read-only view of persisted directory rules used by UI selectors
 // and settings forms. Mutations always go through Core's workspace.reduceDirectoryAction.
 type DirectoryRulesState struct {
@@ -62,6 +86,7 @@ func ParseDirectoryRules(rules json.RawMessage) DirectoryRulesState {
 type ResolvedDirectoryEntry struct {
 	Role             string `json:"role"`
 	Source           string `json:"source"`
+	PluginID         string `json:"pluginId,omitempty"`
 	Icon             string `json:"icon"`
 	Color            string `json:"color,omitempty"`
 	BgColor          string `json:"bgColor,omitempty"`
@@ -182,20 +207,30 @@ func (c *Client) RelocateDirectoryRules(ctx context.Context, source, destination
 }
 
 // ResolveDirectoryPresentation computes deterministic per-path presentation and effective
-// manual exclusions across user rules, optional shared project rules, glob matches and Git ignores.
-func (c *Client) ResolveDirectoryPresentation(ctx context.Context, rules, sharedRules json.RawMessage, gitExcluded []string, caseInsensitive bool, paths []string) (DirectoryPresentationResult, error) {
+// manual exclusions across user rules, optional shared project rules, plugin contributions,
+// glob matches and Git ignores.
+func (c *Client) ResolveDirectoryPresentation(ctx context.Context, rules, sharedRules json.RawMessage, pluginTypes []PluginDirectoryType, pluginMarks []PluginDirectoryMark, gitExcluded []string, caseInsensitive bool, paths []string) (DirectoryPresentationResult, error) {
 	if len(rules) == 0 {
 		rules = emptyDirectoryRules
 	}
+	// Core rejects a null paths; with no rows or glob candidates to ask about, explicit
+	// exclusions still come back in manualExcludedDirectories.
+	if paths == nil {
+		paths = []string{}
+	}
 	payload := struct {
-		Rules           json.RawMessage `json:"rules"`
-		SharedRules     json.RawMessage `json:"sharedRules,omitempty"`
-		GitExcluded     []string        `json:"gitExcluded,omitempty"`
-		CaseInsensitive bool            `json:"caseInsensitive,omitempty"`
-		Paths           []string        `json:"paths"`
+		Rules           json.RawMessage       `json:"rules"`
+		SharedRules     json.RawMessage       `json:"sharedRules,omitempty"`
+		PluginTypes     []PluginDirectoryType `json:"pluginTypes,omitempty"`
+		PluginMarks     []PluginDirectoryMark `json:"pluginMarks,omitempty"`
+		GitExcluded     []string              `json:"gitExcluded,omitempty"`
+		CaseInsensitive bool                  `json:"caseInsensitive,omitempty"`
+		Paths           []string              `json:"paths"`
 	}{
 		Rules:           rules,
 		SharedRules:     sharedRules,
+		PluginTypes:     pluginTypes,
+		PluginMarks:     pluginMarks,
 		GitExcluded:     gitExcluded,
 		CaseInsensitive: caseInsensitive,
 		Paths:           paths,

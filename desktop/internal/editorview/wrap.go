@@ -188,6 +188,16 @@ func (v *View) setWrapCols(cols int, wasLineH float32) {
 		// part is in the old row height, and the same share of a row in the new one.
 		part = (v.scroll - float32(row)*lineH) * (v.lineH / lineH)
 	}
+	v.setWrapColsNoScroll(cols)
+	v.scroll = float32(v.lineRow(top))*v.lineH + part
+}
+
+// setWrapColsNoScroll updates wrapCols, wraps, rowStart, and inlay rows without
+// modifying v.scroll; callers with active doc blocks anchor v.scroll separately.
+func (v *View) setWrapColsNoScroll(cols int) {
+	if cols == v.wrapCols {
+		return
+	}
 	v.wrapCols = cols
 	clear(v.rowCache)
 	if !v.mapped() {
@@ -199,7 +209,7 @@ func (v *View) setWrapCols(cols int, wasLineH float32) {
 		v.rowsDirty = true
 	}
 	v.reflowInlayRows()
-	v.scroll = float32(v.lineRow(top))*v.lineH + part
+	v.markDocBlocksActiveDirty()
 }
 
 // countRows works out how many rows line takes at the view's columns, reading the line only
@@ -279,6 +289,7 @@ func (v *View) spliceRows(first, oldLast, newLast, oldCount int) {
 	}
 	if !v.mapped() || len(v.wraps) != oldCount {
 		v.wraps = v.wraps[:0]
+		v.shiftDocBlocks(first, oldLast, newLast)
 		return
 	}
 	fresh := make([]lineWrap, newLast-first+1)
@@ -301,6 +312,7 @@ func (v *View) spliceRows(first, oldLast, newLast, oldCount int) {
 		}
 	}
 	v.rowsDirty = true
+	v.shiftDocBlocks(first, oldLast, newLast)
 }
 
 // cacheRows keeps rows as the rows of line, under the same bound on the cache as rowsOf.
@@ -314,17 +326,26 @@ func (v *View) cacheRows(line int, rows []wrapRow) {
 // forgetRows drops the layout, for a text that changed as a whole.
 func (v *View) forgetRows() {
 	v.dropFolds()
+	v.ClearDocBlocks()
 	clear(v.rowCache)
 	v.wraps = v.wraps[:0]
 }
 
-// rowCount is how many rows the text takes.
-func (v *View) rowCount() int {
+// baseRowCount is how many base rows the text takes before doc block projection.
+func (v *View) baseRowCount() int {
 	if !v.mapped() {
 		return v.text.LineCount()
 	}
 	v.ensureRows()
 	return v.rowStartForLine(len(v.wraps))
+}
+
+// rowCount is how many rows the text takes.
+func (v *View) rowCount() int {
+	if len(v.docs.active) > 0 || v.docs.activeDirty {
+		return v.docOverlayRowCount()
+	}
+	return v.baseRowCount()
 }
 
 func (v *View) rowStartForLine(line int) int {
@@ -334,8 +355,29 @@ func (v *View) rowStartForLine(line int) int {
 	return int(v.rowStart[line]) + v.inlayRowsBefore(line)
 }
 
+// baseLineRow is the first base row of line before doc block projection.
+func (v *View) baseLineRow(line int) int {
+	if !v.mapped() {
+		return min(max(line, 0), v.text.LineCount()-1)
+	}
+	v.ensureRows()
+	return v.rowStartForLine(min(max(line, 0), len(v.wraps)-1))
+}
+
+// baseLineRowEnd is the exclusive base row after line before doc block projection.
+func (v *View) baseLineRowEnd(line int) int {
+	if !v.mapped() {
+		return min(max(line, 0), v.text.LineCount()-1) + 1
+	}
+	v.ensureRows()
+	return v.rowStartForLine(min(max(line, 0), len(v.wraps)-1) + 1)
+}
+
 // lineRow is the first row of line.
 func (v *View) lineRow(line int) int {
+	if len(v.docs.active) > 0 || v.docs.activeDirty {
+		return v.docOverlayLineRow(line)
+	}
 	if !v.mapped() {
 		return line
 	}
@@ -343,9 +385,8 @@ func (v *View) lineRow(line int) int {
 	return v.rowStartForLine(min(max(line, 0), len(v.wraps)-1))
 }
 
-// rowLine is the line row is on and which of the line's rows it is. A row past the last is the
-// last line's.
-func (v *View) rowLine(row int) (int, int) {
+// baseRowLine is the line a base row is on and which of the line's rows it is.
+func (v *View) baseRowLine(row int) (int, int) {
 	if !v.mapped() {
 		line := min(max(row, 0), v.text.LineCount()-1)
 		return line, 0
@@ -359,6 +400,19 @@ func (v *View) rowLine(row int) (int, int) {
 	line := min(sort.Search(lines, func(i int) bool { return v.rowStartForLine(i+1) > row }), lines-1)
 	start := v.rowStartForLine(line)
 	return line, min(max(row-start, 0), v.rowStartForLine(line+1)-start-1)
+}
+
+// rowLine is the line row is on and which of the line's rows it is. A row past the last is the
+// last line's.
+func (v *View) rowLine(row int) (int, int) {
+	if len(v.docs.active) > 0 || v.docs.activeDirty {
+		dr := v.displayRowAt(row)
+		if dr.kind == displayDocBlock {
+			return dr.line, 0
+		}
+		return dr.line, dr.sub
+	}
+	return v.baseRowLine(row)
 }
 
 // caretPlace is the caret's line, the line's rows, and which row the caret is on.

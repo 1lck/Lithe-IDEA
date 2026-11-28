@@ -1,0 +1,47 @@
+{
+  "id": "editor-doc-comment-rendering",
+  "area": "编辑器",
+  "group": "文本编辑",
+  "capability": "原生渲染编辑器文档注释与悬停文档中的 HTML、Javadoc 和 Markdown 标签（不走 WebView），支持行号旁图标/双击/菜单切换与只读文件自动渲染",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/doc_render.go",
+      "desktop/internal/core/doc_render_test.go",
+      "desktop/internal/editor/syntax/doc_comments.go",
+      "desktop/internal/editor/syntax/doc_comments_test.go",
+      "desktop/internal/editorview/docblocks.go",
+      "desktop/internal/editorview/docblocks_test.go",
+      "desktop/internal/workbench/doc_markdown.go",
+      "desktop/internal/workbench/doc_comments.go",
+      "desktop/internal/workbench/doc_comments_test.go",
+      "desktop/internal/workbench/doc_comments_visual_test.go",
+      "desktop/internal/workbench/pluginsemantics_hover.go",
+      "desktop/internal/settingswindow/editor_preferences_view.go",
+      "shared/i18n/features/doc-comment-rendering.json"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/core/doc_render.go",
+      "desktop/internal/core/doc_render_test.go",
+      "desktop/internal/editor/syntax/doc_comments.go",
+      "desktop/internal/editor/syntax/doc_comments_test.go",
+      "desktop/internal/editorview/docblocks.go",
+      "desktop/internal/editorview/docblocks_test.go",
+      "desktop/internal/workbench/doc_markdown.go",
+      "desktop/internal/workbench/doc_comments.go",
+      "desktop/internal/workbench/doc_comments_test.go",
+      "desktop/internal/workbench/doc_comments_visual_test.go",
+      "desktop/internal/workbench/pluginsemantics_hover.go",
+      "desktop/internal/settingswindow/editor_preferences_view.go",
+      "shared/i18n/features/doc-comment-rendering.json"
+    ]
+  },
+  "owner": "Editor",
+  "notes": "共享 HTML/Javadoc/Markdown 解析全部放在 Rust Core（editor.renderDocComment 与 editor.renderHoverDoc，通过借用文档 C ABI 传输且带节点/深度/文本/取消上限）；桌面端基于已完成的 TextMate 词法扫描识别独立整行文档注释并在 Viva MarkdownView 上原生排版，无 WebView，宿主对具体语言插件零依赖。普通可写文件默认源码视图，只读/外部源码文件默认自动开启阅读渲染，可在编辑器设置中独立开关。",
+  "verification": "Rust Core 单测与 fixture（doc-render-v1.json）覆盖 Javadoc/HTML/Markdown/Hover 回退与限额；Viva 单测与基准验证 Labeled 对齐、四级空间索引与稳态零分配绘制；桌面端 Go 单测、-race 与 Headless 视觉截图（doc_comments_visual_test.go）覆盖深浅色与中英文 ArrayList.java 渲染及 Hover HTML 弹窗；编辑器性能基线验证 Paint/Scroll 零回归。双端原生人工验收与 Windows 实机运行待补。"
+}

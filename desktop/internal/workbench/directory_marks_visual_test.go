@@ -91,3 +91,65 @@ func TestVisualDirectoryMarkContextMenu(t *testing.T) {
 		})
 	}
 }
+
+// TestVisualDirectoryMarkContextMenuWithPluginTypes captures the same submenu while a plugin
+// session has registered a directory type, which adds the plugin group users can pick from.
+func TestVisualDirectoryMarkContextMenuWithPluginTypes(t *testing.T) {
+	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
+	if out == "" {
+		t.Skip("set LITHE_VISUAL_OUTPUT_DIR")
+	}
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, look := range []struct{ theme, language string }{
+		{"dark", "zh-Hans"},
+		{"light", "zh-Hans"},
+		{"dark", "en"},
+		{"light", "en"},
+	} {
+		t.Run(look.language+"-"+look.theme, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "lithe-shop")
+			writeTreeFiles(t, root, "src/main.go", "tests/main_test.go", "gen/out.go")
+			prefs := store.At(t.TempDir())
+			if err := prefs.Save(settingsFile, settings{
+				Theme:           themeChoice(look.theme),
+				Language:        look.language,
+				DisableAutoSave: true,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			var session *headless.Session
+			h := newHarnessWithDriver(t, Options{
+				Kernel:    &testKernel{Client: core.NewClient()},
+				Store:     prefs,
+				Languages: []string{look.language},
+			}, func(config app.Config) (*app.Driver, func(), error) {
+				config.Width, config.Height = 960, 700
+				var err error
+				session, err = headless.Open(config, nil, headless.Options{})
+				if err != nil {
+					return nil, nil, err
+				}
+				return session.Driver(), session.Close, nil
+			})
+			p := h.openTree(t, root)
+			p.indexing.pluginTypesByKey = map[string][]core.PluginDirectoryType{
+				"session:context:directoryTypes": {{
+					PluginID:        "dev.lithe.test.generated",
+					ID:              "plugin.generated-cache",
+					Name:            "Generated Cache",
+					Icon:            "generated",
+					Color:           "#64748b",
+					ExcludeIndexing: true,
+				}},
+			}
+			h.rightClickNamed("gen")
+			h.popupClick(h.shared("desktop.directoryMarks.menuTitle"))
+			h.settle()
+			if err := session.Screenshot(filepath.Join(out, "directory-mark-menu-plugin-"+look.language+"-"+look.theme+".png")); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}

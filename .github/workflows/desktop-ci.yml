@@ -20,7 +20,7 @@ concurrency:
 
 env:
   # Use the release Core in CI too: Lithe-IDEA tests Go code against a pinned Core revision,
-  # so sharing the ~36 MiB staged release Core across CI, AutoBuild and Release eliminates the
+  # so sharing the ~13 MiB staged release Core across CI, AutoBuild and Release eliminates the
   # 700+ MiB debug staticlib, speeds up cgo linking, and pre-warms release caches for free.
   LITHE_DESKTOP_CORE_PROFILE: release
   CARGO_INCREMENTAL: 0
@@ -145,7 +145,9 @@ jobs:
 
   linux-test:
     name: Vet and test on Linux
-    runs-on: ubuntu-latest
+    # The image Desktop Release and AutoBuild package Linux amd64 on (glibc 2.35). The Core and the
+    # Go build cache this job saves on main are then the ones those workflows restore.
+    runs-on: ubuntu-22.04
     timeout-minutes: 45
 
     steps:
@@ -164,39 +166,58 @@ jobs:
 
       - name: Resolve pinned Core revision
         id: core-pin
-        run: |
-          rev="$(sed -n 's/^PINNED_CORE_REVISION="\([0-9a-f]\{40\}\)"$/\1/p' scripts/desktop/build-desktop-core.sh)"
-          if [[ -z "$rev" ]]; then
-            printf '%s\n' 'Could not read PINNED_CORE_REVISION from scripts/desktop/build-desktop-core.sh.' >&2
-            exit 1
-          fi
-          printf 'revision=%s\n' "$rev" >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/resolve-desktop-core-pin
 
       - name: Restore staged release Core
         id: core-stage
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: .artifacts/desktop/lithe-core/x86_64-unknown-linux-gnu/release
-          key: desktop-core-staged-x86_64-unknown-linux-gnu-${{ steps.rust.outputs.cachekey }}-release-${{ steps.core-pin.outputs.revision }}
+          key: desktop-core-staged-x86_64-unknown-linux-gnu-${{ steps.core-pin.outputs.libc }}${{ steps.rust.outputs.cachekey }}-release-${{ steps.core-pin.outputs.revision }}
 
       - name: Restore the core build
+        id: core-build
         if: steps.core-stage.outputs.cache-hit != 'true'
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             .artifacts/desktop/lithe-core-rust
-          key: desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-release-x86_64-unknown-linux-gnu-${{ steps.core-pin.outputs.revision }}
+          key: desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.core-pin.outputs.libc }}${{ steps.rust.outputs.cachekey }}-release-x86_64-unknown-linux-gnu-${{ steps.core-pin.outputs.revision }}
           restore-keys: |
-            desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-release-x86_64-unknown-linux-gnu-
+            desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.core-pin.outputs.libc }}${{ steps.rust.outputs.cachekey }}-release-x86_64-unknown-linux-gnu-
 
       - name: Ensure Core fixtures checkout
         run: ./scripts/desktop/build-desktop-core.sh --checkout-only > /dev/null
 
       - name: Stage release Core
         run: ./scripts/desktop/desktop-go.sh --print-core-stage > /dev/null
+
+      # Save the staged Core as soon as it is built: a plain actions/cache saves only when the whole
+      # job succeeds, and a failing test must not throw away the Core that Desktop Release and
+      # AutoBuild restore for the pinned revision.
+      - name: Save staged release Core
+        if: steps.core-stage.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: .artifacts/desktop/lithe-core/x86_64-unknown-linux-gnu/release
+          key: ${{ steps.core-stage.outputs.cache-primary-key }}
+
+      # The Cargo build lets the next Core revision rebuild only what changed. Only main keeps it: a
+      # pull request's later runs already restore the staged Core saved above, and a ~300 MB build
+      # directory per pull request would evict the caches main and releases read.
+      - name: Save the core build
+        if: github.event_name != 'pull_request' && steps.core-build.outcome == 'success' && steps.core-build.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            .artifacts/desktop/lithe-core-rust
+          key: ${{ steps.core-build.outputs.cache-primary-key }}
 
       - name: Verify Core cgo cache invalidation
         run: |
@@ -319,7 +340,7 @@ jobs:
           LITHE_VISUAL_OUTPUT_DIR: ${{ github.workspace }}/.artifacts/project-tree-visual
         run: |
           ./scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/workbench \
-            -run '^TestVisualProjectTreeMissingFile$' -count=1 -timeout=120s
+            -run '^TestVisualProjectTree(MissingFile|CoreRenameRefusal)$' -count=1 -timeout=120s
 
       - name: Upload project tree screenshots
         if: ${{ !cancelled() && steps.project-tree-visual.outcome == 'success' }}
@@ -408,24 +429,19 @@ jobs:
 
       - name: Resolve pinned Core revision
         id: core-pin
-        run: |
-          rev="$(sed -n 's/^PINNED_CORE_REVISION="\([0-9a-f]\{40\}\)"$/\1/p' scripts/desktop/build-desktop-core.sh)"
-          if [[ -z "$rev" ]]; then
-            printf '%s\n' 'Could not read PINNED_CORE_REVISION from scripts/desktop/build-desktop-core.sh.' >&2
-            exit 1
-          fi
-          printf 'revision=%s\n' "$rev" >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/resolve-desktop-core-pin
 
       - name: Restore staged release Core
         id: core-stage
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: .artifacts/desktop/lithe-core/aarch64-apple-darwin/release
           key: desktop-core-staged-aarch64-apple-darwin-${{ steps.rust.outputs.cachekey }}-release-${{ steps.core-pin.outputs.revision }}
 
       - name: Restore the core build
+        id: core-build
         if: steps.core-stage.outputs.cache-hit != 'true'
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/.cargo/registry/index
@@ -441,6 +457,30 @@ jobs:
 
       - name: Stage release Core
         run: ./scripts/desktop/desktop-go.sh --print-core-stage > /dev/null
+
+      # Save the staged Core as soon as it is built: a plain actions/cache saves only when the whole
+      # job succeeds, and a failing test must not throw away the Core that Desktop Release and
+      # AutoBuild restore for the pinned revision.
+      - name: Save staged release Core
+        if: steps.core-stage.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: .artifacts/desktop/lithe-core/aarch64-apple-darwin/release
+          key: ${{ steps.core-stage.outputs.cache-primary-key }}
+
+      # The Cargo build lets the next Core revision rebuild only what changed. Only main keeps it: a
+      # pull request's later runs already restore the staged Core saved above, and a ~300 MB build
+      # directory per pull request would evict the caches main and releases read.
+      - name: Save the core build
+        if: github.event_name != 'pull_request' && steps.core-build.outcome == 'success' && steps.core-build.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            .artifacts/desktop/lithe-core-rust
+          key: ${{ steps.core-build.outputs.cache-primary-key }}
 
       - name: Verify Core cgo cache invalidation
         run: |
@@ -522,24 +562,23 @@ jobs:
 
       - name: Resolve pinned Core revision
         id: core-pin
-        run: |
-          rev="$(sed -n 's/^PINNED_CORE_REVISION="\([0-9a-f]\{40\}\)"$/\1/p' scripts/desktop/build-desktop-core.sh)"
-          if [[ -z "$rev" ]]; then
-            printf '%s\n' 'Could not read PINNED_CORE_REVISION from scripts/desktop/build-desktop-core.sh.' >&2
-            exit 1
-          fi
-          printf 'revision=%s\n' "$rev" >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/resolve-desktop-core-pin
 
+      # enableCrossOsArchive shares this cache with Desktop Release and AutoBuild, which cross-build
+      # the same staged Core on Linux. Either build is a Windows static library plus lithe-mcp.exe
+      # with the same identity.txt, and the Windows packaging job links it with this runner's MinGW.
       - name: Restore staged release Core
         id: core-stage
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: .artifacts/desktop/lithe-core/x86_64-pc-windows-gnu/release
           key: desktop-core-staged-x86_64-pc-windows-gnu-${{ steps.rust.outputs.cachekey }}-release-${{ steps.core-pin.outputs.revision }}
+          enableCrossOsArchive: true
 
       - name: Restore the core build
+        id: core-build
         if: steps.core-stage.outputs.cache-hit != 'true'
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/.cargo/registry/index
@@ -555,6 +594,31 @@ jobs:
 
       - name: Stage release Core
         run: ./scripts/desktop/desktop-go.sh --print-core-stage > /dev/null
+
+      # Save the staged Core as soon as it is built: a plain actions/cache saves only when the whole
+      # job succeeds, and a failing test must not throw away the Core that Desktop Release and
+      # AutoBuild restore for the pinned revision.
+      - name: Save staged release Core
+        if: steps.core-stage.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: .artifacts/desktop/lithe-core/x86_64-pc-windows-gnu/release
+          key: ${{ steps.core-stage.outputs.cache-primary-key }}
+          enableCrossOsArchive: true
+
+      # The Cargo build lets the next Core revision rebuild only what changed. Only main keeps it: a
+      # pull request's later runs already restore the staged Core saved above, and a ~300 MB build
+      # directory per pull request would evict the caches main and releases read.
+      - name: Save the core build
+        if: github.event_name != 'pull_request' && steps.core-build.outcome == 'success' && steps.core-build.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            .artifacts/desktop/lithe-core-rust
+          key: ${{ steps.core-build.outputs.cache-primary-key }}
 
       - name: Verify Core cgo cache invalidation
         run: |

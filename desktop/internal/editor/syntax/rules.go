@@ -40,6 +40,7 @@ var DefaultRules = []Rule{
 	{Scope: "support.function", Token: "function", Enclosing: true},
 	{Scope: "comment.block.documentation", Token: "comment.documentation", Enclosing: true},
 	{Scope: "comment.block.javadoc", Token: "comment.documentation", Enclosing: true},
+	{Scope: "comment.line.documentation", Token: "comment.documentation.line", Enclosing: true},
 	{Scope: "comment.block", Token: "comment.block", Enclosing: true},
 	{Scope: "comment", Token: "comment.line"},
 	{Scope: "punctuation.definition.comment", Token: "comment.line"},

@@ -181,6 +181,7 @@ func (a *App) loadDocumentDisk(p *project, d *document) {
 				}
 				d.recreateMissing = false
 				d.savedRevision = d.view.Revision()
+				a.resetDocumentDocComments(d)
 				a.clearDocumentConflict(d)
 			}
 		}

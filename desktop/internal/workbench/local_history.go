@@ -116,9 +116,11 @@ func (a *App) localHistoryJob(p *project, work func(ctx context.Context, kernel 
 	if !ok {
 		return
 	}
+	p.tree.beginWrite()
 	a.background(p, 10*time.Second, func(ctx context.Context) func(*App) {
 		err := work(ctx, kernel, root, storage, policy)
 		return func(a *App) {
+			defer p.tree.endWrite()
 			if err != nil {
 				a.backgroundFailed("local_history_record", err)
 			}

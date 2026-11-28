@@ -295,6 +295,8 @@ type View struct {
 	gutter gutterState
 	// fold is the code folding (fold.go).
 	fold foldState
+	// docs is native rendered doc comment blocks (docblocks.go).
+	docs docBlocksState
 	// iconX is where the per-line icon column starts and numbersRight where the line numbers'
 	// column ends, set when the view paints.
 	iconX        float32
@@ -342,6 +344,7 @@ func (v *View) Bind(hit gfx.ID, parts gfx.Scope) {
 	c.HitID = hit
 	c.MinimapID, c.MinimapToggleID = parts.At(0), parts.At(1)
 	c.VerticalBarID, c.HorizontalBarID = parts.At(2), parts.At(3)
+	v.docs.linkScope = parts
 }
 
 // Owns reports whether id is one of the view's hits: the text, the minimap, its button or a
@@ -351,7 +354,7 @@ func (v *View) Owns(id gfx.ID) bool {
 		return false
 	}
 	c := &v.cfg
-	return id == c.HitID || id == c.MinimapID || id == c.MinimapToggleID || id == c.VerticalBarID || id == c.HorizontalBarID
+	return id == c.HitID || id == c.MinimapID || id == c.MinimapToggleID || id == c.VerticalBarID || id == c.HorizontalBarID || v.docBlockOwnsHit(id)
 }
 
 // SetMessages hands the view the words for its parts, each frame, so a change of language
@@ -583,6 +586,7 @@ func (v *View) GoToLine(line int) bool {
 		return false
 	}
 	line = min(max(line, 1), v.text.LineCount())
+	v.expandDocBlockAtLine(line - 1)
 	v.anchor = v.text.LineStart(line - 1)
 	v.caret = v.anchor
 	v.clickedBracket = bracketClick{}
@@ -598,6 +602,7 @@ func (v *View) GoToNavigation(line, column int, wholeLine bool) bool {
 		return false
 	}
 	line = min(max(line, 0), v.text.LineCount()-1)
+	v.expandDocBlockAtLine(line)
 	start, end := v.text.LineStart(line), v.text.LineEnd(line)
 	v.anchor, v.caret = start, start
 	if wholeLine {
@@ -1088,6 +1093,9 @@ func (v *View) moveTo(offset int, extend bool) {
 	if !extend {
 		v.anchor = v.caret
 	}
+	if len(v.docs.active) > 0 || v.docs.activeDirty {
+		v.expandDocBlockAtLine(v.text.LineOf(v.caret))
+	}
 	v.lastKind = editOther
 	v.moved()
 }
@@ -1272,6 +1280,9 @@ func (v *View) verticalTarget(row int) int {
 		l, rows, k := v.caretPlace()
 		v.goal = v.cellsAt(l, v.caret-l.start) - rows[k].cells
 	}
-	line, sub := v.rowLine(row)
-	return v.text.LineStart(line) + v.columnOnRow(line, sub, float32(v.goal))
+	dr := v.displayRowAt(row)
+	if dr.kind == displayDocBlock {
+		return v.text.LineStart(dr.line)
+	}
+	return v.text.LineStart(dr.line) + v.columnOnRow(dr.line, dr.sub, float32(v.goal))
 }
