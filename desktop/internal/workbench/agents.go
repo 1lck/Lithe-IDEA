@@ -115,6 +115,38 @@ type agentConversation struct {
 	busy bool
 	// answering is the permission request whose answer is on its way.
 	answering string
+	// selections keeps the text selection of each entry drawn, by the entry's serial, so a
+	// selection stays put while the rows scroll and new events arrive.
+	selections map[uint64]*ui.TextSelectionState
+	// pruned is the serial of the oldest entry when the selections were last pruned.
+	pruned uint64
+}
+
+// selection is the text selection of the entry with serial, made when the entry is first drawn.
+func (conversation *agentConversation) selection(serial uint64) *ui.TextSelectionState {
+	if conversation.selections == nil {
+		conversation.selections = map[uint64]*ui.TextSelectionState{}
+	}
+	state := conversation.selections[serial]
+	if state == nil {
+		state = &ui.TextSelectionState{}
+		conversation.selections[serial] = state
+	}
+	return state
+}
+
+// pruneSelections forgets the selections of the entries the transcript dropped to keep its bounds.
+func (conversation *agentConversation) pruneSelections() {
+	entries := conversation.transcript.Entries
+	if len(entries) == 0 || entries[0].Serial == conversation.pruned {
+		return
+	}
+	conversation.pruned = entries[0].Serial
+	for serial := range conversation.selections {
+		if serial < conversation.pruned {
+			delete(conversation.selections, serial)
+		}
+	}
 }
 
 // agentHistory is the History tab: the recorded sessions of the agents the user lets Lithe

@@ -3,12 +3,17 @@ package workbench
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/agents"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
+	"github.com/vivaui/viva/gfx"
 )
 
 // agentCore answers the agents commands with canned JSON and records the commands it got.
@@ -188,5 +193,105 @@ func TestAgentToolWindowExistsOnlyInALocalWorkspace(t *testing.T) {
 	c.setRemote(true)
 	if c.present(agentsIndex) || !c.present(portsIndex) {
 		t.Fatalf("remote window: agents %v ports %v, want ports only", c.present(agentsIndex), c.present(portsIndex))
+	}
+}
+
+// showAgentConversation opens the Agent tool window of an English window showing conversation.
+func showAgentConversation(t *testing.T, conversation *agentConversation) *harness {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, settingsFile), []byte(`{"theme":"dark"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newHarnessWithOptions(t, Options{
+		Kernel: &testKernel{Client: core.NewClient()}, Store: store.At(dir), Languages: []string{"en-US"},
+		AgentKernel: agents.NewClient(&agentCore{}),
+	})
+	h.open(t.TempDir())
+	v := &h.app.agentsView
+	v.catalog = []agents.CatalogAgent{conversation.agent}
+	v.configured = true
+	v.conversations = []*agentConversation{conversation}
+	h.click(center(h.button(itemAgents)))
+	h.settle()
+	return h
+}
+
+// shownText is where the window drew value.
+func (h *harness) shownText(value string) gfx.Rect {
+	h.t.Helper()
+	for _, text := range h.driver.Snapshot().Texts {
+		if text.Value == value {
+			return text.Bounds
+		}
+	}
+	h.t.Fatalf("%q is not shown", value)
+	return gfx.Rect{}
+}
+
+// sampleAgentConversation is a conversation of a synthetic agent with no entries yet.
+func sampleAgentConversation() *agentConversation {
+	agent := agents.CatalogAgent{PluginID: "dev.lithe.test.agent", AgentID: "sample", DisplayName: "Sample", Forms: []string{"conversation"}, MayRun: true}
+	return &agentConversation{agent: agent, transcript: agents.NewTranscript("agent-1", agent.PluginID, agent.AgentID)}
+}
+
+// A drag across an agent's reply selects its words and Primary+C copies them.
+func TestAgentReplyDragSelectsAndCopies(t *testing.T) {
+	conversation := sampleAgentConversation()
+	reply := "Summing integer cents keeps every cart exact."
+	conversation.transcript.Apply(agents.Event{Kind: "message", Turn: 1, Role: "assistant", MessageID: "m1", Text: reply})
+	h := showAgentConversation(t, conversation)
+
+	r := h.shownText(reply)
+	h.drag(gfx.Point{X: r.X + 1, Y: r.Y + r.Height/2}, gfx.Point{X: r.X + r.Width + 4, Y: r.Y + r.Height/2})
+	h.settle()
+	serial := conversation.transcript.Entries[0].Serial
+	if got := conversation.selections[serial].Text(); got != reply {
+		t.Fatalf("the drag selected %q, want %q", got, reply)
+	}
+	if got := h.copyShortcut(); got != reply {
+		t.Fatalf("Primary+C copied %q, want %q", got, reply)
+	}
+}
+
+// Select All in a prompt the user sent takes the prompt only, not the caption naming who spoke.
+func TestAgentPromptSelectAllLeavesTheCaptionOut(t *testing.T) {
+	conversation := sampleAgentConversation()
+	prompt := "Why does the total lose a cent?"
+	conversation.transcript.AddPrompt(prompt)
+	h := showAgentConversation(t, conversation)
+
+	r := h.shownText(prompt)
+	h.drag(gfx.Point{X: r.X + 1, Y: r.Y + r.Height/2}, gfx.Point{X: r.X + r.Width/2, Y: r.Y + r.Height/2})
+	h.settle()
+	if _, err := h.driver.ShortcutChord(primaryModifier(), 'a'); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+	if got := h.copyShortcut(); got != prompt {
+		t.Fatalf("Select All then Primary+C copied %q, want only the prompt %q", got, prompt)
+	}
+}
+
+// The selections of entries the transcript dropped to keep its bounds are forgotten.
+func TestAgentSelectionsOfDroppedEntriesArePruned(t *testing.T) {
+	conversation := liveConversation("agent-1")
+	conversation.transcript.AddPrompt("first")
+	first := conversation.transcript.Entries[0].Serial
+	conversation.selection(first)
+	for range agents.MaxEntries {
+		conversation.transcript.AddPrompt("more")
+	}
+	if conversation.transcript.Entries[0].Serial == first {
+		t.Fatal("the transcript kept its first entry; the test needs it dropped")
+	}
+	kept := conversation.transcript.Entries[0].Serial
+	conversation.selection(kept)
+	conversation.pruneSelections()
+	if _, ok := conversation.selections[first]; ok {
+		t.Fatal("the selection of a dropped entry was kept")
+	}
+	if _, ok := conversation.selections[kept]; !ok {
+		t.Fatal("the selection of a kept entry was forgotten")
 	}
 }

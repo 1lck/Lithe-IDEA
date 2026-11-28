@@ -285,13 +285,15 @@ func (a *App) agentTranscript(c ui.C, conversation *agentConversation) {
 	if t.Missed || t.Dropped > 0 {
 		extra = 1
 	}
+	conversation.pruneSelections()
 	ui.List(c, &conversation.list, extra+len(t.Entries), func(row ui.ListRow) {
 		row.Element.FillWidth().PadX(10).PadY(5)
 		if row.Index < extra {
 			a.agentGapRow(row.C, lang, t)
 			return
 		}
-		a.agentEntryRow(row.C, lang, t.Entries[row.Index-extra])
+		entry := t.Entries[row.Index-extra]
+		a.agentEntryRow(row.C, lang, entry, conversation.selection(entry.Serial))
 	}).Label(i18n.Shared(lang, "desktop.agents.transcript")).Scrollbars().Grow(1).Shrink(1).MinHeight(0).FillWidth()
 	if atEnd {
 		conversation.list.ScrollToEnd()
@@ -312,18 +314,23 @@ func (a *App) agentGapRow(c ui.C, lang i18n.Language, t *agents.Transcript) {
 	})
 }
 
-// agentEntryRow declares one transcript row.
-func (a *App) agentEntryRow(c ui.C, lang i18n.Language, entry agents.Entry) {
+// agentEntryRow declares one transcript row. Its words can be selected and copied with
+// selection; the captions Lithe adds (who spoke, a tool call's state) stay out of the copy.
+func (a *App) agentEntryRow(c ui.C, lang i18n.Language, entry agents.Entry, selection *ui.TextSelectionState) {
 	small := a.theme.Metrics.FontSizeS
-	ui.Column(c).FillWidth().Gap(3).Children(func() {
+	ui.TextSelectionArea(c, selection).FillWidth().Gap(3).Children(func() {
 		switch entry.Kind {
 		case agents.EntryUser:
-			ui.Text(c, i18n.Shared(lang, "desktop.agents.you")).FontSize(small).Weight(gfx.WeightSemibold).Color(a.colors.Accent)
+			ui.Column(c).Unselectable().Children(func() {
+				ui.Text(c, i18n.Shared(lang, "desktop.agents.you")).FontSize(small).Weight(gfx.WeightSemibold).Color(a.colors.Accent)
+			})
 			ui.Wrap(c, entry.Text).Color(a.colors.Text)
 		case agents.EntryAssistant:
 			ui.Wrap(c, entry.Text).Color(a.colors.Text)
 		case agents.EntryThought:
-			ui.Text(c, i18n.Shared(lang, "desktop.agents.thinking")).FontSize(small).Color(a.colors.Subtle)
+			ui.Column(c).Unselectable().Children(func() {
+				ui.Text(c, i18n.Shared(lang, "desktop.agents.thinking")).FontSize(small).Color(a.colors.Subtle)
+			})
 			ui.Wrap(c, entry.Text).FontSize(small).Color(a.colors.Subtle)
 		case agents.EntryTool:
 			a.agentToolRow(c, lang, entry)
@@ -374,7 +381,9 @@ func (a *App) agentToolRow(c ui.C, lang i18n.Language, entry agents.Entry) {
 		ui.Icon(c, icons.Wrench).Size(13, 13).Color(a.colors.Subtle).Shrink(0)
 		ui.Text(c, title).FontSize(small).Color(a.colors.Text).Ellipsis().Shrink(1)
 		if entry.Status != "" {
-			ui.Text(c, agentToolStatus(lang, entry.Status)).FontSize(small).Color(agentToolStatusColor(a, entry.Status)).Shrink(0)
+			ui.Row(c).Unselectable().Shrink(0).Children(func() {
+				ui.Text(c, agentToolStatus(lang, entry.Status)).FontSize(small).Color(agentToolStatusColor(a, entry.Status))
+			})
 		}
 	})
 	for i, location := range entry.Locations {

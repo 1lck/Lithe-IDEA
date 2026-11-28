@@ -31,6 +31,9 @@ const (
 type Entry struct {
 	Kind EntryKind
 	Turn uint64
+	// Serial numbers the entries of a transcript in the order they were added, from 1. It
+	// stays with the entry when older ones are dropped, so a view can keep per-entry state.
+	Serial uint64
 	// ID is the message or tool call ID the backend gave, empty for user prompts and notices.
 	ID   string
 	Text string
@@ -95,8 +98,9 @@ type Transcript struct {
 	// Missed reports that Core's event buffer lost events of this session.
 	Missed bool
 
-	index map[string]int
-	bytes int
+	index  map[string]int
+	bytes  int
+	serial uint64
 }
 
 // NewTranscript is an empty transcript of a session.
@@ -272,6 +276,8 @@ func (t *Transcript) dropPendingOf(turn uint64) {
 }
 
 func (t *Transcript) push(entry Entry) {
+	t.serial++
+	entry.Serial = t.serial
 	t.Entries = append(t.Entries, entry)
 	t.bytes += entrySize(entry)
 	t.trim()
