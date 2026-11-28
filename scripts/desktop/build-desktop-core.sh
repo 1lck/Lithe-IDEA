@@ -393,8 +393,8 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # test/generated roles, user-defined custom folder types, custom SVG icons, quick color
 # overrides, and workspace.resolveDirectoryPresentation.
 # Core #215 provides plugin directory types and marks; #214 provides native doc rendering.
-# The #213 head includes both and adds deferred empty-directory probes for the project tree.
-PINNED_CORE_REVISION="f0d0ff8dd9b3f93094b83965611e4f9acfd0d1de"
+# The #213 head includes both and adds deferred empty-directory probes and partial expansion diagnostics.
+PINNED_CORE_REVISION="2ace33022c6b5d7a1da28832f8e7247f2c5100ca"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

@@ -3,6 +3,7 @@ package workbench
 import (
 	"strings"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/ui"
@@ -29,6 +30,17 @@ const treeExpandAllLimit = 512
 
 // Allow one extra batch to find populated siblings after empty probes release slots.
 const treeExpandAllReadLimit = treeExpandAllLimit + treeListingBatch
+
+const (
+	treeExpansionLimitedEvent = "app.workspace.tree_expansion_limited"
+	treeExpansionLimitedLevel = core.LevelWarn
+	treeExpansionLimitField   = "limit"
+	treeExpansionReadsField   = "reads"
+)
+
+func treeExpansionLimitedFields(limit string, reads int) map[string]any {
+	return map[string]any{treeExpansionLimitField: limit, treeExpansionReadsField: reads}
+}
 
 // projectTreeActions declares the buttons of the Project tool window's header. They wait for
 // the root's listing, but refresh also asks again for a root that could not be listed.
@@ -249,7 +261,8 @@ func (a *App) stepTreeExpandAll(p *project) {
 		if t.expandReadsLeft == 0 {
 			reason = "read_limit"
 		}
-		a.operationRejected("project_tree_expand_all", reason)
+		a.emit(treeExpansionLimitedLevel, treeExpansionLimitedEvent,
+			treeExpansionLimitedFields(reason, treeExpandAllReadLimit-t.expandReadsLeft))
 		a.notify(i18n.Shared(a.language(), "desktop.project.expandAllIncomplete"))
 	}
 }

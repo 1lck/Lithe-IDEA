@@ -5,7 +5,9 @@ package settingswindow
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/headless"
@@ -95,6 +97,8 @@ func TestVisualAgentPermissions(t *testing.T) {
 			w.inv.Invalidate()
 			for _, surface := range []string{"installed", "install-review"} {
 				if surface == "install-review" {
+					// The dialog must supply its own permission labels.
+					w.installed.tab = installedVersions
 					w.startPluginInstall(fact.Name, false)
 					w.install.review.Store(&pluginInstallReview{version: fact.Version, permissions: permissions})
 					w.inv.Invalidate()
@@ -102,6 +106,38 @@ func TestVisualAgentPermissions(t *testing.T) {
 				}
 				d.pump()
 				d.until("agent usage permission", func() bool { return d.text("agents.usage.read") })
+				// The snapshot exposes dialog controls even at the start of its fade-in.
+				if err := session.Advance(time.Second); err != nil {
+					t.Fatal(err)
+				}
+				labels := session.Driver().Snapshot().Labels
+				var layer uint16
+				if surface == "install-review" {
+					layer = d.hit(i18n.Shared(look.language, "desktop.marketplace.confirmInstall")).Layer
+				} else {
+					for _, label := range labels {
+						if label.Value == permissions[0] {
+							layer = label.Layer
+							break
+						}
+					}
+				}
+				// Wrapping splits a description into labels, including within Chinese words.
+				var text strings.Builder
+				for _, label := range labels {
+					if label.Layer == layer {
+						text.WriteString(strings.Join(strings.Fields(label.Value), ""))
+					}
+				}
+				for _, id := range permissions {
+					desc := permissionDescription(look.language, id)
+					if desc == "" || desc == id || !d.text(id) {
+						t.Fatalf("%s: missing permission or translation for %s", surface, id)
+					}
+					if !strings.Contains(text.String(), strings.Join(strings.Fields(desc), "")) {
+						t.Fatalf("%s: missing visible description %q for %s", surface, desc, id)
+					}
+				}
 				if err := session.Screenshot(filepath.Join(out, "agent-permissions-"+surface+"-"+look.language.Code()+"-"+look.theme+".png")); err != nil {
 					t.Fatal(err)
 				}
