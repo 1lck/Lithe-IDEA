@@ -507,5 +507,11 @@ func (a *App) buildIgnoredPathsSection(c ui.C, p *project, ready bool) {
 			source = i18n.Shared(language, "desktop.build.ignoredPathsDefault")
 		}
 		ui.Wrap(c, source).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+		for _, group := range p.build.pluginIgnoredPaths {
+			caption := i18n.SharedFormat(language, "desktop.build.ignoredPathsPlugin", map[string]string{
+				"system": group.DisplayName, "plugin": group.PluginID, "patterns": strings.Join(group.Patterns, ", "),
+			})
+			ui.Wrap(c, caption).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
+		}
 	})
 }

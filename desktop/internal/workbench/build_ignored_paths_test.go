@@ -31,7 +31,7 @@ const ignoredPathsManifest = `{
   "buildSystems": [{
     "id": "fixture-ignored",
     "displayName": "Fixture Build",
-    "detection": {"markers": ["fixture.build"]},
+    "detection": {"markers": ["fixture.build"], "ignoredPaths": ["snapshots/"]},
     "invocation": {"executables": [{"kind": "command", "command": "fixture-build"}]},
     "options": [{"id": "release", "displayName": "Release Profile", "kind": "boolean", "arguments": ["--release"]}],
     "tasks": [{"id": "build", "displayName": "Fixture Task", "group": "build", "scopes": ["workspace", "project"], "arguments": ["build"]}]
@@ -183,6 +183,9 @@ func TestBuildOptionsIgnoredPathsAreSavedOnThisMachineAndRestored(t *testing.T) 
 	e := &p.build.options
 	if e.instance != "" || len(e.fields) != 0 {
 		t.Fatalf("the header opened the options of instance %q with %d fields, want the ignored paths alone", e.instance, len(e.fields))
+	}
+	if !h.showsWrapped("Fixture Build defaults (dev.lithe.test.ignored-paths): snapshots/") {
+		t.Fatal("the dialog does not show the plugin default and its source")
 	}
 	if e.ignored.text != ".*" || !h.showsWrapped(h.shared("desktop.build.ignoredPathsDefault")) {
 		t.Fatalf("the field holds %q under %q, want the default", e.ignored.text, e.ignored.source)

@@ -1157,7 +1157,7 @@ func TestProjectTreeStylesLoadedBuildModuleRoots(t *testing.T) {
 	a.finishBuildDetection(p, p.build.generation, []buildInstance{
 		{BuildInstance: core.BuildInstance{ID: "first"}, Model: model(".", "common"), modelLoaded: true},
 		{BuildInstance: core.BuildInstance{ID: "second", ModelSource: "command"}, PluginID: pluginID, modelLoading: true},
-	}, nil)
+	}, nil, nil)
 	h.settle()
 	checkRow("ModuleWorkspace", gfx.WeightBold, true)
 	checkRow("common", gfx.WeightBold, true)

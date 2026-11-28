@@ -7084,6 +7084,18 @@
       ]
     },
     {
+      "id": "desktop.build.ignoredPathsPlugin",
+      "description": "Read-only default ignore patterns for one build system, with the plugin that declares them",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "system": "string",
+        "plugin": "string",
+        "patterns": "string"
+      }
+    },
+    {
       "id": "desktop.build.ignoredPathsTeam",
       "description": "Caption under the ignored paths field when the list shown comes from the team Build options file; file is that file's path relative to the project",
       "platforms": [

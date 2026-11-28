@@ -68,11 +68,12 @@ type buildState struct {
 	// status is the last result line of the current or latest execution.
 	status string
 
-	instances []buildInstance
-	selected  int
-	projectID string
-	targetID  string
-	taskID    string
+	pluginIgnoredPaths []core.BuildPluginIgnoredPaths
+	instances          []buildInstance
+	selected           int
+	projectID          string
+	targetID           string
+	taskID             string
 
 	// operation is the Build window's one task, model or IDE API build at a time; running are
 	// the applications and services that run, any number at once but one per run key
@@ -828,10 +829,10 @@ func (a *App) loadBuildSystems(p *project) {
 	a.background(p, buildRequestTimeout, func(ctx context.Context) func(*App) {
 		entries, err := a.plugins.Manager.Installed()
 		if err != nil {
-			return func(a *App) { a.finishBuildDetection(p, generation, nil, err) }
+			return func(a *App) { a.finishBuildDetection(p, generation, nil, nil, err) }
 		}
 		if docsErr != nil {
-			return func(a *App) { a.finishBuildDetection(p, generation, nil, docsErr) }
+			return func(a *App) { a.finishBuildDetection(p, generation, nil, nil, docsErr) }
 		}
 		plugins, pluginErr := a.plugins.BuildPlugins(ctx, entries)
 		// The manifests carry their option text in the interface language from here on.
@@ -870,12 +871,12 @@ func (a *App) loadBuildSystems(p *project) {
 			instances = append(instances, instance)
 		}
 		return func(a *App) {
-			a.finishBuildDetection(p, generation, instances, errors.Join(pluginErr, detectErr))
+			a.finishBuildDetection(p, generation, instances, detection.PluginIgnoredPaths, errors.Join(pluginErr, detectErr))
 		}
 	})
 }
 
-func (a *App) finishBuildDetection(p *project, generation uint64, instances []buildInstance, err error) {
+func (a *App) finishBuildDetection(p *project, generation uint64, instances []buildInstance, pluginIgnoredPaths []core.BuildPluginIgnoredPaths, err error) {
 	if a.project != p || p.build.generation != generation {
 		return
 	}
@@ -887,6 +888,7 @@ func (a *App) finishBuildDetection(p *project, generation uint64, instances []bu
 		defer a.settleTitleAction(p)
 	}
 	p.build.loaded = true
+	p.build.pluginIgnoredPaths = pluginIgnoredPaths
 	p.build.instances = instances
 	p.tree.clearModuleRoots()
 	for _, instance := range instances {

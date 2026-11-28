@@ -173,7 +173,7 @@ func TestInvalidateBuildIncrementsGenerationAndDropsStaleDetection(t *testing.T)
 	}
 	var staleChecked bool
 	h.app.post(func(a *App) {
-		a.finishBuildDetection(p, oldGen, []buildInstance{{BuildInstance: core.BuildInstance{ID: "stale"}}}, nil)
+		a.finishBuildDetection(p, oldGen, []buildInstance{{BuildInstance: core.BuildInstance{ID: "stale"}}}, nil, nil)
 		staleChecked = true
 	})
 	h.await("stale finishBuildDetection check", func() bool { return staleChecked })

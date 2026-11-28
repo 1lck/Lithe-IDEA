@@ -101,7 +101,7 @@ func TestBuildLoadKeepsWorkingWhenDetectionReportsAnInvalidManifest(t *testing.T
 	p := h.app.project
 	setDetected(p, nil)
 	p.build.loading = true
-	h.app.finishBuildDetection(p, p.build.generation, []buildInstance{{BuildInstance: instance}}, context.Canceled)
+	h.app.finishBuildDetection(p, p.build.generation, []buildInstance{{BuildInstance: instance}}, nil, context.Canceled)
 	if p.build.failed != "" {
 		t.Fatalf("a warning hid the detected instance: %q", p.build.failed)
 	}

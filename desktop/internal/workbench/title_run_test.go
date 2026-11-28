@@ -185,7 +185,7 @@ func TestStaticModelDetectionResolvesRunConfigurations(t *testing.T) {
 	p := h.app.project
 	since := p.runConfigs.generation
 	h.app.post(func(a *App) {
-		a.finishBuildDetection(p, p.build.generation, []buildInstance{runConfigInstance("app")}, nil)
+		a.finishBuildDetection(p, p.build.generation, []buildInstance{runConfigInstance("app")}, nil, nil)
 	})
 	awaitRunConfigsAfter(t, h, p, since)
 	if len(p.runConfigs.list) != 1 || p.runConfigs.list[0].Name != "Run Main" || h.app.titleRunLabel() != "Run Main" {
