@@ -133,7 +133,7 @@ func TestRemoteWorktreeOpensOverASessionOfItsOwn(t *testing.T) {
 	entry := savedRemoteConnections(t, h)[0]
 	anchor, _ := h.app.remoteAnchor()
 	q := second.project
-	if q.root != remoteplaceholder.Root(anchor, entry.ID, remoteTestFeature) || q.remote.session != "session-2" || p.remote.session != "session-1" {
+	if q.root != remoteplaceholder.Root(anchor, entry.ID+"/"+entry.TargetFingerprint, remoteTestFeature) || q.remote.session != "session-2" || p.remote.session != "session-1" {
 		t.Fatalf("the worktree opened over session %q, want its folder over a session of its own", q.remote.session)
 	}
 	if got := k.count(func(k *remoteHostKernel) int { return k.connects }); got != 2 || h.app.remote.open {
@@ -192,12 +192,16 @@ func TestRemoteWorktreePreservesContainerHops(t *testing.T) {
 			h, k, _, _ := remoteWorkspaceHarness(t)
 			t.Cleanup(h.disposeTabs)
 			p := h.openRemoteTestProject(t)
-			k.set(func(k *remoteHostKernel) { k.git.trust[remoteTestFeature] = core.WorkspaceDistrusted })
+			k.set(func(k *remoteHostKernel) {
+				k.git.trust[remoteTestFeature] = core.WorkspaceDistrusted
+				k.kinds = map[string]core.RemoteFileKind{remoteTestFeature: core.RemoteFileKindDirectory}
+			})
 			container := &core.ContainerConnection{Engine: core.ContainerEngineDocker, Container: remoteTestContainer, User: "app"}
 			host := remoteHost{container: container}
 			switch via {
 			case "ssh", "ssh-removed":
-				host.ssh = p.remote.host.ssh
+				host = p.remote.host
+				host.container = container
 				container.Container = remoteTestHostContainer
 			case "wsl":
 				host.wsl = &core.WSLConnection{Distribution: "Ubuntu", User: "dev"}

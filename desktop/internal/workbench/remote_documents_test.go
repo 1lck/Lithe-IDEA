@@ -10,7 +10,10 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/documentio"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/draftstore"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteconn"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteplaceholder"
 	"github.com/vivaui/viva/app"
 )
 
@@ -34,6 +37,10 @@ func (k *remoteHostKernel) RemoteStat(_ context.Context, session, path string) (
 	}
 	if kind, ok := k.kinds[path]; ok {
 		return core.RemoteFileMetadata{Kind: kind}, nil
+	}
+	_, knownFolder := remoteTestFolders[path]
+	if (knownFolder || slices.Contains(k.git.worktrees, path)) && !(path == remoteTestFolder && k.missing) {
+		return core.RemoteFileMetadata{Kind: core.RemoteFileKindDirectory}, nil
 	}
 	data, ok := k.files[path]
 	if !ok {
@@ -258,4 +265,123 @@ func TestRemoteDocumentFailuresSayWhy(t *testing.T) {
 	if event := loggedAny(t, logger, remoteTestHost, remoteTestHome); event != "" {
 		t.Fatalf("logged the host or its paths: %s", event)
 	}
+}
+
+func TestRemoteSSHUpgradeMigratesLegacyDraftAndRejectsMismatchedTargets(t *testing.T) {
+	t.Run("verified connection recovers legacy draft without overwriting target draft", func(t *testing.T) {
+		h, k, _, _ := remoteWorkspaceHarness(t)
+		k.put(remoteTestReadme, "# Project\n")
+		k.put(remoteTestHome+"/project/notes.txt", "host notes\n")
+		entry := savedRemoteConnections(t, h)[0]
+		anchor, err := h.app.remoteAnchor()
+		if err != nil {
+			t.Fatal(err)
+		}
+		remoteRoot := remoteTestHome + "/project"
+		legacyRoot := remoteplaceholder.Root(anchor, entry.ID, remoteRoot)
+		targetRoot := remoteplaceholder.Root(anchor, entry.ID+"/"+entry.TargetFingerprint, remoteRoot)
+		legacyReadme := filepath.Join(legacyRoot, "README.md")
+		legacyNotes := filepath.Join(legacyRoot, "notes.txt")
+		targetNotes := filepath.Join(targetRoot, "notes.txt")
+
+		if err := h.app.recovery.store.Save(draftstore.Entry{
+			Root:     legacyRoot,
+			Path:     legacyReadme,
+			Name:     "README.md",
+			BaseHash: draftstore.Hash([]byte("# Project\n")),
+			Text:     "unsaved ssh draft\n",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := h.app.recovery.store.Save(draftstore.Entry{
+			Root:     legacyRoot,
+			Path:     legacyNotes,
+			Name:     "notes.txt",
+			BaseHash: draftstore.Hash([]byte("host notes\n")),
+			Text:     "older legacy notes\n",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := h.app.recovery.store.Save(draftstore.Entry{
+			Root:     targetRoot,
+			Path:     targetNotes,
+			Name:     "notes.txt",
+			BaseHash: draftstore.Hash([]byte("host notes\n")),
+			Text:     "newer target notes\n",
+		}); err != nil {
+			t.Fatal(err)
+		}
+
+		p := h.openRemoteTestProject(t)
+		if p.root != targetRoot {
+			t.Fatalf("project root = %q, want %q", p.root, targetRoot)
+		}
+		targetReadme := filepath.Join(targetRoot, "README.md")
+		awaitDocumentState(t, h, func() bool {
+			return p.docs.byPath(targetReadme) != nil && p.docs.byPath(targetNotes) != nil
+		})
+		h.settle()
+
+		readmeDoc := p.docs.byPath(targetReadme)
+		if text, _ := readmeDoc.view.Text(); string(text) != "unsaved ssh draft\n" || !readmeDoc.dirty() {
+			t.Fatalf("recovered README = %q, dirty=%v; want legacy draft", text, readmeDoc.dirty())
+		}
+		notesDoc := p.docs.byPath(targetNotes)
+		if text, _ := notesDoc.view.Text(); string(text) != "newer target notes\n" || !notesDoc.dirty() {
+			t.Fatalf("recovered notes = %q, dirty=%v; want existing target draft", text, notesDoc.dirty())
+		}
+		if _, found, err := h.app.recovery.store.Load(legacyRoot, legacyReadme); err != nil || found {
+			t.Fatalf("migrated legacy draft still present: found=%v err=%v", found, err)
+		}
+	})
+
+	t.Run("mismatched saved connection does not adopt legacy draft", func(t *testing.T) {
+		h, k, _, _ := remoteWorkspaceHarness(t)
+		k.put(remoteTestReadme, "# Project\n")
+		entry := savedRemoteConnections(t, h)[0]
+		anchor, err := h.app.remoteAnchor()
+		if err != nil {
+			t.Fatal(err)
+		}
+		remoteRoot := remoteTestHome + "/project"
+		legacyRoot := remoteplaceholder.Root(anchor, entry.ID, remoteRoot)
+		legacyReadme := filepath.Join(legacyRoot, "README.md")
+		if err := h.app.recovery.store.Save(draftstore.Entry{
+			Root:     legacyRoot,
+			Path:     legacyReadme,
+			Name:     "README.md",
+			BaseHash: draftstore.Hash([]byte("# Project\n")),
+			Text:     "unsaved ssh draft\n",
+		}); err != nil {
+			t.Fatal(err)
+		}
+
+		b := h.connectAndBrowse(t)
+		ctx, cancel := context.WithTimeout(context.Background(), remoteReadTimeout)
+		defer cancel()
+		source, err := remoteconn.Read(ctx, k, h.app.globalToolchainRoot())
+		if err != nil {
+			t.Fatal(err)
+		}
+		reassigned := entry.Connection
+		reassigned.Host = "reassigned.example"
+		if _, _, _, err := source.Edit(ctx, k, core.RemoteConnectionEdit{Save: &core.RemoteConnectionSave{
+			ID: entry.ID, Name: "Reassigned", Connection: reassigned,
+		}}); err != nil {
+			t.Fatal(err)
+		}
+
+		p := h.openBrowsedProject(t, b)
+		h.settle()
+		targetReadme := filepath.Join(p.root, "README.md")
+		if p.docs.byPath(targetReadme) != nil {
+			t.Fatal("mismatched connection opened or recovered the legacy draft")
+		}
+		if _, found, err := h.app.recovery.store.Load(p.root, targetReadme); err != nil || found {
+			t.Fatalf("mismatched connection migrated draft into target root: found=%v err=%v", found, err)
+		}
+		if got, found, err := h.app.recovery.store.Load(legacyRoot, legacyReadme); err != nil || !found || got.Text != "unsaved ssh draft\n" {
+			t.Fatalf("legacy draft was lost on mismatched open: %+v found=%v err=%v", got, found, err)
+		}
+	})
 }

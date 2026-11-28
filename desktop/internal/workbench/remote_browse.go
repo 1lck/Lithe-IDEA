@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/draftstore"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteconn"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/remoteplaceholder"
@@ -103,7 +104,7 @@ func (r *remoteState) connectTarget() (core.SavedRemoteConnection, remoteHost) {
 		return core.SavedRemoteConnection{ID: identity, Name: container.Container}, host
 	}
 	entry := *r.entry(r.selected)
-	return entry, remoteHost{ssh: entry.Connection}
+	return entry, remoteHost{ssh: entry.Connection, sshTargetFingerprint: entry.TargetFingerprint}
 }
 
 // connectRemote connects to the host the page shows, showing each step and the questions OpenSSH
@@ -170,7 +171,7 @@ func (a *App) connectRemoteTo(entry core.SavedRemoteConnection, host remoteHost,
 				r.steps = nil
 				a.browseRemote(entry, host, *result.Session)
 				if folder != "" {
-					a.openRemoteFolderAt(folder)
+					a.openRemoteFolderAt(folder, true)
 				}
 				return
 			}
@@ -460,7 +461,7 @@ func (a *App) openRemoteFolder() {
 		return
 	}
 	a.performed("remote.workspace.open", surfaceButton)
-	a.openRemoteFolderAt(b.target())
+	a.openRemoteFolderAt(b.target(), false)
 }
 
 // openRemoteFolderNow opens dir once its trust is decided (remote_trust.go), trusted when trusted
@@ -474,30 +475,57 @@ func (a *App) openRemoteFolderNow(dir string, trusted bool) {
 	}
 	b.opening, b.err = true, ""
 	entryID, remember := b.entryID, b.host.saved()
+	targetFingerprint := b.host.sshTargetFingerprint
+	overSSH := b.host.overSSH()
+	sshID := savedSSHID(entryID, b.host.container)
+	workspaceID := b.host.workspaceIdentity(entryID)
+	var recovery *draftstore.Store
+	if a.recovery != nil {
+		recovery = a.recovery.store
+	}
 	generation, kernel, toolRoot := r.generation, a.kernel, a.globalToolchainRoot()
 	a.background(nil, remoteReadTimeout, func(ctx context.Context) func(*App) {
 		anchor, err := a.remotePlaceholderAnchor()
 		if err == nil {
 			err = remoteplaceholder.Ensure(anchor)
 		}
-		var rememberErr error
-		if err == nil && remember {
-			// The folder is remembered even when the workspace then fails to open, as the editor
-			// remembers a project it opened.
+		var rememberErr, migrateErr error
+		verifiedSavedTarget := false
+		if err == nil && (remember || (overSSH && targetFingerprint != "")) {
 			var source remoteconn.Source
 			source, rememberErr = remoteconn.Read(ctx, kernel, toolRoot)
-			if rememberErr == nil {
-				source, _, _, rememberErr = source.Edit(ctx, kernel, core.RemoteConnectionEdit{RememberFolder: &core.RemoteConnectionFolder{ID: entryID, Path: dir}})
+			stillSavedTarget := func(source remoteconn.Source) bool {
+				return slices.ContainsFunc(source.Connections, func(saved core.SavedRemoteConnection) bool {
+					return saved.ID == sshID && matchesSavedTarget(&saved, targetFingerprint)
+				})
 			}
-			if rememberErr == nil {
-				// One edit after the other: each is made over the document the last one wrote.
-				_, _, _, rememberErr = source.Edit(ctx, kernel, core.RemoteConnectionEdit{MarkConnected: &core.RemoteConnectionID{ID: entryID}})
+			verifiedSavedTarget = rememberErr == nil && stillSavedTarget(source)
+			if verifiedSavedTarget && remember {
+				// The folder is remembered even when the workspace then fails to open, as the editor
+				// remembers a project it opened.
+				source, _, _, rememberErr = source.Edit(ctx, kernel, core.RemoteConnectionEdit{RememberFolder: &core.RemoteConnectionFolder{ID: entryID, Path: dir}})
+				// Edit rereads the file, which may already point to a different target.
+				if rememberErr == nil && stillSavedTarget(source) {
+					_, _, _, rememberErr = source.Edit(ctx, kernel, core.RemoteConnectionEdit{MarkConnected: &core.RemoteConnectionID{ID: entryID}})
+				} else if rememberErr == nil {
+					verifiedSavedTarget = false
+				}
+			}
+		}
+		if err == nil && verifiedSavedTarget && recovery != nil && workspaceID != entryID {
+			legacyRoot := remoteplaceholder.Root(anchor, entryID, dir)
+			targetRoot := remoteplaceholder.Root(anchor, workspaceID, dir)
+			if legacyRoot != targetRoot {
+				migrateErr = recovery.MigrateRoot(legacyRoot, targetRoot)
 			}
 		}
 		return func(a *App) {
-			if rememberErr != nil {
+			if rememberErr != nil && remember {
 				// Opening does not depend on it: the folder is only missing from the recent list.
 				a.backgroundFailed("remote_remember_folder", documentLogError(rememberErr))
+			}
+			if migrateErr != nil {
+				a.backgroundFailed("editor_recovery", documentLogError(migrateErr))
 			}
 			r := &a.remote
 			if !r.open || r.generation != generation || r.browser != b {
@@ -516,7 +544,7 @@ func (a *App) openRemoteFolderNow(dir string, trusted bool) {
 			}
 			target := remoteTarget{
 				connectionID: b.entryID, name: b.name, host: b.host, session: b.session,
-				remoteRoot: dir, root: remoteplaceholder.Root(anchor, b.entryID, dir), trusted: trusted,
+				remoteRoot: dir, root: remoteplaceholder.Root(anchor, b.host.workspaceIdentity(b.entryID), dir), trusted: trusted,
 			}
 			// The session is the workspace's from here on.
 			r.browser = nil
@@ -543,6 +571,7 @@ func (a *App) openRemoteWorkspace(target remoteTarget) {
 			a.returnRemoteSession(target.connectionID, target.session)
 		}
 		open.applyProjectTrust(p, target.trusted)
+		open.recordRemoteRecent(target)
 		return
 	}
 	if a.project == nil || a.sessions == nil {

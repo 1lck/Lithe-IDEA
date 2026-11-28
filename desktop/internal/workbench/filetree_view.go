@@ -209,9 +209,16 @@ func (a *App) measureTree(canvas *gfx.Canvas, t *fileTree) float32 {
 // depth is, so such a row keeps the chevron's room empty, and its icon lines up with the icons
 // of the folders beside it.
 func (a *App) drawTreeContent(c ui.C, p *project, row gfx.ID, n *treeNode) {
+	entry, hasMeta := p.indexing.presentation[n.path]
 	content := func() {
 		var icon gfx.Icon
+		iconTint := a.colors.Subtle
 		switch {
+		case n.dir && hasMeta && (entry.Role != "plain" || entry.Color != ""):
+			icon = a.directoryIconFor(p, entry.Icon)
+			if tinted, ok := parseHexColor(entry.Color, 0xff); ok {
+				iconTint = tinted
+			}
 		case p.tree.isModuleRoot(n):
 			icon = fileicons.ForBuildNode(fileicons.BuildProject, a.colors.Dark)
 		case n.dir:
@@ -219,15 +226,59 @@ func (a *App) drawTreeContent(c ui.C, p *project, row gfx.ID, n *treeNode) {
 		default:
 			icon = fileicons.ForFile(n.name, a.colors.Dark)
 		}
-		ui.Icon(c, icon).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Subtle)
-		name := ui.Text(c, n.name).FontSize(treeFontSize).Weight(p.tree.rowWeight(n)).Color(a.treeTextColor(p, n)).Shrink(0)
+		ui.Icon(c, icon).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(iconTint)
+		textColor := a.treeTextColor(p, n)
+		if hasMeta {
+			if entry.Excluded {
+				textColor = a.colors.Subtle
+			} else if entry.TintText && entry.Color != "" {
+				if _, hasGit := p.git.tree[n.path]; !hasGit {
+					if tinted, ok := parseHexColor(entry.Color, 0xff); ok {
+						textColor = tinted
+					}
+				}
+			}
+		}
+		name := ui.Text(c, n.name).FontSize(treeFontSize).Weight(p.tree.rowWeight(n)).Color(textColor).Shrink(0)
+		if n.dir && !p.indexing.hideTags && hasMeta && entry.Tag != "" {
+			tagFg := a.colors.Subtle
+			tagBg := a.colors.Hover
+			if tinted, ok := parseHexColor(entry.Color, 0xff); ok {
+				tagFg = tinted
+			}
+			if bg, ok := parseHexColor(entry.Color, 34); ok {
+				tagBg = bg
+			}
+			ui.Row(c).Shrink(0).PadSides(1, 5, 1, 5).Radius(3).Background(tagBg).Children(func() {
+				ui.Text(c, entry.Tag).FontSize(11).Color(tagFg).Shrink(0)
+			})
+		}
 		a.projectTreeMenu(c, p, row, n, name)
 	}
+	var bgTint gfx.Color
+	hasBg := false
+	if !p.indexing.hideBgTint && hasMeta && entry.BgColor != "" && n != p.tree.root {
+		alpha := uint8(26)
+		if a.colors.Dark {
+			alpha = 34
+		}
+		if parsed, ok := parseHexColor(entry.BgColor, alpha); ok {
+			bgTint, hasBg = parsed, true
+		}
+	}
 	if n.dir && !n.empty {
+		if hasBg {
+			ui.Row(c).FillWidth().Items(ui.Center).Gap(c.Theme().Metrics.GapItem).Radius(3).Background(bgTint).Children(content)
+			return
+		}
 		content()
 		return
 	}
-	ui.Row(c).Shrink(0).Items(ui.Center).Gap(c.Theme().Metrics.GapItem).PadLeft(treeChevron).Children(content)
+	r := ui.Row(c).Shrink(0).Items(ui.Center).Gap(c.Theme().Metrics.GapItem).PadLeft(treeChevron)
+	if hasBg {
+		r = r.FillWidth().Radius(3).Background(bgTint)
+	}
+	r.Children(content)
 }
 
 // focusTreeRow gives the keyboard to the row the locate button brought into view, once the row

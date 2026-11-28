@@ -8,7 +8,9 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/wslpath"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
@@ -147,13 +149,7 @@ func (a *App) projectTreeMenu(c ui.C, p *project, row gfx.ID, n *treeNode, targe
 			})
 		}
 		if p.remote == nil && n.dir && !root {
-			if p.directoryExcluded(n.path) {
-				if menu.Item(i18n.Shared(language, "indexing.cancelExclusion")).Clicked() {
-					c.After(func() { a.excludeFromSearch(p, n.path, true) })
-				}
-			} else if menu.Item(i18n.Shared(language, "desktop.files.excludeFromSearch")).Clicked() {
-				c.After(func() { a.excludeFromSearch(p, n.path, false) })
-			}
+			a.directoryMarkMenu(c, p, n, menu, language)
 		}
 		if root && p.indexing.loaded {
 			if on := p.indexing.gitIgnore; menu.Item(i18n.Shared(language, "indexing.autoGit")).Checked(on).Clicked() {
@@ -441,6 +437,7 @@ func (a *App) renameTreeItem(p *project) {
 		a.renamedLocalHistory(p, oldFull, newFull, before)
 		a.performed("workspace.file.rename", surfaceButton)
 		a.moveOpenDocuments(p, oldFull, newFull)
+		a.relocateDirectoryRules(p, oldRel, newRel)
 		a.listTree(p, path.Dir(oldRel))
 		a.loadGit(p)
 	})
@@ -534,4 +531,136 @@ func treeErrorReason(err error) string {
 		return linkErr.Err.Error()
 	}
 	return err.Error()
+}
+
+// directoryMarkMenu declares the "Mark Directory as ▸" submenu on a project folder,
+// grouping built-in roles, custom folder modes, inline quick-color swatches, clear/restore
+// automatic and the settings link under one clean second-level menu.
+func (a *App) directoryMarkMenu(c ui.C, p *project, n *treeNode, menu *ui.MenuItems, language i18n.Language) {
+	entry, hasMeta := p.indexing.presentation[n.path]
+	rulesState := core.ParseDirectoryRules(p.indexing.rules)
+	excluded := p.directoryExcluded(n.path)
+	// Cancel Exclusion only reverses built-in "excluded" marks or VCS (.gitignore) exclusions;
+	// custom-type exclusions (e.g. custom.archive) are cleared via Unmark Directory or role switch.
+	canCancelExclusion := (hasMeta && entry.Excluded && (entry.Role == "excluded" || entry.Source == "vcs")) || (!hasMeta && excluded)
+
+	menu.Sub(i18n.Shared(language, "desktop.directoryMarks.menuTitle"), func(sub *ui.MenuItems) {
+		sub.WidthRange(212, 320)
+		sub.Label(i18n.Shared(language, "desktop.directoryMarks.settings.groupBuiltin"))
+		builtinRoles := []struct {
+			role  string
+			icon  string
+			label string
+		}{
+			{"sources", "sources", i18n.Shared(language, "desktop.directoryMarks.role.sources")},
+			{"tests", "tests", i18n.Shared(language, "desktop.directoryMarks.role.tests")},
+			{"resources", "resources", i18n.Shared(language, "desktop.directoryMarks.role.resources")},
+			{"testResources", "resources", i18n.Shared(language, "desktop.directoryMarks.role.testResources")},
+			{"generated", "generated", i18n.Shared(language, "desktop.directoryMarks.role.generated")},
+		}
+		for _, item := range builtinRoles {
+			role := item.role
+			checked := hasMeta && entry.Role == role
+			if sub.Item(item.label).Icon(directoryIcon(item.icon, a.colors.Dark)).Checked(checked).Clicked() {
+				c.After(func() { a.setDirectoryRole(p, n.path, role) })
+			}
+		}
+		if canCancelExclusion {
+			if sub.Item(i18n.Shared(language, "indexing.cancelExclusion")).Icon(directoryIcon("excluded", a.colors.Dark)).Checked(true).Clicked() {
+				c.After(func() { a.excludeFromSearch(p, n.path, true) })
+			}
+		} else {
+			if sub.Item(i18n.Shared(language, "desktop.directoryMarks.role.excluded")).Icon(directoryIcon("excluded", a.colors.Dark)).Clicked() {
+				c.After(func() { a.excludeFromSearch(p, n.path, false) })
+			}
+		}
+
+		if len(rulesState.CustomTypes) > 0 {
+			sub.Separator()
+			sub.Label(i18n.Shared(language, "desktop.directoryMarks.settings.groupCustom"))
+			for _, ct := range rulesState.CustomTypes {
+				customID := ct.ID
+				checked := hasMeta && entry.Role == customID
+				if sub.Item(ct.Name).Icon(a.directoryIconFor(p, ct.Icon)).Checked(checked).Clicked() {
+					c.After(func() { a.setDirectoryRole(p, n.path, customID) })
+				}
+			}
+		}
+
+		if pluginTypes := p.pluginDirectoryTypes(); len(pluginTypes) > 0 {
+			sub.Separator()
+			sub.Label(i18n.Shared(language, "desktop.directoryMarks.settings.groupPlugin"))
+			for _, pt := range pluginTypes {
+				pluginTypeID := pt.ID
+				checked := hasMeta && entry.Role == pluginTypeID
+				if sub.Item(pt.Name).Icon(directoryIcon(pt.Icon, a.colors.Dark)).Checked(checked).Clicked() {
+					c.After(func() { a.setDirectoryRole(p, n.path, pluginTypeID) })
+				}
+			}
+		}
+
+		sub.Separator()
+		sub.Label(i18n.Shared(language, "desktop.directoryMarks.quickColor"))
+		swatches := directoryColorSwatchesFor(language)
+		_, hasColorOverride := rulesState.Colors[n.path]
+		sub.Content(30, func(surface *gfx.Canvas, bounds gfx.Rect, _ gfx.Theme) {
+			const (
+				dotSize = float32(16)
+				dotGap  = float32(6)
+				padX    = float32(10)
+			)
+			x := bounds.X + padX
+			y := bounds.Y + (bounds.Height-dotSize)/2
+			scope := sub.GetScope()
+			for i, sw := range swatches {
+				hex := sw.hex
+				col, ok := parseHexColor(hex, 0xff)
+				if !ok {
+					continue
+				}
+				rect := gfx.Rect{X: x, Y: y, Width: dotSize, Height: dotSize}
+				id := scope.At(1000 + i)
+				surface.Hit(id, rect)
+				borderWidth := float32(0)
+				borderColor := col
+				if (hasMeta && strings.EqualFold(entry.Color, hex)) || surface.Hovered() == id {
+					borderWidth = 2
+					borderColor = a.colors.Text
+				}
+				surface.RoundedBorder(rect, dotSize/2, borderWidth, borderColor, col)
+				if surface.Clicked(id) {
+					c.After(func() { a.setDirectoryColor(p, n.path, hex) })
+				}
+				x += dotSize + dotGap
+			}
+			if hasColorOverride {
+				rect := gfx.Rect{X: x, Y: y, Width: dotSize, Height: dotSize}
+				id := scope.At(1000 + len(swatches))
+				surface.Hit(id, rect)
+				surface.RoundedBorder(rect, dotSize/2, 1, a.colors.Line, gfx.Color{})
+				iconRect := gfx.Rect{X: rect.X + 3.5, Y: rect.Y + 3.5, Width: 11, Height: 11}
+				surface.DrawIcon(icons.X, iconRect, a.colors.Subtle)
+				if surface.Clicked(id) {
+					c.After(func() { a.setDirectoryColor(p, n.path, "") })
+				}
+			}
+		})
+
+		sub.Separator()
+		if hasMeta && entry.Source == "user" {
+			if entry.AutoFallbackRole != "" {
+				fallbackLabel := directoryRoleDisplayName(language, entry.AutoFallbackRole, rulesState.CustomTypes)
+				if sub.Item(i18n.SharedFormat(language, "desktop.directoryMarks.restoreAuto", map[string]string{"value": fallbackLabel})).Icon(icons.RotateCcw).Clicked() {
+					c.After(func() { a.clearDirectoryMark(p, n.path) })
+				}
+			} else {
+				if sub.Item(i18n.Shared(language, "desktop.directoryMarks.clearMark")).Icon(icons.X).Clicked() {
+					c.After(func() { a.clearDirectoryMark(p, n.path) })
+				}
+			}
+		}
+		if sub.Item(i18n.Shared(language, "desktop.directoryMarks.openSettings")).Icon(icons.Settings).Clicked() {
+			c.After(func() { a.openDirectoryMarksSettings() })
+		}
+	})
 }

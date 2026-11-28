@@ -1,10 +1,12 @@
 package pluginpkg
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/installedpackagetest"
 )
@@ -227,6 +229,37 @@ func TestSweepRemovesLeftoversAndKeepsInstalledPackages(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	acquire := func() func() {
+		t.Helper()
+		release, err := ProtectStaging(ctx, root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		finish := func() {
+			t.Helper()
+			if release != nil {
+				if err := release(); err != nil {
+					t.Error(err)
+				}
+				release = nil
+			}
+		}
+		t.Cleanup(finish)
+		return finish
+	}
+	first, second := acquire(), acquire()
+	first()
+	if err := Sweep(root); err != nil {
+		t.Fatal(err)
+	}
+	for _, directory := range leftovers {
+		if _, err := os.Stat(filepath.Join(directory, "leftover")); err != nil {
+			t.Fatalf("sweep removed an in-use file: %v", err)
+		}
+	}
+	second()
 	if err := Sweep(root); err != nil {
 		t.Fatalf("sweep: %v", err)
 	}
@@ -242,8 +275,12 @@ func TestSweepRemovesLeftoversAndKeepsInstalledPackages(t *testing.T) {
 }
 
 func TestSweepAcceptsAnEmptyRoot(t *testing.T) {
-	if err := Sweep(t.TempDir()); err != nil {
+	root := t.TempDir()
+	if err := Sweep(root); err != nil {
 		t.Fatalf("sweep: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, stagingSweepLock)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("startup wrote a lock without any files to sweep: %v", err)
 	}
 	if err := Sweep("relative"); !errors.Is(err, ErrUnsafePath) {
 		t.Fatalf("err = %v", err)
@@ -265,6 +302,18 @@ func TestInstallLeavesTheInstalledPackageUnchanged(t *testing.T) {
 	if err := Sweep(root); err != nil {
 		t.Fatal(err)
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	release, err := ProtectStaging(ctx, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := release(); err != nil {
+			t.Error(err)
+		}
+	}()
+	installedpackagetest.Outside(t, filepath.Join(root, stagingSweepLock))
 	staging, err := NewStaging(root)
 	if err != nil {
 		t.Fatal(err)

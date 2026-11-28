@@ -194,8 +194,8 @@ func (a *App) openProjectMenu() {
 	var buf [chromeMenuRecents]int
 	for _, i := range a.menuRecents(&buf) {
 		// A folder that is gone has no branch to read, and the menu shows it faded.
-		if path := a.recent[i].Path; !a.missing[path] {
-			a.loadMenuBranch(path)
+		if entry := a.recent[i]; entry.Remote == nil && !a.missing[entry.Path] {
+			a.loadMenuBranch(entry.Path)
 		}
 	}
 }
@@ -251,7 +251,7 @@ func (a *App) menuRecents(buf *[chromeMenuRecents]int) []int {
 		if n == len(buf) {
 			break
 		}
-		if a.recent[i].Path != a.project.root {
+		if !recentIsOpen(a.recent[i], a.project) {
 			buf[n] = i
 			n++
 		}

@@ -386,7 +386,15 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # Lithe-core-rust main at c269c411 (#201): built-in rainbow bracket/variable colors,
 # indent guide preferences, and Unicode whole-identifier document highlights.
 # Lithe-core-rust main at 2b0a391c (#207): global executable settings for system-command debug adapters.
-PINNED_CORE_REVISION="3b610f59328e741d1368a63bd5bbbbeefbb62eab"
+# Lithe-core-rust main at 6a644acd (#209): polled MCP requests carry their remaining
+# enqueue budget so the workbench can enforce the deadline for each window action.
+# Lithe-core-rust main at ed924028 (#205): recent project pin order, tags, remote identities and filtering.
+# Lithe-core-rust main at d069224d (#210): extends workspace directory rules with built-in
+# test/generated roles, user-defined custom folder types, custom SVG icons, quick color
+# overrides, and workspace.resolveDirectoryPresentation.
+# Core #215 (63932f9) provides plugin directory types and marks.
+# Core #213 adds deferred empty-directory probes for the project tree.
+PINNED_CORE_REVISION="f0d0ff8dd9b3f93094b83965611e4f9acfd0d1de"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

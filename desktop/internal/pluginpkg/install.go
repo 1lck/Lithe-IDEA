@@ -1,6 +1,7 @@
 package pluginpkg
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -8,6 +9,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/filelock"
 )
 
 const (
@@ -16,6 +19,7 @@ const (
 	// plugin, which is also why a plugin ID may not start with one.
 	stagingDirectory = ".staging"
 	trashDirectory   = ".trash"
+	stagingSweepLock = ".staging-sweep.lock"
 	// StateDirectory is where the programs of installed plugins keep their
 	// writable state, one directory per plugin ID; see RemoveState.
 	StateDirectory = ".state"
@@ -44,19 +48,55 @@ type Installed struct {
 	Path string
 }
 
-// Sweep removes what an interrupted install or uninstall left behind.
+// ProtectStaging holds the temporary package directories against startup
+// cleanup. Keep the lock from before creating any files until publication or
+// cleanup. Other installations can still prepare their own directories.
+func ProtectStaging(ctx context.Context, root string) (func() error, error) {
+	if err := checkRoot(root); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return nil, err
+	}
+	return filelock.AcquireShared(ctx, filepath.Join(root, stagingSweepLock))
+}
+
+// Sweep removes what an interrupted install or uninstall left behind when
+// no operation in any desktop process is using the temporary directories.
 //
 // Nothing else cleans the staging and trash areas: a process killed mid-install, or
-// a delete that failed, leaves a complete extracted package there. Call it before
-// any installation can start, so it never races one.
-func Sweep(root string) error {
+// a delete that failed, leaves a complete extracted package there. A busy
+// sweep waits for a later process startup rather than blocking this one.
+func Sweep(root string) (err error) {
 	if err := checkRoot(root); err != nil {
 		return err
 	}
+	var release func() error
+	defer func() {
+		if release != nil {
+			err = errors.Join(err, release())
+		}
+	}()
 	var failures []error
 	for _, name := range []string{stagingDirectory, trashDirectory} {
 		directory := filepath.Join(root, name)
 		entries, err := os.ReadDir(directory)
+		if err == nil && len(entries) != 0 && release == nil {
+			release, err = filelock.TryAcquire(filepath.Join(root, stagingSweepLock))
+			if errors.Is(err, filelock.ErrBusy) {
+				return errors.Join(failures...)
+			}
+			if err != nil {
+				return errors.Join(append(failures, err)...)
+			}
+			// An owner may have created, removed or published a package
+			// between the unlocked probe and acquisition.
+			entries, err = os.ReadDir(directory)
+		}
+		// log-exempt: 预期的缺失：插件根目录还没有该临时目录。
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}

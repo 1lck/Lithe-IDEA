@@ -56,6 +56,8 @@ type SavedRemoteConnection struct {
 	Name string `json:"name"`
 	// Connection is how to reach the host.
 	Connection SSHConnection `json:"connection"`
+	// TargetFingerprint changes when the saved SSH destination or route changes.
+	TargetFingerprint string `json:"targetFingerprint"`
 	// Color is the entry's accent color; empty for none.
 	Color RemoteConnectionColor `json:"color,omitempty"`
 	// Group is the group the entry is listed under; empty for none.

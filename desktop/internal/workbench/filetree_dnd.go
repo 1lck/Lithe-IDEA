@@ -101,6 +101,7 @@ func (a *App) moveTreeItem(p *project, rel, dir string) {
 			return
 		}
 		a.moveOpenDocuments(p, oldFull, newFull)
+		a.relocateDirectoryRules(p, rel, path.Join(dir, path.Base(rel)))
 		a.listTree(p, path.Dir(rel))
 		a.listTree(p, dir)
 		a.loadGit(p)
@@ -160,6 +161,9 @@ func (a *App) treePaste(p *project, n *treeNode) {
 				failed = err
 			} else {
 				a.moveOpenDocuments(p, src, dst)
+				if dstRel, rerr := filepath.Rel(p.root, dst); rerr == nil {
+					a.relocateDirectoryRules(p, rel, filepath.ToSlash(dstRel))
+				}
 			}
 			continue
 		}

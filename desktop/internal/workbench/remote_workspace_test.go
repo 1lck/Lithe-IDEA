@@ -47,6 +47,8 @@ type remoteHostKernel struct {
 	mu sync.Mutex
 	// refuse is the status the next connections end with; "" connects.
 	refuse core.RemoteProbeStatus
+	// sshHost overrides the default reachable fixture host.
+	sshHost string
 	// state is the heartbeat's answer; once, when set, is the next heartbeat's alone.
 	state    error
 	once     error
@@ -174,7 +176,11 @@ func (k *remoteHostKernel) RemoteConnect(_ context.Context, request core.RemoteC
 	if request.WSL != nil {
 		return k.wsl.connect(k.connects, request)
 	}
-	if request.Connection.Host != remoteTestHost {
+	expectedHost := k.sshHost
+	if expectedHost == "" {
+		expectedHost = remoteTestHost
+	}
+	if request.Connection.Host != expectedHost {
 		return core.RemoteConnectResult{Status: core.RemoteProbeUnreachable}, nil
 	}
 	if k.refuse != "" {
@@ -469,7 +475,7 @@ func TestRemoteWorkspaceOpensTheChosenFolder(t *testing.T) {
 	}
 	entry := savedRemoteConnections(t, h)[0]
 	anchor, _ := h.app.remoteAnchor()
-	if want := remoteplaceholder.Root(anchor, entry.ID, remoteTestHome+"/project"); p.root != want {
+	if want := remoteplaceholder.Root(anchor, entry.ID+"/"+entry.TargetFingerprint, remoteTestHome+"/project"); p.root != want {
 		t.Fatalf("root %q, want the placeholder %q", p.root, want)
 	}
 	if !slices.Equal(entry.RecentFolders, []string{remoteTestHome + "/project"}) {

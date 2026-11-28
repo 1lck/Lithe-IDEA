@@ -21,9 +21,9 @@ const ideAPIPollInterval = 200 * time.Millisecond
 // ideAPICallTimeout bounds validation, dispatch and the reply to the broker.
 const ideAPICallTimeout = 10 * time.Second
 
-// The pinned broker expires requests 120 seconds after enqueue. Polls from that
-// revision omit the remaining budget, so use the last known empty queue as a lower
-// bound on enqueue time. Newer brokers report each request's actual budget.
+// Older brokers expire requests 120 seconds after enqueue but omit the remaining
+// budget from poll. Local builds using those revisions use the last known empty
+// queue as a lower bound on enqueue time. The pinned broker supplies the budget.
 const ideAPIBrokerTimeout = 120 * time.Second
 
 // ideAPIStopTimeout bounds how long closing waits for the loop before it still

@@ -338,22 +338,20 @@ func (a *App) applyLegacyImport() {
 }
 
 func (a *App) finishLegacyImport(f legacyimport.Found, includeRecent bool, language i18n.Language) {
-	imported := 0
-	if includeRecent {
-		entries := slices.Clone(a.recent)
-		for _, recent := range f.Recent {
-			entries = append(entries, core.RecentProject{Path: recent.Path, LastOpenedAt: recent.OpenedAt})
-		}
-		before := len(a.recent)
-		a.reduceRecent(entries, core.NormalizeRecent(), true)
-		if err := a.verifyRecentSaved(); err != nil {
-			a.operationFailed("settings_import_legacy_recent", err)
-			a.notifyError(i18n.SharedFormat(language, "desktop.legacyImport.failed", map[string]string{"error": err.Error()}))
+	if !includeRecent {
+		a.notifySuccess(i18n.SharedFormat(language, "desktop.legacyImport.done", map[string]string{"recent": "0"}))
+		return
+	}
+	entries := make([]core.RecentProject, 0, len(f.Recent))
+	for _, recent := range f.Recent {
+		entries = append(entries, core.RecentProject{Path: recent.Path, LastOpenedAt: recent.OpenedAt})
+	}
+	a.changeRecent(core.ImportRecentEntries(entries), func(result core.RecentProjectsResult, err error) {
+		if err != nil {
 			return
 		}
-		imported = max(len(a.recent)-before, 0)
-	}
-	a.notifySuccess(i18n.SharedFormat(language, "desktop.legacyImport.done", map[string]string{"recent": strconv.Itoa(imported)}))
+		a.notifySuccess(i18n.SharedFormat(a.language(), "desktop.legacyImport.done", map[string]string{"recent": strconv.Itoa(len(result.Added))}))
+	})
 }
 
 // legacyFonts puts the chosen earlier fonts in front of the current list, each for its
@@ -380,15 +378,6 @@ func legacyFonts(current []fontprefs.Font, f legacyimport.Found, editor, termina
 		return nil, false
 	}
 	return append(fonts, current...), true
-}
-
-// verifyRecentSaved reads the recent project file back and compares it with the list in use.
-func (a *App) verifyRecentSaved() error {
-	var stored []core.RecentProject
-	if _, err := a.store.Load(recentFile, &stored); err != nil {
-		return err
-	}
-	return sameJSON(stored, a.recent)
 }
 
 func sameJSON(stored, current any) error {

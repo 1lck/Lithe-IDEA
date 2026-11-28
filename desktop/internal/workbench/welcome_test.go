@@ -42,7 +42,7 @@ func TestWelcomeTitleAndVersionMatchWindowChrome(t *testing.T) {
 
 func TestWelcomeSearchAndSettingsRemainReachableAtWindowSizes(t *testing.T) {
 	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
-	h.app.recent = []core.RecentProject{{Path: "/projects/alpha"}, {Path: "/projects/beta"}}
+	h.seedRecent([]core.RecentProject{{Path: "/projects/alpha"}, {Path: "/projects/beta"}})
 	if !h.shows("Welcome to Lithe") {
 		t.Fatal("the localized welcome window title is not shown")
 	}
@@ -120,8 +120,7 @@ func TestWelcomeProjectMenuRevealsExistingAndKeepsMissingEntryRemovable(t *testi
 	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
 	dir := t.TempDir()
 	missing := filepath.Join(t.TempDir(), "missing")
-	h.app.recent = []core.RecentProject{{Path: dir}, {Path: missing}}
-	h.app.missing[missing] = true
+	h.seedRecent([]core.RecentProject{{Path: dir}, {Path: missing}})
 	if err := h.driver.Resize(900, 600); err != nil {
 		t.Fatal(err)
 	}
@@ -144,6 +143,7 @@ func TestWelcomeProjectMenuRevealsExistingAndKeepsMissingEntryRemovable(t *testi
 		}
 	}
 	h.clickNamed(h.app.text.Welcome.MenuRemove)
+	h.settle()
 	if len(h.app.recent) != 1 || h.app.recent[0].Path != dir {
 		t.Fatalf("remaining entries = %v", h.app.recent)
 	}
@@ -155,7 +155,7 @@ func TestWelcomeRevealFailureIsReportedAndLoggedWithoutThePath(t *testing.T) {
 	if err := os.Mkdir(path, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	h.app.recent = []core.RecentProject{{Path: path}}
+	h.seedRecent([]core.RecentProject{{Path: path}})
 	if err := h.driver.Resize(900, 600); err != nil {
 		t.Fatal(err)
 	}
@@ -191,8 +191,7 @@ func TestWelcomeRevealFailureIsReportedAndLoggedWithoutThePath(t *testing.T) {
 func TestWelcomeOpeningMissingProjectOffersToRemoveIt(t *testing.T) {
 	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
 	path := filepath.Join(t.TempDir(), "private-missing-project")
-	h.app.recent = []core.RecentProject{{Path: path}}
-	h.app.missing[path] = true
+	h.seedRecent([]core.RecentProject{{Path: path}})
 	if err := h.driver.Resize(900, 600); err != nil {
 		t.Fatal(err)
 	}
@@ -240,6 +239,7 @@ func TestWelcomeRemoveKeepsRecentEntryWhenSavingFails(t *testing.T) {
 	h.app.logSink = logger
 	h.rightClickRow(path)
 	h.clickNamed(h.app.text.Welcome.MenuRemove)
+	h.settle()
 	if len(h.app.recent) != 1 || h.app.recent[0].Path != path || h.app.notice == "" {
 		t.Fatalf("failed save changed the visible recent list: %#v, notice %q", h.app.recent, h.app.notice)
 	}
@@ -259,7 +259,7 @@ func TestWelcomeRemoveKeepsRecentEntryWhenSavingFails(t *testing.T) {
 func TestWelcomeProjectMenuRemovesOnlyTheChosenRecentEntry(t *testing.T) {
 	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
 	first, second := t.TempDir(), t.TempDir()
-	h.app.recent = []core.RecentProject{{Path: first}, {Path: second}}
+	h.seedRecent([]core.RecentProject{{Path: first}, {Path: second}})
 	if err := h.driver.Resize(900, 600); err != nil {
 		t.Fatal(err)
 	}
@@ -292,6 +292,7 @@ func TestWelcomeProjectMenuRemovesOnlyTheChosenRecentEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.clickNamed(h.app.text.Welcome.MenuRemove)
+	h.settle()
 	if len(h.app.recent) != 1 || h.app.recent[0].Path != first {
 		t.Fatalf("remaining entries = %v", h.app.recent)
 	}
@@ -307,7 +308,7 @@ func TestWelcomeProjectMenuRemovesOnlyTheChosenRecentEntry(t *testing.T) {
 func TestWelcomeProjectMenuIsKeyboardReachable(t *testing.T) {
 	h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{"en-US"})
 	path := t.TempDir()
-	h.app.recent = []core.RecentProject{{Path: path}}
+	h.seedRecent([]core.RecentProject{{Path: path}})
 	if err := h.driver.Resize(900, 600); err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +347,7 @@ func TestWelcomeProjectMenuIsKeyboardReachable(t *testing.T) {
 	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{open, reveal, pin, remove} {
+	for _, want := range []string{open, reveal, pin, h.shared("desktop.welcome.editTags"), remove} {
 		if err := h.driver.Key(gfx.KeyDown, 0); err != nil {
 			t.Fatal(err)
 		}
@@ -357,6 +358,7 @@ func TestWelcomeProjectMenuIsKeyboardReachable(t *testing.T) {
 	if err := h.driver.Key(gfx.KeyEnter, 0); err != nil {
 		t.Fatal(err)
 	}
+	h.settle()
 	if len(h.app.recent) != 0 {
 		t.Fatal("keyboard activation did not remove the recent entry")
 	}

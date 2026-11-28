@@ -44,17 +44,16 @@ testing/
 ./scripts/agent-notes/verify-agent-notes.sh
 ```
 
-本地生成看板：
+本地查看工程看板（Note 加上各仓库的 PR 与 Issue，实时刷新）：
 
 ```bash
-node scripts/agent-notes/build-agent-notes-board.mjs \
-  --bundle .agents/notes .artifacts/agent-notes-board/index.html "Lithe 工程决策看板"
+node scripts/agent-notes/serve-agent-notes-board.mjs --open
 ```
 
-看板是从 Note 生成的只读视图，不要手写或提交生成的 `index.html`。
+看板是从 Note 和 GitHub 数据生成的只读视图，不要手写或提交生成的站点。
 
-在线查看：
+在线查看（每次桌面端发版后更新的快照）：
 
-[工程决策看板](https://1lck.github.io/Lithe-IDEA/)
+[工程看板](https://1lck.github.io/Lithe-IDEA/)
 
 该链接使用 GitHub Pages 默认地址，不依赖项目自有域名。

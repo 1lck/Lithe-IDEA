@@ -29,8 +29,8 @@ func TestProjectMenuRemovesRecentRecordWithoutOpeningOrDeleting(t *testing.T) {
 				}
 			}
 			entries := append([]core.RecentProject{{Path: path, LastOpenedAt: 123}}, h.app.recent...)
-			h.app.reduceRecent(entries, core.NormalizeRecent(), true)
-			h.app.openProjectMenu()
+			h.seedRecent(entries)
+			h.clickNamed(h.app.text.Title.ProjectMenu)
 			h.settle()
 			hit, ok := h.findPageHit(h.app.text.Welcome.MenuRemove)
 			if !ok {
@@ -114,10 +114,10 @@ func TestProjectMenuReadsRecentBranchesWithoutFullGitStatus(t *testing.T) {
 	log := &treeRecordingLog{}
 	h.app.logSink = log
 	t.Cleanup(func() { h.app.logSink = nil })
-	h.app.recent = []core.RecentProject{
+	h.seedRecent([]core.RecentProject{
 		{Path: normal}, {Path: worktree}, {Path: detached}, {Path: invalid}, {Path: missing},
-	}
-	h.app.openProjectMenu()
+	})
+	h.clickNamed(h.app.text.Title.ProjectMenu)
 	h.await("recent menu checkout metadata", func() bool {
 		branches := h.app.title.branches
 		return len(h.app.title.reading) == 0 &&
@@ -191,7 +191,7 @@ func TestProjectMenuDeduplicatesAndDiscardsStaleBranchOnProjectSwitch(t *testing
 	})
 	h := newHarness(t, k)
 	h.open(t.TempDir())
-	h.app.recent = []core.RecentProject{{Path: recent}}
+	h.seedRecent([]core.RecentProject{{Path: recent}})
 	h.app.openProjectMenu()
 	select {
 	case <-k.started:

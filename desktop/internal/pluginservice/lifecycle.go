@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 )
 
 // Uninstall stops what plugin id runs and then removes it, in the order Core
@@ -26,6 +27,11 @@ func (s *Service) Uninstall(ctx context.Context, id string, server *LanguageSess
 	if err := s.stopRuntimePreparations(ctx, id); err != nil {
 		return err
 	}
+	finishStaging, err := pluginpkg.ProtectStaging(ctx, s.Root)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, finishStaging()) }()
 	unlock, err := s.lockPackageChanges(ctx)
 	if err != nil {
 		return err

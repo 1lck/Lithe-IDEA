@@ -45,9 +45,15 @@ func (w *workflowWindow) UpdateProgress(_ context.Context, _ string, update Prog
 	return nil
 }
 func (*workflowWindow) UpdateStatus(context.Context, string, StatusUpdate) error { return nil }
-func (*workflowWindow) ReadClipboard(context.Context) (string, error)            { return "", nil }
-func (*workflowWindow) WriteClipboard(context.Context, string) error             { return nil }
-func (*workflowWindow) RevealResource(context.Context, string) error             { return nil }
+func (*workflowWindow) UpdateDirectoryTypes(context.Context, string, DirectoryTypesUpdate) error {
+	return nil
+}
+func (*workflowWindow) UpdateDirectoryMarks(context.Context, string, DirectoryMarksUpdate) error {
+	return nil
+}
+func (*workflowWindow) ReadClipboard(context.Context) (string, error) { return "", nil }
+func (*workflowWindow) WriteClipboard(context.Context, string) error  { return nil }
+func (*workflowWindow) RevealResource(context.Context, string) error  { return nil }
 func (*workflowWindow) OpenBrowserResource(context.Context, string, string, string) (bool, error) {
 	return false, nil
 }

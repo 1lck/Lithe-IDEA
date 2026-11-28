@@ -81,6 +81,7 @@ type window struct {
 	cli                      cliRegistration
 	associations             associationRegistration
 	searchDraft              searchPreferencesDraft
+	dirMarksDraft            directoryMarksDraft
 	editorDelay              ui.Field
 	editorDelayReady         bool
 	editorPrefsError         string
@@ -560,6 +561,7 @@ func (w *window) collect() {
 	w.changelog.take()
 	w.takeKeymapImport()
 	w.takeSearchPreferences()
+	w.takeDirectoryMarks()
 	w.commands.take()
 	if w.dynamic.take() {
 		w.rowsValid = false
@@ -599,6 +601,9 @@ func (w *window) declareWork(c ui.C) {
 	w.declareCLI(c)
 	w.declareAssociations(c)
 	if d := &w.searchDraft; d.effect != nil && d.work != nil {
+		ui.Effect(c, d.effect, d.work)
+	}
+	if d := &w.dirMarksDraft; d.effect != nil && d.work != nil {
 		ui.Effect(c, d.effect, d.work)
 	}
 	w.toolchains.declare(c)
