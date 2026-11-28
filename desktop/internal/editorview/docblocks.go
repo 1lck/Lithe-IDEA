@@ -1903,15 +1903,6 @@ func (v *View) docMinimapColor() gfx.Color {
 	return gfx.RGB24(0x7A8699)
 }
 
-func (v *View) activeDocBlockContainingLine(line int) int {
-	a := v.docs.active
-	i := sort.Search(len(a), func(k int) bool { return a[k].endLine >= line })
-	if i < len(a) && a[i].startLine <= line && line <= a[i].endLine {
-		return i
-	}
-	return -1
-}
-
 // docBlockSelected reports whether any active editor selection overlaps the
 // source byte span of rendered doc block ab.
 func (v *View) docBlockSelected(ab activeDocBlock, selStart, selEnd int) bool {

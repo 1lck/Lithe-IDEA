@@ -1115,6 +1115,40 @@ func TestDocBlockDragSelectionBoundaryAndHighlight(t *testing.T) {
 	if got := v.text.String(); !strings.HasPrefix(got, "/**\n * First paragraph.\n *\n * Second paragraph.\n */\n") {
 		t.Fatalf("bottom-half drag + Delete mutated doc comment: %q", got)
 	}
+
+	// Double-click (word) and triple-click (line) drags from code ABOVE a rendered Javadoc
+	// into its lower half must stop at the block boundary without overshooting into the
+	// declaration line below.
+	for _, clickCount := range []int{2, 3} {
+		t.Run(fmt.Sprintf("clickCount-%d-downward-no-overshoot", clickCount), func(t *testing.T) {
+			aboveSrc := "package demo;\n/**\n * First paragraph.\n *\n * Second paragraph.\n */\npublic class Demo {}\n"
+			dv, dcanvas := setupSimpleDocView(t, aboveSrc, []DocBlockCandidate{
+				{StartLine: 1, EndLine: 5, ContentHash: 12, ShellKind: "block", Dialect: "javadoc-html"},
+			}, map[uint64]markdown.Document{12: doc}, nil)
+			dcanvas.Reset()
+			dv.Paint(dcanvas, area, look)
+			if len(dv.docs.active) != 1 {
+				t.Fatalf("expected 1 active doc block, got %d", len(dv.docs.active))
+			}
+			dab := dv.docs.active[0]
+			dBlockTop := area.Y + float32(dab.displayStartRow)*dv.lineH - dv.scroll
+			dBlockH := float32(dab.rows) * dv.lineH
+			aboveY := area.Y + dv.lineH*0.5
+			nextLineStart := dv.text.LineStart(dab.endLine + 1)
+
+			dv.Pointer(gfx.PointerEvent{Target: dv.cfg.HitID, Kind: gfx.PointerDown, Button: gfx.PointerButtonPrimary, ClickCount: clickCount, X: dv.textLeft + 10, Y: aboveY})
+			dv.Pointer(gfx.PointerEvent{Target: dv.cfg.HitID, Kind: gfx.PointerMove, Button: gfx.PointerButtonPrimary, X: dv.textLeft + 10, Y: dBlockTop + dBlockH*0.85})
+			dv.Pointer(gfx.PointerEvent{Target: dv.cfg.HitID, Kind: gfx.PointerUp, Button: gfx.PointerButtonPrimary, X: dv.textLeft + 10, Y: dBlockTop + dBlockH*0.85})
+			s, e := dv.Selection()
+			if e != nextLineStart {
+				t.Fatalf("clickCount=%d drag into lower half overshot: sel=[%d,%d), want end=%d (next line start)", clickCount, s, e, nextLineStart)
+			}
+			dv.Key(gfx.KeyEvent{Target: dv.cfg.HitID, Key: gfx.KeyDelete})
+			if got := dv.text.String(); got != "public class Demo {}\n" {
+				t.Fatalf("clickCount=%d Delete removed following code line: got %q, want %q", clickCount, got, "public class Demo {}\n")
+			}
+		})
+	}
 }
 
 func TestDocBlockDuplicateAnchorsPreferOriginBlock(t *testing.T) {

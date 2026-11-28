@@ -533,12 +533,13 @@ func (v *View) Pointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
 		v.columnDrag = false
 		v.dragging = true
 		v.dragUnit = min(max(event.ClickCount, 1), 3)
+		from, to := v.dragUnitAt(event.X, event.Y)
 		if event.Modifiers&gfx.ModifierShift != 0 && v.dragUnit == 1 {
 			v.dragFrom, v.dragTo = v.anchor, v.anchor
 		} else {
-			v.dragFrom, v.dragTo = v.unitAt(offset)
+			v.dragFrom, v.dragTo = from, to
 		}
-		v.dragSelect(offset)
+		v.dragSelect(from, to)
 		v.moved()
 		if v.dragUnit == 1 && mods == 0 {
 			v.rememberBracketClick(event.X, event.Y, offset)
@@ -549,7 +550,7 @@ func (v *View) Pointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
 			v.columnSelect(v.columnStart[0], v.columnStart[1], event.X, event.Y)
 			return handled, true
 		}
-		if v.dragSelect(offset) {
+		if v.dragSelect(v.dragUnitAt(event.X, event.Y)) {
 			v.moved()
 		}
 		return handled, true
@@ -560,16 +561,6 @@ func (v *View) Pointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
 
 // unitAt is the character, word or line at offset, by the unit of the drag.
 func (v *View) unitAt(offset int) (int, int) {
-	if v.dragUnit >= 2 && v.hasActiveDocBlocks() {
-		if idx := v.activeDocBlockContainingLine(v.text.LineOf(offset)); idx >= 0 {
-			ab := v.docs.active[idx]
-			end := v.lineEnd(ab.endLine)
-			if ab.endLine+1 < v.text.LineCount() {
-				end = v.text.LineStart(ab.endLine + 1)
-			}
-			return v.text.LineStart(ab.startLine), end
-		}
-	}
 	switch v.dragUnit {
 	case 2:
 		return v.clickedWordAt(offset)
@@ -579,10 +570,20 @@ func (v *View) unitAt(offset int) (int, int) {
 	return offset, offset
 }
 
-// dragSelect selects from the unit the drag started on to the unit at offset
+// dragUnitAt resolves the drag endpoint unit (from, to) at pointer position (x, y).
+// Hits on an active rendered doc block stay on the block's top/bottom boundary
+// instead of expanding into a word or line on the adjacent source line.
+func (v *View) dragUnitAt(x, y float32) (int, int) {
+	off, inDocBlock := v.offsetAtWithKind(x, y)
+	if inDocBlock {
+		return off, off
+	}
+	return v.unitAt(off)
+}
+
+// dragSelect selects from the unit the drag started on to the target unit (from, to)
 // and reports whether the selection changed.
-func (v *View) dragSelect(offset int) bool {
-	from, to := v.unitAt(offset)
+func (v *View) dragSelect(from, to int) bool {
 	if from < v.dragFrom {
 		from, to = v.dragTo, from
 	} else {
@@ -596,6 +597,11 @@ func (v *View) dragSelect(offset int) bool {
 
 // offsetAt is the offset of the character edge nearest the point (x, y).
 func (v *View) offsetAt(x, y float32) int {
+	off, _ := v.offsetAtWithKind(x, y)
+	return off
+}
+
+func (v *View) offsetAtWithKind(x, y float32) (int, bool) {
 	lineH := max(v.lineH, 1)
 	row := int((y - v.area.Y + v.scroll) / lineH)
 	row = min(max(row, 0), v.rowCount()-1)
@@ -606,14 +612,14 @@ func (v *View) offsetAt(x, y float32) int {
 		blockMid := blockTop + float32(ab.rows)*lineH*0.5
 		if y >= blockMid {
 			if ab.endLine+1 < v.text.LineCount() {
-				return v.text.LineStart(ab.endLine + 1)
+				return v.text.LineStart(ab.endLine + 1), true
 			}
-			return v.lineEnd(ab.endLine)
+			return v.lineEnd(ab.endLine), true
 		}
-		return v.text.LineStart(ab.startLine)
+		return v.text.LineStart(ab.startLine), true
 	}
 	cells := (x - v.textLeft + v.scrollX) / max(v.cellW, 1)
-	return v.text.LineStart(dr.line) + v.columnOnRow(dr.line, dr.sub, max(cells, 0))
+	return v.text.LineStart(dr.line) + v.columnOnRow(dr.line, dr.sub, max(cells, 0)), false
 }
 
 // Scroll scrolls the text with the wheel or the trackpad: up and down, and sideways with a
