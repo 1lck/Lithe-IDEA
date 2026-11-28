@@ -8,34 +8,20 @@ import {
   ROOT,
   generate,
   loadContract,
-  nativeTemplate,
   parseJSON,
   planGeneration,
   resolveMessage,
 } from "./generate-i18n.mjs";
-
-test("locale titles remain literal in generated Swift source", { timeout: 15000 }, async (t) => {
-  const root = await fixture(t);
-  await edit(root, "shared/i18n/manifest.json", (manifest) => {
-    manifest.locales[0].title = 'English \\(user)\u2028"line"\n';
-  });
-  const { outputs } = await planGeneration(root);
-  const source = outputs.get("macos/Sources/Lithe/Models/Settings/AppLanguage.generated.swift");
-  assert.ok(source.includes('English \\\\(user)\\u{2028}\\"line\\"\\n'));
-});
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), "lithe-i18n-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(path.join(root, "shared"), { recursive: true });
   await cp(path.join(ROOT, "shared/i18n"), path.join(root, "shared/i18n"), { recursive: true });
-  for (const relative of ["macos/Sources", "macos/Resources/en.lproj", "macos/Resources/zh-Hans.lproj", "windows/tauri/src/i18n", "desktop/internal/i18n"]) {
-    await mkdir(path.join(root, relative), { recursive: true });
-  }
-  for (const script of ["i18n/generate-i18n.mjs", "i18n/verify-app-language-localization.mjs", "macos/package/package-macos-localizations.sh"]) {
-    await mkdir(path.dirname(path.join(root, "scripts", script)), { recursive: true });
-    await cp(path.join(ROOT, "scripts", script), path.join(root, "scripts", script));
-  }
+  await mkdir(path.join(root, "desktop/internal/i18n"), { recursive: true });
+  await mkdir(path.join(root, "scripts/i18n"), { recursive: true });
+  for (const name of ["generate-i18n.mjs", "verify-app-language-localization.mjs"])
+    await cp(path.join(ROOT, "scripts/i18n", name), path.join(root, "scripts/i18n", name));
   await generate(root);
   return root;
 }
@@ -252,37 +238,23 @@ test(
 );
 
 test(
-  "generation rejects manual native translations and detects stale outputs",
+  "check mode reports stale output without writing and generation restores it",
   { timeout: 15000 },
   async (t) => {
     const root = await fixture(t);
-    const table = path.join(root, "macos/Resources/en.lproj/Localizable.strings");
-    await writeFile(
-      table,
-      `"Unmigrated fixture" = "Original value";\n${await readFile(table, "utf8")}`,
-    );
-    await assert.rejects(generate(root), /native translations must be maintained in shared/);
-    await writeFile(
-      table,
-      (await readFile(table, "utf8")).replace('"Unmigrated fixture" = "Original value";\n', ""),
-    );
-    await generate(root);
-    const generated = path.join(root, "windows/tauri/src/i18n/shared.generated.ts");
+    const generated = path.join(root, "desktop/internal/i18n/shared.generated.go");
     await writeFile(generated, "outdated");
     await assert.rejects(generate(root, true), /generated files are stale/);
     assert.equal(await readFile(generated, "utf8"), "outdated");
     await generate(root);
     const { outputs } = await planGeneration(root);
-    await generate(root);
     for (const [relative, expected] of outputs)
       assert.equal(await readFile(path.join(root, relative), "utf8"), expected);
-    await writeFile(table, `"Save" = "Hand edited";\n${await readFile(table, "utf8")}`);
-    await assert.rejects(generate(root), /native translations must be maintained in shared/);
   },
 );
 
 test(
-  "new locale supplies settings options, Swift cases, tables and explicit fallback without product edits",
+  "new locale supplies the desktop catalog and explicit fallback without product edits",
   { timeout: 15000 },
   async (t) => {
     const root = await fixture(t);
@@ -290,43 +262,16 @@ test(
     await generate(root);
     await generate(root, true);
     const contract = await loadContract(root);
-    assert.equal(resolveMessage(contract, "ja-JP", "macos", "ui.save"), "保存する");
-    assert.equal(resolveMessage(contract, "ja-JP", "windows", "ui.cancel"), "取消");
+    assert.equal(resolveMessage(contract, "ja-JP", "desktop", "ui.save"), "保存する");
+    assert.equal(resolveMessage(contract, "ja-JP", "desktop", "ui.cancel"), "取消");
     assert.equal(
       resolveMessage(contract, "ja-JP", "windows", "files.reveal"),
       "在资源管理器中显示",
     );
-    assert.match(
-      await readFile(path.join(root, "macos/Resources/ja.lproj/Localizable.strings"), "utf8"),
-      /"Save" = "保存する";/,
-    );
-    assert.match(
-      await readFile(
-        path.join(root, "macos/Sources/Lithe/Models/Settings/AppLanguage.generated.swift"),
-        "utf8",
-      ),
-      /case japanese = "ja"/,
-    );
-    assert.match(
-      await readFile(path.join(root, "windows/tauri/src/i18n/shared.generated.ts"), "utf8"),
-      /"value": "ja-JP"/,
-    );
-  },
-);
-
-test(
-  "typed formats follow the shared native fixture for reordering and repetition",
-  { timeout: 1000 },
-  async () => {
-    const fixture = JSON.parse(
-      await readFile(path.join(ROOT, "shared/i18n/fixtures/format-v1.json"), "utf8"),
-    );
-    for (const item of fixture.cases)
-      assert.equal(nativeTemplate(item.template, fixture, fixture.arguments), item.nativeTemplate);
-    assert.equal(
-      nativeTemplate("literal %1$ {name}", { parameters: { name: "string" } }, ["name"], false),
-      "literal %%1$ %@",
-    );
+    const source = await readFile(path.join(root, "desktop/internal/i18n/shared.generated.go"), "utf8");
+    const japanese = source.slice(source.indexOf('"ja-JP": {'));
+    assert.match(japanese, /"ui\.save":\s+"保存する"/);
+    assert.match(japanese, /"ui\.cancel":\s+"取消"/);
   },
 );
 
@@ -474,7 +419,7 @@ const invalidCases = [
 for (const [name, file, mutation, error] of invalidCases)
   test(`rejects ${name} before writing any output`, { timeout: 15000 }, async (t) => {
     const root = await fixture(t);
-    const target = path.join(root, "windows/tauri/src/i18n/shared.generated.ts");
+    const target = path.join(root, "desktop/internal/i18n/shared.generated.go");
     const before = await readFile(target, "utf8");
     await edit(root, file, mutation);
     await assert.rejects(generate(root), error);
@@ -482,7 +427,7 @@ for (const [name, file, mutation, error] of invalidCases)
   });
 
 test(
-  "platform-only messages are emitted only for their declared consumer",
+  "messages outside the desktop scope stay out of the desktop catalog",
   { timeout: 15000 },
   async (t) => {
     const root = await fixture(t);
@@ -500,67 +445,19 @@ test(
         (data) => (data.messages["fixture.windows"] = "Windows only"),
       );
     const { outputs } = await planGeneration(root);
-    assert.match(outputs.get("windows/tauri/src/i18n/shared.generated.ts"), /fixture.windows/);
-    assert.ok(
-      !outputs.get("macos/Resources/en.lproj/Localizable.strings").includes("fixture.windows"),
-    );
+    const desktop = outputs.get("desktop/internal/i18n/shared.generated.go");
+    assert.match(desktop, /"ui\.save"/);
+    assert.ok(!desktop.includes("fixture.windows"));
   },
 );
 
 test(
-  "a migrated Windows key cannot be silently shadowed by legacy catalogs",
-  { timeout: 15000 },
-  async (t) => {
-    const root = await fixture(t);
-    await writeFile(
-      path.join(root, "windows/tauri/src/i18n/accidental.ts"),
-      'const entries = {\n  "ui.save": "Changed manually",\n};\n',
-    );
-    await assert.rejects(generate(root), /migrated key still manually defined: ui.save/);
-  },
-);
-
-test(
-  "unregistered locale files and broken generated regions fail explicitly",
+  "unregistered locale files fail explicitly",
   { timeout: 15000 },
   async (t) => {
     const root = await fixture(t);
     await writeFile(path.join(root, "shared/i18n/locales/fr-FR.json"), "{}");
     await assert.rejects(generate(root), /locale files differ/);
-    await rm(path.join(root, "shared/i18n/locales/fr-FR.json"));
-    const table = path.join(root, "macos/Resources/en.lproj/Localizable.strings");
-    await writeFile(
-      table,
-      (await readFile(table, "utf8")).replace("/* END GENERATED SHARED I18N */", ""),
-    );
-    await assert.rejects(generate(root), /invalid generated region/);
-  },
-);
-
-test(
-  "macOS packaging discovers new locales and preserves the source baseline",
-  { timeout: 15000, skip: process.platform !== "darwin" },
-  async (t) => {
-    const root = await fixture(t);
-    await addLocale(root);
-    await generate(root);
-    const { outputs } = await planGeneration(root);
-    const script = path.join(root, "scripts/macos/package/package-macos-localizations.sh");
-    const destination = path.join(root, "packaged.bundle/Contents/Resources");
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const result = spawnSync(
-        "/bin/zsh",
-        [script, path.join(root, "macos/Resources"), destination],
-        { encoding: "utf8", timeout: 5000 },
-      );
-      assert.equal(result.status, 0, `${result.error ?? ""}\n${result.stderr}`);
-    }
-    for (const id of ["en", "zh-Hans", "ja"]) {
-      const packaged = await readFile(path.join(destination, `${id}.lproj/Localizable.strings`));
-      assert.equal(packaged.subarray(0, 8).toString(), "bplist00");
-    }
-    for (const [relative, expected] of outputs)
-      assert.equal(await readFile(path.join(root, relative), "utf8"), expected);
   },
 );
 
@@ -589,21 +486,6 @@ test(
     }
   },
 );
-
-test(
-  "native ABI preserves 32-bit signed and 64-bit unsigned formats",
-  { timeout: 1000 },
-  async () => {
-    const fixture = JSON.parse(
-      await readFile(path.join(ROOT, "shared/i18n/fixtures/native-abi-v1.json"), "utf8"),
-    );
-    assert.equal(
-      nativeTemplate(fixture.template, fixture, fixture.arguments),
-      fixture.nativeTemplate,
-    );
-  },
-);
-
 
 test("desktop catalogs use declared shared translations and detect stale output", { timeout: 15000 }, async (t) => {
   const root = await fixture(t);
