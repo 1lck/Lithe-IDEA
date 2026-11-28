@@ -728,6 +728,7 @@ func (a *App) changeIndexingRules(p *project, reduce func(context.Context, json.
 	hideBgTint := p.indexing.hideBgTint
 	hideTags := p.indexing.hideTags
 	expectedFP := p.indexing.configFingerprint
+	p.tree.beginWrite()
 	a.background(p, kernelCallTimeout, func(ctx context.Context) func(*App) {
 		changed, next, err := reduce(ctx, rules)
 		var newFP string
@@ -759,6 +760,7 @@ func (a *App) changeIndexingRules(p *project, reduce func(context.Context, json.
 			}
 		}
 		return func(a *App) {
+			defer p.tree.endWrite()
 			if err != nil {
 				a.notifyError(i18n.SharedFormat(a.language(), "desktop.files.excludeFailed", map[string]string{"reason": reviewReason(err)}))
 				a.operationFailed("workspace_exclude", err)

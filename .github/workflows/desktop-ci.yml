@@ -340,7 +340,7 @@ jobs:
           LITHE_VISUAL_OUTPUT_DIR: ${{ github.workspace }}/.artifacts/project-tree-visual
         run: |
           ./scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/workbench \
-            -run '^(TestVisualProjectTreeMissingFile|TestVisualProjectTreeLargeDirectory)$' -count=1 -timeout=120s
+            -run '^TestVisualProjectTree(MissingFile|LargeDirectory|CoreRenameRefusal)$' -count=1 -timeout=120s
 
       - name: Upload project tree screenshots
         if: ${{ !cancelled() && steps.project-tree-visual.outcome == 'success' }}

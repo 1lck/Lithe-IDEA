@@ -51,11 +51,12 @@ type fileTree struct {
 	anchor  string
 	targets []string
 	// removal is the Delete dialog, open while the user chooses between the trash and deleting
-	// for good (filetree_batch.go). removing counts the confirmed roots still being deleted;
-	// removalWaiters are close callbacks waiting for those writes to finish.
-	removal        treeRemoval
-	removing       map[string]int
-	removalWaiters []func()
+	// for good (filetree_batch.go). removing guards the roots of confirmed deletions.
+	removal  treeRemoval
+	removing map[string]int
+	// Project close waits for filesystem and metadata writes, not refreshes or reads.
+	pendingWrites int
+	writeWaiters  []func()
 	// rowRefs maps the identity of each row the last paint declared (view.RowID, which the row's
 	// name labels) to its node, so a drag or drop finds the paths it names (filetree_dnd.go);
 	// clip is the cut or copied items.
