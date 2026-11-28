@@ -320,8 +320,10 @@ func TestClosingAnIntegratedBashHangsUpTheWholeJob(t *testing.T) {
 // hangup instead of remaining stopped forever.
 func TestClosingAnIntegratedBashHangsUpAStoppedJob(t *testing.T) {
 	s := startHangupShell(t, "bash", nil)
-	s.run("sleep 300 & job=$(jobs -p); echo job=$job; kill -STOP $job\r", 1, "\r\njob=")
+	// Let the child stop itself after startup, then wait for Bash to report it as stopped.
+	s.run("sh -c 'kill -STOP $$; exec sleep 300' & echo job=$!\r", 1, "\r\njob=")
 	job := jobOf(t, s.output)
+	s.run("wait %1; echo stopped=$(jobs -sp %1)\r", 1, "stopped="+strconv.Itoa(job)+"\r\n")
 
 	closeAndAwaitEnd(t, s.shell)
 	awaitProcessEnd(t, job)
