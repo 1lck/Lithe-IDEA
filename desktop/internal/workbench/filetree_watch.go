@@ -167,6 +167,9 @@ func (a *App) resyncTreeListings(p *project) {
 		if n == nil || !n.dir || (!n.expanded && !n.empty) {
 			return
 		}
+		if invalidateCollapsedEmpty(n) {
+			return
+		}
 		paths = append(paths, n.path)
 		for _, child := range n.children {
 			collect(child)
@@ -174,6 +177,16 @@ func (a *App) resyncTreeListings(p *project) {
 	}
 	collect(p.tree.root)
 	a.listTree(p, paths...)
+}
+
+// A lost or ambiguous change makes an empty result unknown. A later click resolves it.
+// An in-flight listing must instead be queued again so its older result is discarded.
+func invalidateCollapsedEmpty(n *treeNode) bool {
+	if !n.empty || n.expanded || n.loading {
+		return false
+	}
+	n.empty, n.listed = false, false
+	return true
 }
 
 func (a *App) applyFilteredTreeEvents(p *project, names []string) {
@@ -227,7 +240,7 @@ func (a *App) applyFilteredTreeEvents(p *project, names []string) {
 	// Native recursive streams report physical target paths. Loaded linked listings
 	// must refresh too; Core revalidates their canonical boundary and cycles.
 	for name, node := range p.tree.byPath {
-		if node.linked && (node.expanded || node.empty) {
+		if node.linked && (node.expanded || node.empty) && !invalidateCollapsedEmpty(node) {
 			selected[name] = struct{}{}
 		}
 	}

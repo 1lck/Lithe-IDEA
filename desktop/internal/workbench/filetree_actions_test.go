@@ -211,6 +211,7 @@ type expandLimitTreeKernel struct {
 	mu        sync.Mutex
 	fixtures  map[string]core.DirectoryListing
 	requested map[string]bool
+	reads     int
 	maxBatch  int
 }
 
@@ -229,6 +230,7 @@ func (k *expandLimitTreeKernel) ListDirectories(ctx context.Context, root string
 			continue
 		}
 		k.requested[path] = true
+		k.reads++
 		listings = append(listings, listing)
 	}
 	k.mu.Unlock()
@@ -314,11 +316,14 @@ func TestProjectTreeExpandAllBoundsEmptyProbes(t *testing.T) {
 	kernel := &expandLimitTreeKernel{testKernel: &testKernel{Client: core.NewClient()}, fixtures: fixtures, requested: make(map[string]bool)}
 	h := newHarness(t, kernel)
 	p := h.openTree(t, root)
+	// Isolate action reads from the per-directory watcher's registration resyncs.
+	p.remote = &remoteProject{binding: core.NewRemoteWorkspace(root, "/project", nil)}
+	defer func() { p.remote = nil }()
 	h.app.expandProjectTree(p)
 	awaitDocumentState(t, h, func() bool { return !p.tree.expandingAll && treeIdle(p) })
 	kernel.mu.Lock()
 	defer kernel.mu.Unlock()
-	if got := len(kernel.requested); got != treeExpandAllReadLimit {
+	if got := kernel.reads; got != treeExpandAllReadLimit || len(kernel.requested) != got {
 		t.Fatalf("one Expand All read %d empty directories, want %d", got, treeExpandAllReadLimit)
 	}
 }

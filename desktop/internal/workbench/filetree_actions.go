@@ -245,6 +245,11 @@ func (a *App) stepTreeExpandAll(p *project) {
 	}
 	t.expandingAll, t.expandSeen = false, nil
 	if limited {
+		reason := "folder_limit"
+		if t.expandReadsLeft == 0 {
+			reason = "read_limit"
+		}
+		a.operationRejected("project_tree_expand_all", reason)
 		a.notify(i18n.Shared(a.language(), "desktop.project.expandAllIncomplete"))
 	}
 }

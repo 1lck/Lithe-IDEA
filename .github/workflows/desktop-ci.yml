@@ -237,8 +237,8 @@ jobs:
         env:
           LITHE_VISUAL_OUTPUT_DIR: ${{ github.workspace }}/.artifacts/plugin-workflow-visual
         run: |
-          ./scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/workbench \
-            -run '^TestVisualPluginWorkflow$' -count=1 -timeout=90s
+          ./scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/workbench ./internal/settingswindow \
+            -run '^(TestVisualPluginWorkflow|TestVisualAgentPermissions)$' -count=1 -timeout=90s
 
       - name: Upload plugin workflow screenshots
         if: ${{ !cancelled() && steps.plugin-workflow-visual.outcome != 'skipped' }}
@@ -340,7 +340,7 @@ jobs:
           LITHE_VISUAL_OUTPUT_DIR: ${{ github.workspace }}/.artifacts/project-tree-visual
         run: |
           ./scripts/desktop/desktop-go.sh test -tags 'vivahead lithevisual' ./internal/workbench \
-            -run '^TestVisualProjectTreeMissingFile$' -count=1 -timeout=120s
+            -run '^(TestVisualProjectTreeMissingFile|TestVisualProjectTreeLargeDirectory)$' -count=1 -timeout=120s
 
       - name: Upload project tree screenshots
         if: ${{ !cancelled() && steps.project-tree-visual.outcome == 'success' }}

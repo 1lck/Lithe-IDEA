@@ -26,7 +26,8 @@ func BenchmarkProjectTreeFirstExpand500(b *testing.B) {
 		h.open(root)
 		h.await("initial root listing", func() bool {
 			tree := &h.app.project.tree
-			return tree.root != nil && tree.root.listed && !tree.reading
+			return tree.root != nil && tree.root.listed && treeIdle(h.app.project) &&
+				(!treeUsesRecursiveWatch() || h.app.project.search.watchReady)
 		})
 		if err := h.driver.Advance(20 * time.Millisecond); err != nil {
 			b.Fatal(err)

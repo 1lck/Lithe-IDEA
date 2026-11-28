@@ -58,3 +58,54 @@ func TestVisualInstalledPermissions(t *testing.T) {
 		})
 	}
 }
+
+func TestVisualAgentPermissions(t *testing.T) {
+	out := os.Getenv("LITHE_VISUAL_OUTPUT_DIR")
+	if out == "" {
+		t.Skip("set LITHE_VISUAL_OUTPUT_DIR to capture agent permissions")
+	}
+	if err := os.MkdirAll(out, 0755); err != nil {
+		t.Fatal(err)
+	}
+	permissions := []string{"agents.run", "agents.native", "agents.sessions.read", "agents.usage.read"}
+	for _, look := range []struct {
+		theme    string
+		language i18n.Language
+	}{{"dark", i18n.Chinese}, {"light", i18n.English}} {
+		t.Run(look.theme, func(t *testing.T) {
+			w, fact, _ := detailFixture(look.language, func(opts *Options) {
+				installed := opts.InstalledPlugins
+				opts.InstalledPlugins = func() []PluginFacts {
+					facts := installed()
+					facts[0].Permissions = permissions
+					return facts
+				}
+			})
+			w.sess.values.Theme = look.theme
+			config := w.config()
+			config.Width, config.Height = 1100, 820
+			session, err := headless.Open(config, nil, headless.Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(session.Close)
+			d := &windowDriver{t: t, w: w, driver: session.Driver()}
+			d.until("marketplace ready", func() bool { return w.market.status == marketReady })
+			w.installed.tab = installedPermissions
+			w.inv.Invalidate()
+			for _, surface := range []string{"installed", "install-review"} {
+				if surface == "install-review" {
+					w.startPluginInstall(fact.Name, false)
+					w.install.review.Store(&pluginInstallReview{version: fact.Version, permissions: permissions})
+					w.inv.Invalidate()
+					d.until("install confirmation", func() bool { return d.text(i18n.Shared(look.language, "desktop.marketplace.confirmInstall")) })
+				}
+				d.pump()
+				d.until("agent usage permission", func() bool { return d.text("agents.usage.read") })
+				if err := session.Screenshot(filepath.Join(out, "agent-permissions-"+surface+"-"+look.language.Code()+"-"+look.theme+".png")); err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
+	}
+}

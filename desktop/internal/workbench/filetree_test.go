@@ -772,8 +772,19 @@ func TestProjectTreeRefreshesCollapsedEmptyLinkOnTargetEvent(t *testing.T) {
 	p.tree.reading = true // Inspect the next batch before any filesystem I/O.
 	a := &App{}
 	a.applyFilteredTreeEvents(p, []string{"target/new.txt"})
-	if p.tree.pending["alias"] != alias {
-		t.Fatal("physical target change did not queue the empty alias for refresh")
+	if alias.empty || alias.listed || p.tree.pending["alias"] != nil {
+		t.Fatal("target change should make the alias expandable without reading it")
+	}
+}
+
+func TestProjectTreeResyncInvalidatesCollapsedEmptyWithoutReading(t *testing.T) {
+	child := &treeNode{path: "empty", dir: true, listed: true, empty: true}
+	p := &project{remote: &remoteProject{}}
+	p.tree.root = &treeNode{dir: true, expanded: true, children: []*treeNode{child}}
+	p.tree.reading = true
+	(&App{}).resyncTreeListings(p)
+	if child.listed || child.empty || len(p.tree.pending) != 1 || p.tree.pending[""] != p.tree.root {
+		t.Fatal("resync should queue only the open root and invalidate its empty child")
 	}
 }
 
