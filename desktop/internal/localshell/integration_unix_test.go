@@ -436,7 +436,7 @@ func assertJobSurvived(t *testing.T, pid int) {
 	defer cancel()
 	status, err := jobState(ctx, pid)
 	if err != nil || status == "" || strings.HasPrefix(status, "Z") {
-		t.Fatalf("the job %d did not survive the closed terminal: state=%q, err=%v", pid, state, err)
+		t.Fatalf("the job %d did not survive the closed terminal: state=%q, err=%v", pid, status, err)
 	}
 }
 
