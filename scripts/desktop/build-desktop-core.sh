@@ -404,7 +404,11 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # session reads (agentSessions.list's sessionID and readBytes, agentSessions.read's end), command
 # installers for agent CLIs (requirements' "agent" consumers), and the IDE connection's read-only
 # agent session tools (lithe_sessions_search and lithe_sessions_read).
-PINNED_CORE_REVISION="7fd652af4b969819ed24da9e07bed4cf164fc0b0"
+# Lithe-core-rust #219 head 1a1c97dd (draft; re-pin to its main commit once merged):
+# agentSessions.list filters by directories (cwdUnder) and orders by start, answers the whole
+# list's total and per-directory groups (counts), and gives each session its message and subagent
+# counts, main model and last message range for the agent history view.
+PINNED_CORE_REVISION="1a1c97dd2fbc834ec3c2b9ee327ca25ff06935f4"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

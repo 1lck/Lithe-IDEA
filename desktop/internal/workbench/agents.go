@@ -3,6 +3,7 @@ package workbench
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -40,10 +41,6 @@ const (
 	agentSyncTimeout = 2 * time.Minute
 	// agentEventLimit is the most events one read takes.
 	agentEventLimit = 256
-	// agentHistoryLimit is the most recorded sessions the History tab lists.
-	agentHistoryLimit = 200
-	// agentSearchLimit is the most search hits the History tab lists.
-	agentSearchLimit = 100
 	// maxAgentConversations bounds the conversations a window keeps, live or ended; Core bounds
 	// the live ones of each agent.
 	maxAgentConversations = 8
@@ -152,25 +149,6 @@ func (conversation *agentConversation) pruneSelections() {
 	}
 }
 
-// agentHistory is the History tab: the recorded sessions of the agents the user lets Lithe
-// read, or the hits of a search.
-type agentHistory struct {
-	query string
-	// everywhere lists the sessions of every directory, not only the project's.
-	everywhere bool
-	loading    bool
-	loaded     bool
-	// generation discards the answer of a load a newer one replaced.
-	generation uint64
-	sessions   []agents.RecordedSession
-	hits       []agents.SearchHit
-	searched   bool
-	failure    string
-	list       ui.ListState
-	// record is the recorded session shown in place of the list, nil when the list shows.
-	record *agentRecord
-}
-
 // agentCatalogResult is what a configuration found, handed to the window thread. Stale
 // reports that a later configuration reached Core first, so this one changed nothing.
 type agentCatalogResult struct {
@@ -210,6 +188,7 @@ func (a *App) configureAgents(ctx context.Context, snapshot pluginservice.Instal
 	}
 	a.agentConfigureDone = ticket.generation
 	plugins, readErr := snapshot.AgentPlugins()
+	a.readAgentIcons(ctx, plugins)
 	configured, err := kernel.Configure(ctx, agentConfiguration(plugins, ticket.consent))
 	result := agentCatalogResult{configured: configured, plugins: plugins, err: errors.Join(readErr, err)}
 	if err == nil && slices.ContainsFunc(configured.Agents, func(agent agents.CatalogAgent) bool { return agent.ReadsSessions }) {
@@ -220,6 +199,19 @@ func (a *App) configureAgents(ctx context.Context, snapshot pluginservice.Instal
 		result.err = errors.Join(result.err, configErr)
 	}
 	return result
+}
+
+// readAgentIcons reads the package icons the agents of the plugins declare, off the window
+// thread, so a row draws them from memory; a broken icon is reported once and the row keeps the
+// generic one.
+func (a *App) readAgentIcons(ctx context.Context, plugins []pluginservice.AgentPlugin) {
+	for _, plugin := range plugins {
+		for _, declaration := range plugin.Icons {
+			if err := a.pluginIcons.Read(plugin.PluginID, plugin.Package, declaration); err != nil {
+				a.backgroundFailedIn(ctx, "plugin_icon", fmt.Errorf("%s: %w", plugin.PluginID, err))
+			}
+		}
+	}
 }
 
 // agentConfiguration is agents.configure's plugins: each manifest with the permissions granted.
@@ -293,7 +285,7 @@ func (a *App) applyAgentCatalog(result agentCatalogResult) {
 	}
 	a.publishAgentSettings()
 	a.refreshIDEAPISessionTools()
-	v.history.loaded = false
+	v.history.forgetUnreadable(v.readableAgents())
 	a.syncAgentRecords(true)
 }
 
@@ -776,70 +768,6 @@ func (v *agentsState) readableAgents() []string {
 // without the user's consent.
 func (v *agentsState) sessionReadingOffered() bool {
 	return slices.ContainsFunc(v.catalog, func(agent agents.CatalogAgent) bool { return agent.ReadsSessions })
-}
-
-// loadAgentHistory reads the changed session files of the agents the user lets Lithe read when
-// sync is set, then lists their sessions in the project, or every directory, or the hits of the
-// History tab's search.
-func (a *App) loadAgentHistory(p *project, sync bool) {
-	v := &a.agentsView
-	h := &v.history
-	keys := v.readableAgents()
-	if p == nil || a.agentKernel == nil || len(keys) == 0 || p.remote != nil {
-		return
-	}
-	h.generation++
-	generation := h.generation
-	h.loading, h.failure = true, ""
-	kernel, service := a.agentKernel, a.plugins
-	query := strings.TrimSpace(h.query)
-	cwd := p.root
-	if h.everywhere {
-		cwd = ""
-	}
-	catalog := slices.Clone(v.catalog)
-	a.background(p, agentSyncTimeout, func(ctx context.Context) func(*App) {
-		var failures []error
-		if sync {
-			for _, agent := range catalog {
-				if !slices.Contains(keys, agent.Key()) {
-					continue
-				}
-				if service != nil {
-					if err := service.EnsureAgentBackend(ctx, agent.PluginID, agent.AgentID); err != nil {
-						failures = append(failures, err)
-						continue
-					}
-				}
-				if _, err := kernel.Sync(ctx, agent.PluginID, agent.AgentID); err != nil {
-					failures = append(failures, err)
-				}
-			}
-		}
-		var sessions []agents.RecordedSession
-		var hits []agents.SearchHit
-		var err error
-		if query != "" {
-			hits, err = kernel.Search(ctx, agents.SearchQuery{Text: query, Agents: keys, Limit: agentSearchLimit})
-		} else {
-			sessions, err = kernel.List(ctx, agents.ListQuery{Agents: keys, Cwd: cwd, Limit: agentHistoryLimit, Titles: true})
-		}
-		failures = append(failures, err)
-		failure := errors.Join(failures...)
-		return func(a *App) {
-			h := &a.agentsView.history
-			if h.generation != generation {
-				return
-			}
-			h.loading, h.loaded = false, true
-			h.sessions, h.hits, h.searched = sessions, hits, query != ""
-			h.list = ui.ListState{}
-			if failure != nil {
-				a.backgroundFailed("agents_history", failure)
-				h.failure = a.agentFailure(failure)
-			}
-		}
-	})
 }
 
 // resumeRecorded starts a conversation that resumes a recorded session of one of the agents.

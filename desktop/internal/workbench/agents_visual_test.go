@@ -68,6 +68,10 @@ func TestVisualAgents(t *testing.T) {
 			v.configured = true
 			v.conversations = []*agentConversation{sampleConversation(v.catalog[0])}
 			h.click(center(h.button(itemAgents)))
+			// The pointer leaves the stripe button, so its tooltip does not show over the scenes.
+			if err := h.driver.Move(720, 450); err != nil {
+				t.Fatal(err)
+			}
 
 			// The scenes change the window's state directly, so each one asks for a frame first.
 			shot := func(scene string) {
@@ -82,12 +86,32 @@ func TestVisualAgents(t *testing.T) {
 
 			now := time.Date(2026, 11, 28, 10, 0, 0, 0, time.UTC).UnixMilli()
 			v.tab = agentsTabHistory
-			v.history = agentHistory{loaded: true, sessions: []agents.RecordedSession{
-				{Agent: "dev.lithe.test.agent/sample", PluginID: "dev.lithe.test.agent", AgentID: "sample", SessionID: "s1", Cwd: root, Title: "Order total rounding", UpdatedAtMs: now},
-				{Agent: "dev.lithe.test.other/other", PluginID: "dev.lithe.test.other", AgentID: "other", SessionID: "s2", Cwd: root, Title: "Add a discount rule", UpdatedAtMs: now - 3_600_000},
-				{Agent: "dev.lithe.test.agent/sample", PluginID: "dev.lithe.test.agent", AgentID: "sample", SessionID: "s3", Cwd: root, Title: "Explain the checkout flow", UpdatedAtMs: now - 86_400_000},
-			}}
+			v.history = sampleAgentHistory(root, time.Now())
 			shot("history")
+
+			v.history.query, v.history.searched = "discount", "discount"
+			v.history.hits = map[string]agents.SearchHit{agentSessionKey("dev.lithe.test.other/other", "s2"): {
+				Agent: "dev.lithe.test.other/other", PluginID: "dev.lithe.test.other", AgentID: "other", SessionID: "s2",
+				Path: "s2.jsonl", Range: agents.ByteRange{Start: 100, End: 180}, AtMs: time.Now().Add(-90 * time.Minute).UnixMilli(),
+			}}
+			v.history.previews.store(agentPreviewKey{agent: "dev.lithe.test.other/other", path: "s2.jsonl", start: 100, end: 180},
+				agentPreview{role: "user", text: "Add a discount rule that takes 10% off carts over 100 and never stacks with a coupon"})
+			v.history.sessions = v.history.sessions[1:2]
+			v.history.total = 1
+			v.history.rebuildRows()
+			shot("history-search")
+
+			v.history = sampleAgentHistory(root, time.Now())
+			v.history.hidden = map[string]bool{"dev.lithe.test.other/other": true}
+			v.history.since = agentSinceWeek
+			v.history.popup = agentPopupFilter
+			shot("history-filter")
+
+			v.history = sampleAgentHistory(root, time.Now())
+			v.history.compact = true
+			v.history.statusOpen = true
+			v.history.expanded = map[string]bool{agentSessionKey("dev.lithe.test.agent/sample", "s1"): true}
+			shot("history-compact")
 
 			v.history.record = &agentRecord{
 				agent: "dev.lithe.test.agent/sample", pluginID: "dev.lithe.test.agent", agentID: "sample", sessionID: "s1",
@@ -107,6 +131,46 @@ func TestVisualAgents(t *testing.T) {
 			shot("cli-missing")
 		})
 	}
+}
+
+// sampleAgentHistory is a History tab listing made-up sessions of the two synthetic agents in
+// root and a sibling directory, with their previews read and a refresh just done.
+func sampleAgentHistory(root string, now time.Time) agentHistory {
+	other := filepath.Join(filepath.Dir(root), "shop-admin")
+	ago := func(d time.Duration) int64 { return now.Add(-d).UnixMilli() }
+	span := func(start uint64) *agents.ByteRange { return &agents.ByteRange{Start: start, End: start + 80} }
+	sessions := []agents.RecordedSession{
+		{Agent: "dev.lithe.test.agent/sample", PluginID: "dev.lithe.test.agent", AgentID: "sample", SessionID: "s1", Path: "s1.jsonl", Cwd: root,
+			Title: "Order total rounding", StartedAtMs: ago(26 * time.Hour), UpdatedAtMs: ago(90 * time.Second), AgentVersion: "2.4.1",
+			MessageCount: 1284, SubagentCount: 3, Model: "sample-large-2", LastMessageRange: span(0)},
+		{Agent: "dev.lithe.test.other/other", PluginID: "dev.lithe.test.other", AgentID: "other", SessionID: "s2", Path: "s2.jsonl", Cwd: root,
+			Title: "Add a discount rule", StartedAtMs: ago(5 * time.Hour), UpdatedAtMs: ago(90 * time.Minute),
+			MessageCount: 312, Model: "other-fast-1", LastMessageRange: span(0)},
+		{Agent: "dev.lithe.test.agent/sample", PluginID: "dev.lithe.test.agent", AgentID: "sample", SessionID: "s3", Path: "s3.jsonl", Cwd: root,
+			Title: "Explain the checkout flow", StartedAtMs: ago(50 * time.Hour), UpdatedAtMs: ago(49 * time.Hour),
+			MessageCount: 46, SubagentCount: 1, Model: "sample-large-2", LastMessageRange: span(0)},
+		{Agent: "dev.lithe.test.agent/sample", PluginID: "dev.lithe.test.agent", AgentID: "sample", SessionID: "s4", Path: "s4.jsonl", Cwd: other,
+			Title: "Admin login rate limit", StartedAtMs: ago(80 * time.Hour), UpdatedAtMs: ago(75 * time.Hour),
+			MessageCount: 1, Model: "sample-large-2", LastMessageRange: span(0)},
+	}
+	history := agentHistory{loaded: true, sessions: sessions, total: uint64(len(sessions)),
+		groupCounts: map[string]uint64{root: 3, other: 1}, refreshedAt: now.Add(-20 * time.Second),
+		syncs: []agentSyncResult{
+			{agent: "Sample Agent", report: agents.SyncReport{FilesListed: 24, FilesUnchanged: 22, FilesRead: 2}},
+			{agent: "Other Agent", report: agents.SyncReport{FilesListed: 9, FilesUnchanged: 9}},
+		}}
+	previews := []agentPreview{
+		{role: "assistant", text: "Total now sums integer cents, so a 10,000-item cart keeps every cent; the new test covers carts over the float64 limit and the refund path."},
+		{role: "user", text: "Add a discount rule that takes 10% off carts over 100 and never stacks with a coupon"},
+		{role: "assistant", text: "Checkout validates the cart, reserves stock, charges the card and then writes the order, rolling back the reservation if the charge fails."},
+		{role: "tool", toolName: "Bash", text: "go test ./admin/... ok 0.8s"},
+	}
+	for i, session := range sessions {
+		key, _ := history.previewKeyOf(session)
+		history.previews.store(key, previews[i])
+	}
+	history.rebuildRows()
+	return history
 }
 
 // sampleConversation is a conversation with agent in the middle of a turn: the prompt, a

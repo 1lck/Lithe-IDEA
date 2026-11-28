@@ -160,12 +160,14 @@ func showAgentHistory(t *testing.T, fake *recordCore) *harness {
 	v.tab = agentsTabHistory
 	v.history.loaded = true
 	v.history.sessions = fake.sessions
+	v.history.total = uint64(len(fake.sessions))
+	v.history.rebuildRows()
 	h.click(center(h.button(itemAgents)))
 	h.settle()
 	return h
 }
 
-// View opens a recorded session's first page; Load More reads the next one, and the way back
+// A session row opens its record's first page; Load More reads the next one, and the way back
 // returns to the list.
 func TestAgentHistoryViewPagesThroughASession(t *testing.T) {
 	fake := &recordCore{lines: []uint64{200 << 10, 200 << 10, 200 << 10}}
@@ -175,8 +177,8 @@ func TestAgentHistoryViewPagesThroughASession(t *testing.T) {
 	}}
 	h := showAgentHistory(t, fake)
 
-	h.click(center(h.hitLabeled("View")))
-	h.settleUntil("the first page", func() bool { return h.shows("line 0") })
+	h.click(center(h.shownText("Fix the cart total")))
+	h.settleUntil("the first page", func() bool { return h.app.agentsView.history.record != nil && h.shows("line 0") })
 	if h.shows("line 1") {
 		t.Fatal("the first page showed more than its whole lines")
 	}
@@ -194,7 +196,8 @@ func TestAgentHistoryViewPagesThroughASession(t *testing.T) {
 	}
 }
 
-// A search hit opens its session at the hit, and View from the Start reads it from the top.
+// A search result's row previews the hit and opens its session there, and View from the Start
+// reads it from the top.
 func TestAgentHistoryHitOpensAtTheHit(t *testing.T) {
 	fake := &recordCore{lines: []uint64{10, 10, 10}}
 	fake.sessions = []agents.RecordedSession{{
@@ -202,15 +205,21 @@ func TestAgentHistoryHitOpensAtTheHit(t *testing.T) {
 		PluginID: "dev.lithe.test.agent", AgentID: "sample", Title: "Fix the cart total",
 	}}
 	h := showAgentHistory(t, fake)
-	h.app.agentsView.history.searched = true
-	h.app.agentsView.history.hits = []agents.SearchHit{{
+	history := &h.app.agentsView.history
+	history.query, history.searched = "line", "line"
+	history.hits = map[string]agents.SearchHit{agentSessionKey("dev.lithe.test.agent/sample", "s1"): {
 		Agent: "dev.lithe.test.agent/sample", Path: "/s1.jsonl", SessionID: "s1", Range: agents.ByteRange{Start: 20, End: 30},
 		PluginID: "dev.lithe.test.agent", AgentID: "sample",
 	}}
-	h.settle()
+	history.rebuildRows()
+	h.redraw()
+	h.settleUntil("the hit's preview", func() bool { return h.shows("line 2") })
+	if h.shows("line 0") {
+		t.Fatal("the row previewed another message than the hit")
+	}
 
-	h.click(center(h.hitLabeled("View")))
-	h.settleUntil("the hit's page", func() bool { return h.shows("line 2") })
+	h.click(center(h.shownText("Fix the cart total")))
+	h.settleUntil("the hit's page", func() bool { return history.record != nil && h.shows("line 2") })
 	if h.shows("line 0") || !h.shows("Fix the cart total") {
 		t.Fatal("the hit did not open its session at the hit, under the session's title")
 	}

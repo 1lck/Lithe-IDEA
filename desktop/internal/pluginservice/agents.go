@@ -10,6 +10,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/agents"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginicons"
 )
 
 // agentHostMethods are the API-45 backend methods Core answers itself: write and report for a
@@ -41,6 +42,11 @@ type AgentPlugin struct {
 	// SessionRoots are the candidate session directories the agents declare, as written in the
 	// manifest (${userHome} and ${env:NAME} unexpanded), for the consent the user gives.
 	SessionRoots []string
+	// Package is the installed package directory, read only; the agents' package icons are read
+	// from it.
+	Package string
+	// Icons are the package icons the agents declare, by agent ID.
+	Icons map[string]pluginicons.Declaration
 }
 
 // AgentPlugins lists the snapshot's plugins that declare agents or read their usage, sorted by
@@ -53,7 +59,12 @@ func (snapshot InstalledSnapshot) AgentPlugins() ([]AgentPlugin, error) {
 			DisplayName string   `json:"displayName"`
 			Permissions []string `json:"permissions"`
 			Agents      []struct {
-				ID             string `json:"id"`
+				ID   string `json:"id"`
+				Icon *struct {
+					Path     string `json:"path"`
+					DarkPath string `json:"darkPath"`
+					Mode     string `json:"mode"`
+				} `json:"icon"`
 				SessionSources []struct {
 					Roots []string `json:"roots"`
 				} `json:"sessionSources"`
@@ -68,8 +79,15 @@ func (snapshot InstalledSnapshot) AgentPlugins() ([]AgentPlugin, error) {
 		}
 		ids := make([]string, 0, len(declared.Agents))
 		var roots []string
+		var icons map[string]pluginicons.Declaration
 		for _, agent := range declared.Agents {
 			ids = append(ids, agent.ID)
+			if agent.Icon != nil && agent.Icon.Path != "" {
+				if icons == nil {
+					icons = map[string]pluginicons.Declaration{}
+				}
+				icons[agent.ID] = pluginicons.Declaration{Path: agent.Icon.Path, DarkPath: agent.Icon.DarkPath, Mode: agent.Icon.Mode}
+			}
 			for _, source := range agent.SessionSources {
 				for _, root := range source.Roots {
 					if !slices.Contains(roots, root) {
@@ -85,6 +103,8 @@ func (snapshot InstalledSnapshot) AgentPlugins() ([]AgentPlugin, error) {
 			Permissions:  declared.Permissions,
 			Agents:       ids,
 			SessionRoots: roots,
+			Package:      installed.entry.Installed.Path,
+			Icons:        icons,
 		})
 	}
 	sort.Slice(plugins, func(i, j int) bool { return plugins[i].PluginID < plugins[j].PluginID })

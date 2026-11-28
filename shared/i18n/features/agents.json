@@ -624,13 +624,6 @@
       ]
     },
     {
-      "id": "desktop.agents.history.allProjects",
-      "description": "Switch that lists sessions of every directory, not only this project",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.agents.history.sync",
       "description": "Button that reads the agents' session files again",
       "platforms": [
@@ -690,11 +683,568 @@
       ]
     },
     {
-      "id": "desktop.agents.history.view",
-      "description": "Button that shows the messages of a recorded session",
+      "id": "desktop.agents.history.title",
+      "description": "Heading of the Agent History tab",
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.agents.history.subtitle",
+      "description": "Subtitle under the History heading; {order} is how search results are ranked",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "order": "string"
+      }
+    },
+    {
+      "id": "desktop.agents.history.listSeparator",
+      "description": "Separator between agent names in the tooltip of the History subtitle",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.hostMac",
+      "description": "Host chip of the History tab on macOS: sessions are read on this computer",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.hostWindows",
+      "description": "Host chip of the History tab on Windows: sessions are read on this computer",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.hostLinux",
+      "description": "Host chip of the History tab on Linux: sessions are read on this computer",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.hostHelp",
+      "description": "Tooltip and menu description of the History host chip",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.remoteUnsupported",
+      "description": "Disabled host menu item: remote hosts are not supported yet",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.scopeWorkspace",
+      "description": "History scope segment: the open folder",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.scopeWorkspaceHelp",
+      "description": "Tooltip of the Workspace scope segment",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.scopeProject",
+      "description": "History scope segment: the repository with its worktrees",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.scopeProjectHelp",
+      "description": "Tooltip of the Project scope segment",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.scopeAll",
+      "description": "History scope segment: every directory",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.scopeAllHelp",
+      "description": "Tooltip of the All scope segment",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.filter",
+      "description": "Tooltip of the History filter button",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.filterTitle",
+      "description": "Title of the History filter popover",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.filterAgents",
+      "description": "Section of the History filter: which agents are listed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.filterTime",
+      "description": "Section of the History filter: how recently sessions were active",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.sinceAny",
+      "description": "History time filter: no limit",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.sinceToday",
+      "description": "History time filter: active today",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.sinceWeek",
+      "description": "History time filter: active in the last 7 days",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.sinceMonth",
+      "description": "History time filter: active in the last 30 days",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.filterReset",
+      "description": "Button that clears the History filter",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.allHidden",
+      "description": "History message when the filter hides every agent",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.refresh",
+      "description": "Tooltip of the History refresh button: reads changed session files again",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.refreshing",
+      "description": "History status while session files are being read",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.refreshed",
+      "description": "History status after every agent was refreshed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.cached",
+      "description": "History status before the first refresh: what was read earlier is shown",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.refreshPartial",
+      "description": "History status when some agents failed to refresh",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.refreshDetails",
+      "description": "Tooltip of the refresh time chip, which shows what each agent read",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.refreshAgent",
+      "description": "Refresh detail line of one agent; {listed} session files found, {read} changed and read",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "agent": "string",
+        "listed": "integer",
+        "read": "integer"
+      }
+    },
+    {
+      "id": "desktop.agents.history.refreshAgentFailed",
+      "description": "Refresh detail line of an agent that failed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "agent": "string",
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.agents.history.sessions",
+      "description": "Count of sessions listed in History (plural)",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.agents.history.sessionsOne",
+      "description": "Count of sessions listed in History (one)",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.agents.history.results",
+      "description": "Count of search results in History (plural)",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.agents.history.resultsOne",
+      "description": "Count of search results in History (one)",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.agents.history.messages",
+      "description": "Message count of a recorded session (plural)",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.agents.history.messagesOne",
+      "description": "Message count of a recorded session (one)",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.agents.history.subagents",
+      "description": "Subagent thread count of a recorded session (plural)",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.agents.history.subagentsOne",
+      "description": "Subagent thread count of a recorded session (one)",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.agents.history.orderHelp",
+      "description": "Tooltip of the History order chooser",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.orderUpdated",
+      "description": "History order: latest activity first",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.orderStarted",
+      "description": "History order: latest start first",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.orderMatched",
+      "description": "History search order: newest match first",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.noDirectory",
+      "description": "History group of sessions with no recorded directory",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.loadingMore",
+      "description": "History row while the next page of sessions is read",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.moreFailed",
+      "description": "History row when the next page of sessions failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.retry",
+      "description": "Button that reads the next page of sessions again",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.openRecord",
+      "description": "Menu item and button that opens a recorded session",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.copySessionID",
+      "description": "Menu item that copies a recorded session's ID",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.copyDirectory",
+      "description": "Menu item that copies a recorded session's directory",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.copyFailed",
+      "description": "Error when copying to the clipboard failed",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "reason": "string"
+      }
+    },
+    {
+      "id": "desktop.agents.history.showDetails",
+      "description": "Tooltip of the chevron that shows a session's details",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.hideDetails",
+      "description": "Tooltip of the chevron that hides a session's details",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.moreActions",
+      "description": "Tooltip of a session row's menu button",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.detailAgent",
+      "description": "Session detail label: the agent that recorded it",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.detailModel",
+      "description": "Session detail label: the model it last used",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.detailDirectory",
+      "description": "Session detail label: where it ran",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.detailSession",
+      "description": "Session detail label: its ID",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.detailStarted",
+      "description": "Session detail label: when it started",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.detailUpdated",
+      "description": "Session detail label: when it was last active",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.detailVersion",
+      "description": "Session detail label: the CLI version that recorded it",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.showPreviews",
+      "description": "Tooltip of the floating button that shows message previews",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.hidePreviews",
+      "description": "Tooltip of the floating button that hides message previews",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.justNow",
+      "description": "Relative time under a minute",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.history.minutesAgo",
+      "description": "Relative time in minutes (plural)",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.agents.history.minutesAgoOne",
+      "description": "Relative time in minutes (one)",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.agents.history.hoursAgo",
+      "description": "Relative time in hours (plural)",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.agents.history.hoursAgoOne",
+      "description": "Relative time in hours (one)",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.agents.history.daysAgo",
+      "description": "Relative time in days (plural)",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.agents.history.daysAgoOne",
+      "description": "Relative time in days (one)",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "desktop.agents.history.previewPrefix",
+      "description": "Speaker before a session's message preview; {role} is who wrote it",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "role": "string"
+      }
     },
     {
       "id": "desktop.agents.record.back",
@@ -944,8 +1494,7 @@
       "desktop.agents.reason.sessionEnded": "the conversation has ended",
       "desktop.agents.reason.invalidResume": "this session cannot be resumed",
       "desktop.agents.history.search": "Search sessions",
-      "desktop.agents.history.searchPlaceholder": "Search recorded sessions (↩)",
-      "desktop.agents.history.allProjects": "All projects",
+      "desktop.agents.history.searchPlaceholder": "Search sessions",
       "desktop.agents.history.sync": "Read Sessions Again",
       "desktop.agents.history.loading": "Reading sessions…",
       "desktop.agents.history.none": "No sessions.",
@@ -954,7 +1503,78 @@
       "desktop.agents.history.noConsent": "Lithe reads the session files of an agent's CLI only after you allow it in Settings.",
       "desktop.agents.history.openSettings": "Open Settings",
       "desktop.agents.history.unsupported": "No installed agent records its sessions.",
-      "desktop.agents.history.view": "View",
+      "desktop.agents.history.title": "Agent Session History",
+      "desktop.agents.history.subtitle": "Indexed history · {order}",
+      "desktop.agents.history.listSeparator": ", ",
+      "desktop.agents.history.hostMac": "This Mac",
+      "desktop.agents.history.hostWindows": "This PC",
+      "desktop.agents.history.hostLinux": "This Computer",
+      "desktop.agents.history.hostHelp": "Sessions are read from the agents' session files on this computer",
+      "desktop.agents.history.remoteUnsupported": "Sessions on remote hosts are not read yet",
+      "desktop.agents.history.scopeWorkspace": "Workspace",
+      "desktop.agents.history.scopeWorkspaceHelp": "Sessions that ran in the open folder or below it",
+      "desktop.agents.history.scopeProject": "Project",
+      "desktop.agents.history.scopeProjectHelp": "Sessions that ran anywhere in the repository or its worktrees",
+      "desktop.agents.history.scopeAll": "All",
+      "desktop.agents.history.scopeAllHelp": "Sessions of every directory",
+      "desktop.agents.history.filter": "Filter",
+      "desktop.agents.history.filterTitle": "Filter Sessions",
+      "desktop.agents.history.filterAgents": "Agents",
+      "desktop.agents.history.filterTime": "Last active",
+      "desktop.agents.history.sinceAny": "Any time",
+      "desktop.agents.history.sinceToday": "Today",
+      "desktop.agents.history.sinceWeek": "Last 7 days",
+      "desktop.agents.history.sinceMonth": "Last 30 days",
+      "desktop.agents.history.filterReset": "Reset",
+      "desktop.agents.history.allHidden": "The filter hides every agent.",
+      "desktop.agents.history.refresh": "Refresh History",
+      "desktop.agents.history.refreshing": "Refreshing history…",
+      "desktop.agents.history.refreshed": "History refreshed",
+      "desktop.agents.history.cached": "Showing history read earlier",
+      "desktop.agents.history.refreshPartial": "Some agents could not be refreshed",
+      "desktop.agents.history.refreshDetails": "Show What the Refresh Read",
+      "desktop.agents.history.refreshAgent": "{agent}: session files {listed} · changed and read {read}",
+      "desktop.agents.history.refreshAgentFailed": "{agent}: could not refresh: {reason}",
+      "desktop.agents.history.sessions": "{count} sessions",
+      "desktop.agents.history.sessionsOne": "{count} session",
+      "desktop.agents.history.results": "{count} results",
+      "desktop.agents.history.resultsOne": "{count} result",
+      "desktop.agents.history.messages": "{count} messages",
+      "desktop.agents.history.messagesOne": "{count} message",
+      "desktop.agents.history.subagents": "{count} subagents",
+      "desktop.agents.history.subagentsOne": "{count} subagent",
+      "desktop.agents.history.orderHelp": "Order",
+      "desktop.agents.history.orderUpdated": "Last updated",
+      "desktop.agents.history.orderStarted": "Recently started",
+      "desktop.agents.history.orderMatched": "Newest match",
+      "desktop.agents.history.noDirectory": "No directory",
+      "desktop.agents.history.loadingMore": "Loading more sessions…",
+      "desktop.agents.history.moreFailed": "Could not read more sessions",
+      "desktop.agents.history.retry": "Retry",
+      "desktop.agents.history.openRecord": "View Record",
+      "desktop.agents.history.copySessionID": "Copy Session ID",
+      "desktop.agents.history.copyDirectory": "Copy Directory",
+      "desktop.agents.history.copyFailed": "Could not copy: {reason}",
+      "desktop.agents.history.showDetails": "Show Details",
+      "desktop.agents.history.hideDetails": "Hide Details",
+      "desktop.agents.history.moreActions": "More Actions",
+      "desktop.agents.history.detailAgent": "Agent",
+      "desktop.agents.history.detailModel": "Model",
+      "desktop.agents.history.detailDirectory": "Directory",
+      "desktop.agents.history.detailSession": "Session",
+      "desktop.agents.history.detailStarted": "Started",
+      "desktop.agents.history.detailUpdated": "Last active",
+      "desktop.agents.history.detailVersion": "CLI version",
+      "desktop.agents.history.showPreviews": "Show Previews",
+      "desktop.agents.history.hidePreviews": "Hide Previews",
+      "desktop.agents.history.justNow": "Just now",
+      "desktop.agents.history.minutesAgo": "{count} minutes ago",
+      "desktop.agents.history.minutesAgoOne": "{count} minute ago",
+      "desktop.agents.history.hoursAgo": "{count} hours ago",
+      "desktop.agents.history.hoursAgoOne": "{count} hour ago",
+      "desktop.agents.history.daysAgo": "{count} days ago",
+      "desktop.agents.history.daysAgoOne": "{count} day ago",
+      "desktop.agents.history.previewPrefix": "{role}:",
       "desktop.agents.record.back": "Back to History",
       "desktop.agents.record.loading": "Reading the session…",
       "desktop.agents.record.loadMore": "Load More",
@@ -1058,8 +1678,7 @@
       "desktop.agents.reason.sessionEnded": "对话已结束",
       "desktop.agents.reason.invalidResume": "无法恢复这个会话",
       "desktop.agents.history.search": "搜索会话",
-      "desktop.agents.history.searchPlaceholder": "搜索已记录的会话（↩）",
-      "desktop.agents.history.allProjects": "所有项目",
+      "desktop.agents.history.searchPlaceholder": "搜索会话",
       "desktop.agents.history.sync": "重新读取会话",
       "desktop.agents.history.loading": "正在读取会话…",
       "desktop.agents.history.none": "没有会话。",
@@ -1068,7 +1687,78 @@
       "desktop.agents.history.noConsent": "只有在设置中允许后，Lithe 才会读取 Agent CLI 的会话文件。",
       "desktop.agents.history.openSettings": "打开设置",
       "desktop.agents.history.unsupported": "已安装的 Agent 都不记录会话。",
-      "desktop.agents.history.view": "查看",
+      "desktop.agents.history.title": "Agent 会话历史",
+      "desktop.agents.history.subtitle": "已索引的历史记录 · {order}",
+      "desktop.agents.history.listSeparator": "、",
+      "desktop.agents.history.hostMac": "本地 Mac",
+      "desktop.agents.history.hostWindows": "本地 Windows",
+      "desktop.agents.history.hostLinux": "本地 Linux",
+      "desktop.agents.history.hostHelp": "从这台电脑上 Agent 的会话文件读取会话",
+      "desktop.agents.history.remoteUnsupported": "远程主机的会话暂不支持读取",
+      "desktop.agents.history.scopeWorkspace": "工作区",
+      "desktop.agents.history.scopeWorkspaceHelp": "在打开的文件夹及其子目录中运行的会话",
+      "desktop.agents.history.scopeProject": "项目",
+      "desktop.agents.history.scopeProjectHelp": "在仓库及其所有工作树中运行的会话",
+      "desktop.agents.history.scopeAll": "全部",
+      "desktop.agents.history.scopeAllHelp": "所有目录的会话",
+      "desktop.agents.history.filter": "筛选",
+      "desktop.agents.history.filterTitle": "筛选会话",
+      "desktop.agents.history.filterAgents": "Agent",
+      "desktop.agents.history.filterTime": "最后活动",
+      "desktop.agents.history.sinceAny": "不限",
+      "desktop.agents.history.sinceToday": "今天",
+      "desktop.agents.history.sinceWeek": "7 天内",
+      "desktop.agents.history.sinceMonth": "30 天内",
+      "desktop.agents.history.filterReset": "重置",
+      "desktop.agents.history.allHidden": "筛选条件隐藏了所有 Agent。",
+      "desktop.agents.history.refresh": "刷新历史记录",
+      "desktop.agents.history.refreshing": "正在刷新历史记录…",
+      "desktop.agents.history.refreshed": "历史记录已刷新",
+      "desktop.agents.history.cached": "显示上次读取的历史记录",
+      "desktop.agents.history.refreshPartial": "部分 Agent 未能刷新",
+      "desktop.agents.history.refreshDetails": "查看刷新详情",
+      "desktop.agents.history.refreshAgent": "{agent}：会话文件 {listed} 个 · 读取了有变化的 {read} 个",
+      "desktop.agents.history.refreshAgentFailed": "{agent}：未能刷新：{reason}",
+      "desktop.agents.history.sessions": "{count} 个会话",
+      "desktop.agents.history.sessionsOne": "{count} 个会话",
+      "desktop.agents.history.results": "{count} 个结果",
+      "desktop.agents.history.resultsOne": "{count} 个结果",
+      "desktop.agents.history.messages": "{count} 条消息",
+      "desktop.agents.history.messagesOne": "{count} 条消息",
+      "desktop.agents.history.subagents": "{count} 个子代理",
+      "desktop.agents.history.subagentsOne": "{count} 个子代理",
+      "desktop.agents.history.orderHelp": "排序方式",
+      "desktop.agents.history.orderUpdated": "最后更新",
+      "desktop.agents.history.orderStarted": "最近开始",
+      "desktop.agents.history.orderMatched": "最新匹配",
+      "desktop.agents.history.noDirectory": "没有目录",
+      "desktop.agents.history.loadingMore": "正在读取更多会话…",
+      "desktop.agents.history.moreFailed": "无法读取更多会话",
+      "desktop.agents.history.retry": "重试",
+      "desktop.agents.history.openRecord": "查看记录",
+      "desktop.agents.history.copySessionID": "复制会话 ID",
+      "desktop.agents.history.copyDirectory": "复制目录",
+      "desktop.agents.history.copyFailed": "无法复制：{reason}",
+      "desktop.agents.history.showDetails": "展开详情",
+      "desktop.agents.history.hideDetails": "收起详情",
+      "desktop.agents.history.moreActions": "更多操作",
+      "desktop.agents.history.detailAgent": "Agent",
+      "desktop.agents.history.detailModel": "模型",
+      "desktop.agents.history.detailDirectory": "目录",
+      "desktop.agents.history.detailSession": "会话",
+      "desktop.agents.history.detailStarted": "开始于",
+      "desktop.agents.history.detailUpdated": "最后活动",
+      "desktop.agents.history.detailVersion": "CLI 版本",
+      "desktop.agents.history.showPreviews": "显示预览",
+      "desktop.agents.history.hidePreviews": "隐藏预览",
+      "desktop.agents.history.justNow": "刚刚",
+      "desktop.agents.history.minutesAgo": "{count} 分钟前",
+      "desktop.agents.history.minutesAgoOne": "{count} 分钟前",
+      "desktop.agents.history.hoursAgo": "{count} 小时前",
+      "desktop.agents.history.hoursAgoOne": "{count} 小时前",
+      "desktop.agents.history.daysAgo": "{count} 天前",
+      "desktop.agents.history.daysAgoOne": "{count} 天前",
+      "desktop.agents.history.previewPrefix": "{role}：",
       "desktop.agents.record.back": "返回历史",
       "desktop.agents.record.loading": "正在读取会话内容…",
       "desktop.agents.record.loadMore": "加载更多",

@@ -35,6 +35,8 @@ ICONS=(
     columns-2 pause redo-dot arrow-down-to-dot arrow-up-from-dot circle-dot circle-slash braces
     variable rotate-ccw github monitor external-link message-circle messages-square
     zoom-in zoom-out image-off folder-plus arrow-down-a-z link-2 link-2-off
+    list-filter bot mic panels-top-left git-fork arrow-up-right shield terminal arrow-left
+    arrow-right
 )
 
 RAW_URL="https://raw.githubusercontent.com/lucide-icons/lucide/$LUCIDE_VERSION"

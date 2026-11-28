@@ -4,7 +4,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/agents"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -40,21 +39,21 @@ func (a *App) agentsTabs(c ui.C, p *project) {
 	a.toolTabsWith(c.Key("agents-tabs"), int(v.tab), labels, func(index int) { a.chooseAgentsTab(p, agentsTab(index)) })
 }
 
-// chooseAgentsTab shows a tab; the History tab reads the sessions the first time it shows.
+// chooseAgentsTab shows a tab; the History tab reads the changed session files the first time it
+// shows, listing what was read before meanwhile.
 func (a *App) chooseAgentsTab(p *project, tab agentsTab) {
 	v := &a.agentsView
 	if v.tab == tab {
 		return
 	}
 	v.tab = tab
-	if tab == agentsTabHistory && !v.history.loaded && !v.history.loading && len(v.readableAgents()) > 0 {
+	if tab == agentsTabHistory && v.history.refreshedAt.IsZero() && !v.history.refreshing && len(v.readableAgents()) > 0 {
 		a.performed("agents.history.open", surfaceButton)
-		a.loadAgentHistory(p, true)
+		a.refreshAgentHistory(p)
 	}
 }
 
-// agentsToolActions declares the header's buttons: reading the sessions again on the History
-// tab, a new conversation and the menu of what runs an agent's CLI in a terminal. With several
+// agentsToolActions declares the header's buttons: a new conversation and the menu of what runs an agent's CLI in a terminal. With several
 // agents the new conversation button opens a menu of them.
 func (a *App) agentsToolActions(c ui.C, p *project) {
 	v := &a.agentsView
@@ -63,14 +62,6 @@ func (a *App) agentsToolActions(c ui.C, p *project) {
 	}
 	lang := a.language()
 	ui.Row(c).Shrink(0).Items(ui.Center).Gap(2).Children(func() {
-		if v.tab == agentsTabHistory {
-			if _, hit := a.toolIconButton(c.Part("sync"), i18n.Shared(lang, "desktop.agents.history.sync"), icons.RefreshCw, false, v.history.loading || len(v.readableAgents()) == 0); hit {
-				c.After(func() {
-					a.performed("agents.history.sync", surfaceButton)
-					a.loadAgentHistory(p, true)
-				})
-			}
-		}
 		label := i18n.Shared(lang, "desktop.agents.new")
 		if len(v.catalog) == 1 {
 			label = i18n.SharedFormat(lang, "desktop.agents.newSession", map[string]string{"agent": v.catalog[0].DisplayName})
@@ -603,123 +594,6 @@ func (a *App) agentPrompt(c ui.C, p *project, conversation *agentConversation) {
 	})
 }
 
-// agentsHistoryPanel declares the History tab: the search field, the scope switch and the
-// recorded sessions or search hits, or why there are none.
-func (a *App) agentsHistoryPanel(c ui.C, p *project) {
-	v := &a.agentsView
-	h := &v.history
-	lang := a.language()
-	if len(v.readableAgents()) == 0 {
-		ui.Column(c).Fill().Center().Gap(10).PadX(shellContentPad).Children(func() {
-			message := i18n.Shared(lang, "desktop.agents.history.unsupported")
-			if v.sessionReadingOffered() {
-				message = i18n.Shared(lang, "desktop.agents.history.noConsent")
-			}
-			ui.Paragraph(c, message, 4).FillWidth().TextCenter().Color(a.colors.Subtle)
-			if v.sessionReadingOffered() && ui.Button(c.Key("settings"), i18n.Shared(lang, "desktop.agents.history.openSettings")).Outline().Clicked() {
-				c.After(func() { a.openSettingsPage(surfaceButton, settingsAgents) })
-			}
-		})
-		return
-	}
-	if record := h.record; record != nil {
-		if v.recordReadable(record) {
-			a.agentRecordPanel(c.Part("record"), p, record)
-			return
-		}
-		c.After(a.closeRecord)
-	}
-	ui.Column(c).Fill().Children(func() {
-		ui.Row(c).FillWidth().Shrink(0).PadX(8).PadY(6).Gap(8).Items(ui.Center).Children(func() {
-			field := ui.TextField(c.Key("query"), &h.query, i18n.Shared(lang, "desktop.agents.history.search"),
-				i18n.Shared(lang, "desktop.agents.history.searchPlaceholder")).Grow(1).Shrink(1).MinWidth(0)
-			if field.Submitted() {
-				c.After(func() {
-					a.performed("agents.history.search", surfaceShortcut)
-					a.loadAgentHistory(p, false)
-				})
-			}
-			everywhere := h.everywhere
-			if ui.Switch(c.Key("everywhere"), &everywhere, i18n.Shared(lang, "desktop.agents.history.allProjects")).Changed() {
-				c.After(func() {
-					a.agentsView.history.everywhere = everywhere
-					a.loadAgentHistory(p, false)
-				})
-			}
-		})
-		switch {
-		case h.failure != "":
-			a.panelMessage(c.Part("failure"), i18n.SharedFormat(lang, "desktop.agents.history.failed", map[string]string{"reason": h.failure}), a.colors.Warning)
-		case h.loading && !h.loaded:
-			a.panelMessage(c.Part("loading"), i18n.Shared(lang, "desktop.agents.history.loading"), a.colors.Subtle)
-		case h.searched && len(h.hits) == 0, !h.searched && len(h.sessions) == 0:
-			a.panelMessage(c.Part("none"), i18n.Shared(lang, "desktop.agents.history.none"), a.colors.Subtle)
-		case h.searched:
-			a.agentHitList(c.Part("hits"), p, lang)
-		default:
-			a.agentSessionList(c.Part("sessions"), p, lang)
-		}
-	})
-}
-
-// agentSessionList declares the recorded sessions, newest first; a double click resumes one.
-func (a *App) agentSessionList(c ui.C, p *project, lang i18n.Language) {
-	h := &a.agentsView.history
-	sessions := h.sessions
-	ui.List(c, &h.list, len(sessions), func(row ui.ListRow) {
-		session := sessions[row.Index]
-		row.Element.FillWidth().PadX(10).PadY(5).Gap(8).Items(ui.Center).Children(func() {
-			ui.Column(row.C).Grow(1).Shrink(1).MinWidth(0).Gap(2).Children(func() {
-				title := session.Title
-				if title == "" {
-					title = session.SessionID
-				}
-				ui.Text(row.C, title).Color(a.colors.Text).Ellipsis()
-				ui.Text(row.C, agentSessionDetail(lang, a.agentDisplayName(session.Agent), session.Cwd, session.UpdatedAtMs, h.everywhere)).
-					FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
-			})
-			if _, hit := a.toolIconButton(row.C.Part("view"), i18n.Shared(lang, "desktop.agents.history.view"), icons.Eye, false, false); hit {
-				row.C.After(func() { a.openRecordedSession(p, session) })
-			}
-			if _, hit := a.toolIconButton(row.C.Part("resume"), i18n.Shared(lang, "desktop.agents.history.resume"), icons.Play, false, !a.canResume(session.PluginID, session.AgentID)); hit {
-				pluginID, agentID, id := session.PluginID, session.AgentID, session.SessionID
-				row.C.After(func() { a.resumeRecorded(p, pluginID, agentID, id) })
-			}
-		})
-	}).Label(i18n.Shared(lang, "desktop.agents.history")).Scrollbars().Grow(1).Shrink(1).MinHeight(0).FillWidth()
-	if index, ok := h.list.Submitted(); ok && index < len(sessions) && a.canResume(sessions[index].PluginID, sessions[index].AgentID) {
-		session := sessions[index]
-		c.After(func() { a.resumeRecorded(p, session.PluginID, session.AgentID, session.SessionID) })
-	}
-}
-
-// agentHitList declares the search hits; a double click opens the session of one at the hit.
-func (a *App) agentHitList(c ui.C, p *project, lang i18n.Language) {
-	h := &a.agentsView.history
-	hits := h.hits
-	ui.List(c, &h.list, len(hits), func(row ui.ListRow) {
-		hit := hits[row.Index]
-		row.Element.FillWidth().PadX(10).PadY(5).Gap(8).Items(ui.Center).Children(func() {
-			ui.Column(row.C).Grow(1).Shrink(1).MinWidth(0).Gap(2).Children(func() {
-				ui.Text(row.C, hit.SessionID).Color(a.colors.Text).Ellipsis()
-				ui.Text(row.C, agentSessionDetail(lang, a.agentDisplayName(hit.Agent), "", hit.AtMs, false)).
-					FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis()
-			})
-			if _, view := a.toolIconButton(row.C.Part("view"), i18n.Shared(lang, "desktop.agents.history.view"), icons.Eye, false, false); view {
-				row.C.After(func() { a.openRecordedHit(p, hit) })
-			}
-			if _, resume := a.toolIconButton(row.C.Part("resume"), i18n.Shared(lang, "desktop.agents.history.resume"), icons.Play, false, !a.canResume(hit.PluginID, hit.AgentID)); resume {
-				pluginID, agentID, id := hit.PluginID, hit.AgentID, hit.SessionID
-				row.C.After(func() { a.resumeRecorded(p, pluginID, agentID, id) })
-			}
-		})
-	}).Label(i18n.Shared(lang, "desktop.agents.history")).Scrollbars().Grow(1).Shrink(1).MinHeight(0).FillWidth()
-	if index, ok := h.list.Submitted(); ok && index < len(hits) {
-		hit := hits[index]
-		c.After(func() { a.openRecordedHit(p, hit) })
-	}
-}
-
 // canResume reports whether a recorded session's agent can start a conversation now.
 func (a *App) canResume(pluginID, agentID string) bool {
 	for _, agent := range a.agentsView.catalog {
@@ -728,17 +602,4 @@ func (a *App) canResume(pluginID, agentID string) bool {
 		}
 	}
 	return false
-}
-
-// agentSessionDetail is a recorded session's second line: its agent, when it last changed
-// and, when every directory is listed, its directory.
-func agentSessionDetail(lang i18n.Language, agent, cwd string, atMs int64, withDirectory bool) string {
-	parts := []string{agent}
-	if atMs > 0 {
-		parts = append(parts, time.UnixMilli(atMs).Local().Format("2006-01-02 15:04"))
-	}
-	if withDirectory && cwd != "" {
-		parts = append(parts, cwd)
-	}
-	return strings.Join(parts, " · ")
 }

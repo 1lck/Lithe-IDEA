@@ -349,7 +349,7 @@ func (a *App) agentRecordFooter(c ui.C, p *project, lang i18n.Language, record *
 				c.After(func() {
 					a.performed("agents.history.sync", surfaceButton)
 					a.closeRecord()
-					a.loadAgentHistory(p, true)
+					a.refreshAgentHistory(p)
 				})
 			}
 			return

@@ -162,6 +162,14 @@ func (c *Client) List(ctx context.Context, query ListQuery) ([]RecordedSession, 
 	return out.Sessions, err
 }
 
+// ListPage lists a page of recorded sessions with the whole list's total and per-directory groups.
+func (c *Client) ListPage(ctx context.Context, query ListQuery) (SessionList, error) {
+	query.Counts = true
+	var out SessionList
+	err := c.core.Execute(ctx, "agentSessions.list", query, &out)
+	return out, err
+}
+
 // Search finds recorded spans that contain every word of the query.
 func (c *Client) Search(ctx context.Context, query SearchQuery) ([]SearchHit, error) {
 	var out struct {

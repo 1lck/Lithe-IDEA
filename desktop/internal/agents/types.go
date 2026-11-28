@@ -22,20 +22,30 @@ type Rejected struct {
 	Message  string `json:"message"`
 }
 
+// AgentIcon is the icon a manifest gives an agent: a host icon ID, or package image resources
+// (Path, DarkPath) relative to the plugin directory, painted tinted (template) or with its own
+// colors (original).
+type AgentIcon struct {
+	Host     string `json:"host,omitempty"`
+	Path     string `json:"path,omitempty"`
+	DarkPath string `json:"darkPath,omitempty"`
+	Mode     string `json:"mode,omitempty"`
+}
+
 // CatalogAgent is one configured agent.
 type CatalogAgent struct {
-	PluginID          string   `json:"pluginID"`
-	AgentID           string   `json:"agentID"`
-	DisplayName       string   `json:"displayName"`
-	Tool              string   `json:"tool"`
-	Icon              string   `json:"icon,omitempty"`
-	Modes             []string `json:"modes"`
-	Forms             []string `json:"forms"`
-	ReadsSessions     bool     `json:"readsSessions"`
-	MayRun            bool     `json:"mayRun"`
-	MayReadSessions   bool     `json:"mayReadSessions"`
-	TerminalArguments []string `json:"terminalArguments,omitempty"`
-	Update            *Update  `json:"update,omitempty"`
+	PluginID          string     `json:"pluginID"`
+	AgentID           string     `json:"agentID"`
+	DisplayName       string     `json:"displayName"`
+	Tool              string     `json:"tool"`
+	Icon              *AgentIcon `json:"icon,omitempty"`
+	Modes             []string   `json:"modes"`
+	Forms             []string   `json:"forms"`
+	ReadsSessions     bool       `json:"readsSessions"`
+	MayRun            bool       `json:"mayRun"`
+	MayReadSessions   bool       `json:"mayReadSessions"`
+	TerminalArguments []string   `json:"terminalArguments,omitempty"`
+	Update            *Update    `json:"update,omitempty"`
 	// SessionRootVariables names the environment variables the agent's session directories
 	// read; agentSessions.configure passes their values.
 	SessionRootVariables []string `json:"sessionRootVariables,omitempty"`
@@ -250,13 +260,36 @@ type ByteRange struct {
 
 // ListQuery is agentSessions.list's payload.
 type ListQuery struct {
-	Agents        []string `json:"agents,omitempty"`
-	Cwd           string   `json:"cwd,omitempty"`
-	SessionID     string   `json:"sessionID,omitempty"`
+	Agents    []string `json:"agents,omitempty"`
+	Cwd       string   `json:"cwd,omitempty"`
+	SessionID string   `json:"sessionID,omitempty"`
+	// CwdUnder keeps only sessions whose directory is one of these or lies under one of them.
+	CwdUnder      []string `json:"cwdUnder,omitempty"`
 	ActiveSinceMs int64    `json:"activeSinceMs,omitempty"`
-	Offset        int      `json:"offset"`
-	Limit         int      `json:"limit,omitempty"`
-	Titles        bool     `json:"titles"`
+	// Order is "updated" (latest activity first, the default) or "started" (latest start first).
+	Order  string `json:"order,omitempty"`
+	Offset int    `json:"offset"`
+	Limit  int    `json:"limit,omitempty"`
+	Titles bool   `json:"titles"`
+	// Counts asks for the whole filtered list's total and per-directory groups.
+	Counts bool `json:"counts,omitempty"`
+}
+
+// SessionList is one page of agentSessions.list with the counts Counts asks for.
+type SessionList struct {
+	Sessions []RecordedSession `json:"sessions"`
+	// Total is how many sessions the filters keep, whatever the page.
+	Total           uint64         `json:"total"`
+	Groups          []SessionGroup `json:"groups,omitempty"`
+	GroupsTruncated bool           `json:"groupsTruncated,omitempty"`
+}
+
+// SessionGroup counts the filtered sessions of one directory; Cwd is empty for sessions that
+// record none.
+type SessionGroup struct {
+	Cwd         string `json:"cwd,omitempty"`
+	Count       uint64 `json:"count"`
+	UpdatedAtMs int64  `json:"updatedAtMs,omitempty"`
 }
 
 // RecordedSession is one recorded session.
@@ -276,6 +309,15 @@ type RecordedSession struct {
 	PluginID        string `json:"pluginID"`
 	AgentID         string `json:"agentID"`
 	Title           string `json:"title,omitempty"`
+	// MessageCount is how many searchable messages the session's own file holds; subagent files
+	// are not counted.
+	MessageCount uint64 `json:"messageCount,omitempty"`
+	// SubagentCount is how many distinct subagent threads the session's calls name.
+	SubagentCount uint64 `json:"subagentCount,omitempty"`
+	// Model is the latest main-thread model the session called.
+	Model string `json:"model,omitempty"`
+	// LastMessageRange is where the last message lies in Path; Read reads it for a preview.
+	LastMessageRange *ByteRange `json:"lastMessageRange,omitempty"`
 }
 
 // SearchQuery is agentSessions.search's payload.
