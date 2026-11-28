@@ -729,6 +729,8 @@ var payloadOnlyCommands = map[string]bool{
 	"document.planSaveBatch":          true,
 	"document.reduceSaveBatch":        true,
 	"editor.find":                     true,
+	"editor.fileTypeMappings.normalize": true,
+	"editor.fileTypeMappings.resolve":   true,
 	"editor.lineEdit":                 true,
 	"editor.navigationHistory.reduce": true,
 	"editor.parseNavigationInput":     true,

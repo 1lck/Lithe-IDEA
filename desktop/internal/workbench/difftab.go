@@ -536,8 +536,11 @@ func (a *App) loadDiffGrammar(p *project, t *diffTab) {
 	}
 	t.grammarPath, t.grammar = path, nil
 	registry := a.syntaxRegistry()
-	a.background(p, 0, func(context.Context) func(*App) {
-		grammar := registry.SyntaxForPath(path)
+	a.background(p, 0, func(ctx context.Context) func(*App) {
+		_, grammar, ok := a.resolvePathLanguage(ctx, registry, path)
+		if !ok {
+			grammar = registry.SyntaxForPath(path)
+		}
 		return func(a *App) {
 			if p.diffs.find(t.id) != t || t.grammarPath != path || grammar == nil {
 				return

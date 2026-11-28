@@ -5,6 +5,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/syntax"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 )
@@ -339,5 +340,39 @@ func TestPositionAtCountsFromTheNearerKnownColumn(t *testing.T) {
 	// An offset on another line than the caret's is counted from its own line's start.
 	if gotLine, column := v.positionAt(v.text.LineStart(2) + 2); gotLine != 2 || column != 2 {
 		t.Fatalf("positionAt on the last line = %d:%d, want 2:2", gotLine, column)
+	}
+}
+
+func TestSetSyntaxReplacesHighlighter(t *testing.T) {
+	notifies := 0
+	v := New(Config{
+		HitID:   gfx.Item(1),
+		Label:   "test",
+		Content: Prepare([]byte("version = 1\n[package]\nname = \"demo\"\n")),
+		Notify:  func() { notifies++ },
+	})
+	t.Cleanup(v.Close)
+	if v.hl.Syntax() != nil {
+		t.Fatalf("initial syntax = %v, want nil", v.hl.Syntax())
+	}
+	tomlSyntax := syntax.NewRegistry().Syntax("toml")
+	if tomlSyntax == nil {
+		t.Fatal("missing bundled toml syntax")
+	}
+	beforeGen := v.hlGen.Load()
+	v.SetSyntax(tomlSyntax)
+	if v.hl.Syntax() != tomlSyntax || v.cfg.Syntax != tomlSyntax {
+		t.Fatalf("syntax after SetSyntax = %v, want toml", v.hl.Syntax())
+	}
+	if v.hlGen.Load() <= beforeGen || notifies == 0 {
+		t.Fatalf("expected hlGen bump and notify after SetSyntax")
+	}
+	tokens := v.hl.Line(nil, 2)
+	if len(tokens) == 0 {
+		t.Fatal("expected tokenized TOML line after SetSyntax")
+	}
+	v.SetSyntax(nil)
+	if v.hl.Syntax() != nil {
+		t.Fatalf("syntax after SetSyntax(nil) = %v, want nil", v.hl.Syntax())
 	}
 }
