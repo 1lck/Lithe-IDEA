@@ -399,7 +399,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # adds bounded native HTML/Javadoc/Markdown doc rendering commands (editor.renderDocComment,
 # editor.renderHoverDoc) and renderDocComments / renderDocCommentsInReadOnly editor preferences
 # (#2475). Switch to main's commit once #214 is squash-merged.
-PINNED_CORE_REVISION="744633594deb69a13b8647b2aa895f5d4adce6d5"
+PINNED_CORE_REVISION="3817ce28f08037a08d89e3932b47e6b3b0c2d0c3"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

@@ -419,8 +419,8 @@ func (a *App) buildOptionsDialog(c ui.C, p *project) {
 	if e.instance != "" {
 		title = i18n.SharedFormat(language, "desktop.build.instanceOptions", map[string]string{"name": e.name})
 	}
-	closed := ui.Modal(c, &open, title, ui.ModalSpec{Width: 460}, func() {
-		ui.Column(c.Part("build-options")).FillWidth().Gap(10).Children(func() {
+	closed := ui.Modal(c, &open, title, ui.ModalSpec{Width: 460, Height: 480}, func() {
+		ui.Scroll(c.Part("build-options")).Scrollbars().FillWidth().Grow(1).MinHeight(0).Gap(10).Children(func() {
 			a.buildIgnoredPathsSection(c.Part("detection"), p, ready)
 			if e.instance != "" {
 				k := c.Part("instance")
@@ -442,10 +442,10 @@ func (a *App) buildOptionsDialog(c ui.C, p *project) {
 			if e.loading {
 				ui.Text(c, i18n.Shared(language, "native.loading")).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle)
 			}
-			if e.failure != "" {
-				ui.Paragraph(c, e.failure, 4).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)
-			}
 		})
+		if e.failure != "" {
+			ui.Paragraph(c, e.failure, 4).Shrink(0).MarginTop(10).FontSize(a.theme.Metrics.FontSizeS).Color(a.theme.Danger)
+		}
 	}, func() {
 		if ui.Button(c, i18n.Shared(language, "desktop.git.cancel")).Outline().Clicked() {
 			c.After(func() { p.build.options = buildOptionsEditor{} })

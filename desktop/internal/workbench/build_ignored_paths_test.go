@@ -3,9 +3,11 @@ package workbench
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginstate"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
+	"github.com/vivaui/viva/gfx"
 )
 
 // ignoredPathsManifest is a declarative build system found wherever a fixture.build file is, with one
@@ -226,6 +229,49 @@ func TestBuildOptionsIgnoredPathsAreSavedOnThisMachineAndRestored(t *testing.T) 
 	}
 	if got := h.storedIgnoredPaths(p); got.Source != core.BuildIgnoredPathsDefault {
 		t.Fatalf("after Restore Default the project stores %+v, want no list", got)
+	}
+}
+
+func TestBuildOptionsScrollToLastPluginRule(t *testing.T) {
+	h, p := openIgnoredPathsProject(t, "", nil)
+	if err := h.driver.Resize(minWindowWidth, minWindowHeight); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+	var patterns []string
+	for i := range 64 {
+		patterns = append(patterns, fmt.Sprintf("generated/dependencies/fixture-%03d/cache/", i))
+	}
+	const last = "tail/"
+	p.build.pluginIgnoredPaths[0].Patterns = append(patterns, last)
+	h.clickNamed(h.shared("desktop.build.ignoredPaths"))
+	h.awaitIgnoredPathsLoaded(p)
+	save := h.pageHit(h.shared("ui.save")).Bounds
+	cancel := h.pageHit(h.shared("desktop.git.cancel")).Bounds
+	var lastBounds gfx.Rect
+	lastVisible := func() bool {
+		for _, label := range h.driver.Snapshot().Labels {
+			if strings.HasSuffix(label.Value, last) {
+				lastBounds = label.Bounds
+				return label.Bounds.Y >= 0 && label.Bounds.Y+label.Bounds.Height <= save.Y
+			}
+		}
+		return false
+	}
+	if save.Y+save.Height > minWindowHeight || lastVisible() {
+		t.Fatalf("expected a visible footer and an offscreen last rule, Save at %v", save)
+	}
+	at := center(h.labelBounds(h.shared("desktop.build.detection")))
+	if err := h.driver.Scroll(gfx.ScrollEvent{X: at.X, Y: at.Y, DeltaY: 20000, Precise: true}); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+	if !lastVisible() || h.pageHit(h.shared("ui.save")).Bounds != save || h.pageHit(h.shared("desktop.git.cancel")).Bounds != cancel {
+		t.Fatalf("after scrolling, last rule at %v, Save at %v (was %v), Cancel at %v (was %v)", lastBounds, h.pageHit(h.shared("ui.save")).Bounds, save, h.pageHit(h.shared("desktop.git.cancel")).Bounds, cancel)
+	}
+	h.click(center(cancel))
+	if p.build.options.open {
+		t.Fatal("Cancel did not close the scrolled dialog")
 	}
 }
 
