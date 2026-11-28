@@ -154,34 +154,6 @@
       }
     },
     {
-      "id": "desktop.agents.grant.run",
-      "description": "Plugin permission: run the CLI of each agent it declares",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.agents.grant.native",
-      "description": "Plugin permission: relay its agents' conversations to Lithe",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.agents.grant.sessionsRead",
-      "description": "Plugin permission: read its agents' session files after consent",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
-      "id": "desktop.agents.grant.usageRead",
-      "description": "Plugin permission: read usage totals of the agents",
-      "platforms": [
-        "desktop"
-      ]
-    },
-    {
       "id": "desktop.agents.you",
       "description": "Author label of the user's own prompt in the transcript",
       "platforms": [
@@ -1733,10 +1705,6 @@
       "desktop.agents.transcript": "Conversation",
       "desktop.agents.missed": "Some updates of this conversation were lost; the transcript may be incomplete.",
       "desktop.agents.dropped": "Output lines dropped: {count}",
-      "desktop.agents.grant.run": "Run the command-line tool of each agent it declares, after you start a conversation or confirm an update",
-      "desktop.agents.grant.native": "Relay the conversations of its own agents to Lithe",
-      "desktop.agents.grant.sessionsRead": "Read the session files its agents' tools write, after you allow it in Settings",
-      "desktop.agents.grant.usageRead": "Read token and cost totals of your agents, without conversation text, titles or directories",
       "desktop.agents.you": "You",
       "desktop.agents.thinking": "Thinking",
       "desktop.agents.toolStatus.pending": "Pending",
@@ -1950,10 +1918,6 @@
       "desktop.agents.transcript": "对话内容",
       "desktop.agents.missed": "这段对话丢失了部分更新，内容可能不完整。",
       "desktop.agents.dropped": "已丢弃的输出行：{count}",
-      "desktop.agents.grant.run": "在你开始对话或确认更新后，运行它声明的每个 Agent 的命令行工具",
-      "desktop.agents.grant.native": "把它自己的 Agent 对话转发给 Lithe",
-      "desktop.agents.grant.sessionsRead": "在你于设置中允许后，读取其 Agent 工具写下的会话文件",
-      "desktop.agents.grant.usageRead": "读取 Agent 的令牌和费用总数，不含对话内容、标题或目录",
       "desktop.agents.you": "你",
       "desktop.agents.thinking": "思考",
       "desktop.agents.toolStatus.pending": "等待中",
