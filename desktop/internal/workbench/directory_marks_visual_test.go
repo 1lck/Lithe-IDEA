@@ -32,7 +32,13 @@ func TestVisualDirectoryMarkContextMenu(t *testing.T) {
 	} {
 		t.Run(look.language+"-"+look.theme, func(t *testing.T) {
 			root := filepath.Join(t.TempDir(), "lithe-shop")
-			writeTreeFiles(t, root, "src/main.go", "tests/main_test.go", "docs/README.md")
+			writeTreeFiles(t, root,
+				"src/main.go",
+				"src/service/order.go",
+				"tests/main_test.go",
+				"docs/README.md",
+				"target/app.jar",
+			)
 			prefs := store.At(t.TempDir())
 			if err := prefs.Save(settingsFile, settings{
 				Theme:           themeChoice(look.theme),
@@ -56,6 +62,26 @@ func TestVisualDirectoryMarkContextMenu(t *testing.T) {
 				return session.Driver(), session.Close, nil
 			})
 			h.openTree(t, root)
+			// Seed visible directory marks (including an excluded subtree and a quick-colored
+			// folder) and expand branches so the screenshot verifies continuous full-width
+			// subtree background tinting + direct icon/name tinting alongside the context menu.
+			h.app.setDirectoryRole(h.app.project, "src", "sources")
+			h.settle()
+			h.app.setDirectoryRole(h.app.project, "tests", "tests")
+			h.settle()
+			h.app.setDirectoryColor(h.app.project, "docs", "#8b5cf6")
+			h.settle()
+			h.app.excludeFromSearch(h.app.project, "target", false)
+			h.settle()
+			for _, name := range []string{"src", "tests", "target"} {
+				for _, node := range h.app.project.tree.rows {
+					if node.path == name {
+						h.app.toggleFolder(h.app.project, node)
+						h.settle()
+						break
+					}
+				}
+			}
 			h.rightClickNamed("src")
 			h.popupClick(h.shared("desktop.directoryMarks.menuTitle"))
 			h.settle()
