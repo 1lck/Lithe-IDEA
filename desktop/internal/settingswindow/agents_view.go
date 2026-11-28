@@ -35,9 +35,9 @@ func (w *window) agentsPage(c ui.C) {
 		})
 		if st.Loaded && len(st.Plugins) > 0 {
 			w.card(c, i18n.Shared(lang, "desktop.agents.settings.mcpSearch"), i18n.Shared(lang, "desktop.agents.settings.mcpSearchHelp"), func() {
+				// The switch writes the click into allowed only once Changed is read.
 				allowed := st.MCPSearch
-				ui.Switch(c.Key("mcpSearch"), &allowed, i18n.Shared(lang, "desktop.agents.settings.mcpSearchSwitch"))
-				if allowed != st.MCPSearch {
+				if ui.Switch(c.Key("mcpSearch"), &allowed, i18n.Shared(lang, "desktop.agents.settings.mcpSearchSwitch")).Changed() {
 					c.After(func() { loader.SetMCPSearch(allowed) })
 				}
 			})
@@ -54,9 +54,9 @@ func (w *window) agentSessionPlugin(c ui.C, lang i18n.Language, loader AgentSess
 	p := &w.pal
 	ui.Column(c).FillWidth().Gap(2).Children(func() {
 		ui.Row(c).FillWidth().Gap(6).Items(ui.Center).Children(func() {
+			// The switch writes the click into allowed only once Changed is read.
 			allowed := plugin.Allowed
-			ui.Switch(c.Key("allow"), &allowed, plugin.Name)
-			if allowed != plugin.Allowed {
+			if ui.Switch(c.Key("allow"), &allowed, plugin.Name).Changed() {
 				id := plugin.PluginID
 				c.After(func() { loader.SetAllowed(id, allowed) })
 			}

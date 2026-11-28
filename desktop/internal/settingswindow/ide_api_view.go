@@ -29,15 +29,14 @@ func (w *window) ideAPIPage(c ui.C) {
 					status = text.StatusEnabled
 				}
 				ui.Text(c, status).FontSize(12).Weight(gfx.WeightSemibold).Color(p.muted)
+				// Each switch writes the click into its copy only once Changed is read.
 				configure := st.Configure
-				ui.Switch(c.Key("configure"), &configure, text.AllowConfigure).Disabled(st.Enabled)
-				if configure != st.Configure {
+				if ui.Switch(c.Key("configure"), &configure, text.AllowConfigure).Disabled(st.Enabled).Changed() {
 					c.After(func() { loader.Allow(configure, st.Execute) })
 				}
 				ui.Wrap(c, text.AllowConfigureHelp).FontSize(12).Color(p.muted)
 				execute := st.Execute
-				ui.Switch(c.Key("execute"), &execute, text.AllowExecute).Disabled(st.Enabled)
-				if execute != st.Execute {
+				if ui.Switch(c.Key("execute"), &execute, text.AllowExecute).Disabled(st.Enabled).Changed() {
 					c.After(func() { loader.Allow(st.Configure, execute) })
 				}
 				ui.Wrap(c, text.AllowExecuteHelp).FontSize(12).Color(p.muted)

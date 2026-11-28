@@ -15,7 +15,8 @@
       "desktop/internal/workbench/search_scope_view.go",
       "desktop/internal/workbench/search_visual_test.go",
       "desktop/internal/i18n/count_language_test.go",
-      "desktop/internal/workbench/search_everywhere_test.go"
+      "desktop/internal/workbench/search_everywhere_test.go",
+      "desktop/internal/workbench/search_options_log_test.go"
     ]
   },
   "windows": {
@@ -30,7 +31,8 @@
       "desktop/internal/workbench/search_scope_view.go",
       "desktop/internal/workbench/search_visual_test.go",
       "desktop/internal/i18n/count_language_test.go",
-      "desktop/internal/workbench/search_everywhere_test.go"
+      "desktop/internal/workbench/search_everywhere_test.go",
+      "desktop/internal/workbench/search_options_log_test.go"
     ]
   },
   "owner": "Search",
@@ -57,5 +59,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：Core 内容搜索按50行自动续页，同文件跨页不漏行；结果按文件分组/折叠，计数明确为已加载匹配行与文件数。支持脏文档快照、项目/已加载模块/目录/自定义路径和glob范围、临时包含Git忽略文件；手动排除和结构隐藏仍保留。大小来自工具→搜索设置。两端实机验收仍待完成。冷分页查询复用现成全文索引或直接扫描文件清单，不先建全文三元组索引。文件标题和命中行统一24pt，标题显示文件名/数量/次要目录，命中行从文件图标列显示左对齐的行列号与正文，复用13pt界面字体；检查明暗、中英文、折叠、滚动与跳转。 #2199补齐：首屏之后异步完整计数与已加载文件明细、计数失败重试；按清单选择器启动相关LSP并接入晚就绪符号查询；临时生成目录/内部链接选项，手动排除和外部链接边界保留，循环检测、目标监听重建和项目树别名刷新。验证使用真实文件和通用契约fixture，两端原生窗口仍pending。 0.8.9正式依赖：Core固定9399f163、Viva固定fork main c7bffddf；紧凑列表在一次大幅滚轮事件后先按实际内容高度限制偏移，再计算可见窗口，避免400行结果末尾397..399只有空白。 #2317 搜索摘要的2处英文计数文案改为 Matches/Files 标签加数字，修正1时的复数错误；没有修改查询语义、布局或中文，原生端待验收。 #2317 补充：desktop.search.totalCount 亦采用 Occurrences/Files 标签加数字格式；TestVisualSearchResults 无头截图可见展示完整，原生端待验收。 #1820：项目搜索与全局搜索复用现有大量结果/分页无头场景，滚到底后调用 ScrollTo(0) 只绘制一帧，验证首个分组与首个命中行即刻可见；保持搜索分页、选中、文件打开语义。"
+  "notes": "Viva：Core 内容搜索按50行自动续页，同文件跨页不漏行；结果按文件分组/折叠，计数明确为已加载匹配行与文件数。支持脏文档快照、项目/已加载模块/目录/自定义路径和glob范围、临时包含Git忽略文件；手动排除和结构隐藏仍保留。大小来自工具→搜索设置。两端实机验收仍待完成。冷分页查询复用现成全文索引或直接扫描文件清单，不先建全文三元组索引。文件标题和命中行统一24pt，标题显示文件名/数量/次要目录，命中行从文件图标列显示左对齐的行列号与正文，复用13pt界面字体；检查明暗、中英文、折叠、滚动与跳转。 #2199补齐：首屏之后异步完整计数与已加载文件明细、计数失败重试；按清单选择器启动相关LSP并接入晚就绪符号查询；临时生成目录/内部链接选项，手动排除和外部链接边界保留，循环检测、目标监听重建和项目树别名刷新。验证使用真实文件和通用契约fixture，两端原生窗口仍pending。 0.8.9正式依赖：Core固定9399f163、Viva固定fork main c7bffddf；紧凑列表在一次大幅滚轮事件后先按实际内容高度限制偏移，再计算可见窗口，避免400行结果末尾397..399只有空白。 #2317 搜索摘要的2处英文计数文案改为 Matches/Files 标签加数字，修正1时的复数错误；没有修改查询语义、布局或中文，原生端待验收。 #2317 补充：desktop.search.totalCount 亦采用 Occurrences/Files 标签加数字格式；TestVisualSearchResults 无头截图可见展示完整，原生端待验收。 #1820：项目搜索与全局搜索复用现有大量结果/分页无头场景，滚到底后调用 ScrollTo(0) 只绘制一帧，验证首个分组与首个命中行即刻可见；保持搜索分页、选中、文件打开语义。 2026-11-29：在“在文件中查找”的选项弹窗里切换选项后，app.action.performed 会漏记（比较发生在复选框写入之前），改为读 Changed 后记录；search_options_log_test.go 覆盖。"
 }
