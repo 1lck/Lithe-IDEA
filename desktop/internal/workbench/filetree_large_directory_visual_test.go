@@ -46,6 +46,9 @@ func TestVisualProjectTreeLargeDirectory(t *testing.T) {
 				}
 			}
 			file := filepath.Join(root, "00-source", "Hello.txt")
+			if err := os.Mkdir(filepath.Join(root, "00-source", "Empty"), 0o700); err != nil {
+				t.Fatal(err)
+			}
 			const contents = "Large directory regression\n\n500 ignored sibling folders.\nThe project tree and this file should open normally.\n"
 			if err := os.WriteFile(file, []byte(contents), 0o600); err != nil {
 				t.Fatal(err)
@@ -107,6 +110,20 @@ func TestVisualProjectTreeLargeDirectory(t *testing.T) {
 				n := p.tree.find("00-source")
 				return n != nil && n.listed
 			})
+			h.settle()
+			empty := p.tree.find("00-source/Empty")
+			if empty == nil || empty.listed || empty.empty {
+				t.Fatal("expected an unchecked folder before the first click")
+			}
+			if err := session.Screenshot(filepath.Join(out, "empty-before-"+scene.theme+"-"+scene.language+".png")); err != nil {
+				t.Fatal(err)
+			}
+			h.clickNamed("Empty")
+			h.await("confirmed empty folder", func() bool { return empty.listed && empty.empty && !empty.expanded })
+			h.settle()
+			if err := session.Screenshot(filepath.Join(out, "empty-after-"+scene.theme+"-"+scene.language+".png")); err != nil {
+				t.Fatal(err)
+			}
 			h.clickNamed("Hello.txt")
 			h.await("the opened document", func() bool { return p.docs.byPath(file) != nil })
 			h.settle()

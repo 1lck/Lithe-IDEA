@@ -2,11 +2,52 @@ package workbench
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 )
+
+// Time the first click through the first painted child row in a newly opened project.
+func BenchmarkProjectTreeFirstExpand500(b *testing.B) {
+	root := b.TempDir()
+	for i := 0; i < 500; i++ {
+		dir := filepath.Join(root, "src", fmt.Sprintf("folder-%03d", i))
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			b.Fatal(err)
+		}
+	}
+	h := newHarness(b, &testKernel{Client: core.NewClient()})
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		h.open(root)
+		h.await("initial root listing", func() bool {
+			tree := &h.app.project.tree
+			return tree.root != nil && tree.root.listed && treeIdle(h.app.project) &&
+				(!treeUsesRecursiveWatch() || h.app.project.search.watchReady)
+		})
+		if err := h.driver.Advance(20 * time.Millisecond); err != nil {
+			b.Fatal(err)
+		}
+		point := center(h.pageHit("src").Bounds)
+		b.StartTimer()
+		h.sendClick(point)
+		h.await("first child row", func() bool {
+			for _, hit := range h.driver.Snapshot().Hits {
+				if hit.Label == "folder-000" && !hit.IsLabel {
+					return true
+				}
+			}
+			return false
+		})
+		b.StopTimer()
+		h.app.closeProject()
+		h.settle()
+	}
+}
 
 // This measures a populated project tree during repeated workbench resizes;
 // it does not include directory enumeration, rendering to the GPU or OS events.
