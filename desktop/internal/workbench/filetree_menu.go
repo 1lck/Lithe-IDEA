@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path"
@@ -19,10 +20,9 @@ import (
 
 // This file gives a Project tool window row its context menu and the file operations it
 // offers: Git actions for a changed file, New File and New Directory on a folder, Rename and
-// Delete, the path actions and Open In (filetree_openin.go). Git facts come from the last Core status; the file
-// operations themselves are the platform's own (Go's os package), since Core owns the Git
-// rules and not the workspace filesystem. A file with an open tab is saved before it is
-// renamed or deleted, and its tab follows the new path or closes with the file.
+// Delete, the path actions and Open In (filetree_openin.go). Core commits a local rename
+// or drag-move without replacing another entry. The window saves affected tabs first
+// and updates their paths only after the change succeeds.
 
 // treeRevealPath and treeCopyText are the system calls the menu makes. They are variables so a
 // test can watch them without the host's Finder and clipboard.
@@ -416,30 +416,68 @@ func (a *App) renameTreeItem(p *project) {
 	newFull := filepath.Join(p.root, filepath.FromSlash(newRel))
 	if oldInfo, err := os.Lstat(oldFull); err == nil {
 		if newInfo, done := os.Lstat(newFull); done == nil && !os.SameFile(oldInfo, newInfo) {
+			a.operationRejected("project_tree_rename", "entry_exists")
 			pr.err = i18n.Shared(language, "desktop.files.nameExists")
 			return
 		}
 	}
-	docs := a.documentsUnder(p, oldFull)
 	pr.open = false
-	a.saveDocumentsThen(p, docs, func() {
-		before := readForLocalHistory(oldFull)
-		if err := wslpath.CheckMove(oldFull, newFull); err != nil {
-			a.operationRejected("project_tree_rename", "cross_wsl_boundary")
-			a.notifyError(i18n.Shared(language, "desktop.files.crossBoundaryMove"))
-			return
-		}
-		if err := os.Rename(oldFull, newFull); err != nil {
-			a.operationFailed("project_tree_rename", documentLogError(err))
-			a.notifyError(i18n.SharedFormat(language, "desktop.files.renameFailed", map[string]string{"reason": treeErrorReason(err)}))
-			return
-		}
-		a.renamedLocalHistory(p, oldFull, newFull, before)
-		a.performed("workspace.file.rename", surfaceButton)
-		a.moveOpenDocuments(p, oldFull, newFull)
-		a.relocateDirectoryRules(p, oldRel, newRel)
-		a.listTree(p, path.Dir(oldRel))
-		a.loadGit(p)
+	a.performed("workspace.file.rename", surfaceButton)
+	a.commitTreeMove(p, oldRel, newRel)
+}
+
+// The early name check is UI feedback only. Core decides whether the destination
+// is still available when it commits the move, after any pending saves.
+func (a *App) commitTreeMove(p *project, from, to string) {
+	root, kernel := p.root, a.kernel
+	source := filepath.Join(root, filepath.FromSlash(from))
+	target := filepath.Join(root, filepath.FromSlash(to))
+	rename := path.Dir(from) == path.Dir(to)
+	op := "project_tree_move"
+	if rename {
+		op = "project_tree_rename"
+	}
+	if err := wslpath.CheckMove(source, target); err != nil {
+		a.operationRejected(op, "cross_wsl_boundary")
+		a.notifyError(i18n.Shared(a.language(), "desktop.files.crossBoundaryMove"))
+		return
+	}
+	a.saveDocumentsThen(p, a.documentsUnder(p, source), func() {
+		a.background(p, 0, func(ctx context.Context) func(*App) {
+			var before []byte
+			var entry core.WorkspaceEntry
+			err := errors.ErrUnsupported
+			if kernel != nil {
+				if rename {
+					before = readForLocalHistory(source)
+				}
+				entry, err = kernel.RenameWorkspaceEntry(ctx, root, from, to)
+			}
+			return func(a *App) {
+				var refusal *core.Error
+				switch {
+				case errors.As(err, &refusal) && refusal.Code == core.CodeEntryExists:
+					a.operationRejected(op, "entry_exists")
+					a.notify(i18n.Shared(a.language(), "desktop.files.nameExists"))
+				case err != nil:
+					a.operationFailed(op, documentLogError(err))
+					if rename {
+						a.notifyError(i18n.SharedFormat(a.language(), "desktop.files.renameFailed", map[string]string{"reason": treeErrorReason(err)}))
+					} else {
+						a.notifyError(i18n.SharedFormat(a.language(), "desktop.files.moveFailed", map[string]string{"reason": treeErrorReason(err)}))
+					}
+				default:
+					a.renamedLocalHistory(p, source, entry.FullPath, before)
+					a.moveOpenDocuments(p, source, entry.FullPath)
+					a.relocateDirectoryRules(p, from, entry.Path)
+					a.listTree(p, treeDir(p, source))
+					if !rename {
+						a.listTree(p, treeDir(p, entry.FullPath))
+					}
+					a.loadGit(p)
+				}
+			}
+		})
 	})
 }
 

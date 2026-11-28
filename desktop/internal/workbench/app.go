@@ -132,7 +132,7 @@ type Kernel interface {
 	BeforeLaunchField(ctx context.Context, root, configurationID string, plugins *core.RunTypePlugins) (core.RunBeforeLaunchField, error)
 	RunArgumentText(ctx context.Context, lists [][]string) ([]string, error)
 	// CreateWorkspaceEntry, RenameWorkspaceEntry, CopyWorkspaceEntry and ResolveWorkspaceEntry
-	// make the file changes a plugin asks for (pluginfilechanges.go).
+	// make local workspace changes for plugins and the project tree.
 	CreateWorkspaceEntry(ctx context.Context, creation core.WorkspaceEntryCreation) (core.WorkspaceEntry, error)
 	RenameWorkspaceEntry(ctx context.Context, root, path, target string) (core.WorkspaceEntry, error)
 	CopyWorkspaceEntry(ctx context.Context, root, path, target string) (core.WorkspaceEntry, error)
