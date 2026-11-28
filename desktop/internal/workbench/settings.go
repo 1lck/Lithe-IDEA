@@ -466,10 +466,19 @@ const (
 	// settingsAgents is the Agents page under AI, where the user lets Lithe read the sessions
 	// of a plugin's agents; the Agent tool window's History tab leads there.
 	settingsAgents
+	// settingsInstalledPlugin is the Installed tab of the Plugins page on one plugin, whose ID is
+	// the query; a missing agent CLI leads there, where the plugin's command installer is offered.
+	settingsInstalledPlugin
 )
 
 func (a *App) openSettingsPage(surface actionSurface, page settingsPage) {
 	a.openSettingsPageWith(surface, page, "")
+}
+
+// openInstalledPluginSettings opens the Plugins page on the installed plugin pluginID, where its
+// missing commands and their installers are listed.
+func (a *App) openInstalledPluginSettings(surface actionSurface, pluginID string) {
+	a.openSettingsPageWith(surface, settingsInstalledPlugin, pluginID)
 }
 
 // publishWorkspaceBuildOptions refreshes settings links after detection or a project change.
@@ -526,7 +535,7 @@ func (a *App) openSettingsPageWith(surface actionSurface, page settingsPage, que
 	if a.application == nil {
 		return
 	}
-	if page == settingsPlugins || page == settingsMarketplace {
+	if page == settingsPlugins || page == settingsMarketplace || page == settingsInstalledPlugin {
 		a.reloadPluginLanguages()
 	}
 	a.post(func(a *App) {
@@ -581,6 +590,8 @@ func (a *App) openSettingsPageWith(surface actionSurface, page settingsPage, que
 			err = a.settingsWindow.OpenDirectoryMarks(a.application, current)
 		case settingsAgents:
 			err = a.settingsWindow.OpenAgents(a.application, current)
+		case settingsInstalledPlugin:
+			err = a.settingsWindow.OpenInstalledPlugin(a.application, current, query)
 		default:
 			err = a.settingsWindow.Open(a.application, current)
 		}

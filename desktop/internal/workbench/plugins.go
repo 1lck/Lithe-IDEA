@@ -565,6 +565,10 @@ type pluginManifestFacts struct {
 		ID          string `json:"id"`
 		DisplayName string `json:"displayName"`
 	} `json:"vcsProviders"`
+	Agents []struct {
+		ID          string `json:"id"`
+		DisplayName string `json:"displayName"`
+	} `json:"agents"`
 	UI struct {
 		ToolWindows []struct {
 			ID    string `json:"id"`
@@ -728,6 +732,11 @@ func describeManifest(item *settingswindow.PluginFacts, manifest pluginManifestF
 	for _, provider := range manifest.VcsProviders {
 		item.Capabilities = append(item.Capabilities, settingswindow.PluginCapability{
 			Kind: settingswindow.CapabilityVersionControl, ID: provider.ID, Title: provider.DisplayName,
+		})
+	}
+	for _, agent := range manifest.Agents {
+		item.Capabilities = append(item.Capabilities, settingswindow.PluginCapability{
+			Kind: settingswindow.CapabilityAgent, ID: agent.ID, Title: agent.DisplayName,
 		})
 	}
 }

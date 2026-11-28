@@ -331,14 +331,14 @@ func agentRecordRole(lang i18n.Language, message agents.RecordedMessage) string 
 func (a *App) agentRecordFooter(c ui.C, p *project, lang i18n.Language, record *agentRecord) {
 	small := a.theme.Metrics.FontSizeS
 	ui.Column(c).FillWidth().Gap(6).Items(ui.Start).Children(func() {
-		note := func(key string, color gfx.Color) {
-			ui.Wrap(c, i18n.Shared(lang, key)).FontSize(small).Color(color)
+		note := func(words string, color gfx.Color) {
+			ui.Wrap(c, words).FontSize(small).Color(color)
 		}
 		switch {
 		case record.failure != "":
 			ui.Wrap(c, i18n.SharedFormat(lang, "desktop.agents.record.failed", map[string]string{"reason": record.failure})).FontSize(small).Color(a.colors.Warning)
 		case record.changed:
-			note("desktop.agents.record.changed", a.colors.Warning)
+			note(i18n.Shared(lang, "desktop.agents.record.changed"), a.colors.Warning)
 			if ui.Button(c.Key("sync"), i18n.Shared(lang, "desktop.agents.history.sync")).Outline().Clicked() {
 				c.After(func() {
 					a.performed("agents.history.sync", surfaceButton)
@@ -351,16 +351,16 @@ func (a *App) agentRecordFooter(c ui.C, p *project, lang i18n.Language, record *
 			ui.Wrap(c, i18n.SharedFormat(lang, "desktop.agents.record.limit", map[string]string{"count": strconv.Itoa(agentRecordMaxMessages)})).FontSize(small).Color(a.colors.Subtle)
 			return
 		case record.tooLong:
-			note("desktop.agents.record.tooLong", a.colors.Subtle)
+			note(i18n.Shared(lang, "desktop.agents.record.tooLong"), a.colors.Subtle)
 			return
 		case record.done && len(record.messages) == 0:
-			note("desktop.agents.record.empty", a.colors.Subtle)
+			note(i18n.Shared(lang, "desktop.agents.record.empty"), a.colors.Subtle)
 			return
 		case record.done:
 			return
 		}
 		if record.loading {
-			note("desktop.agents.record.loading", a.colors.Subtle)
+			note(i18n.Shared(lang, "desktop.agents.record.loading"), a.colors.Subtle)
 			return
 		}
 		if ui.Button(c.Key("more"), i18n.Shared(lang, "desktop.agents.record.loadMore")).Outline().Clicked() {

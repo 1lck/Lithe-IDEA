@@ -58,6 +58,9 @@ type Values struct {
 	KeymapSchemes           core.KeymapSchemes
 	// MarketplaceQuery opens the Marketplace with that search. A nil query leaves the tab alone.
 	MarketplaceQuery *string
+	// InstalledPlugin opens the Installed tab on the Features of the plugin with that ID, where
+	// its missing commands and their installers show. A nil ID leaves the tab alone.
+	InstalledPlugin *string
 	// Language is a stored i18n language code ("en", "zh-Hans"); empty follows the system.
 	Language string
 	// Theme is "light" or "dark"; empty follows the system's look.
@@ -725,6 +728,14 @@ func (c *Controller) OpenPluginsWithQuery(application *app.Application, current 
 	return c.open(application, current, pagePlugins)
 }
 
+// OpenInstalledPlugin shows the plugin page's Installed tab on the Features of the plugin
+// pluginID, which is where the Agent tool window leads when an agent's command-line tool is
+// missing; an open window switches to it too.
+func (c *Controller) OpenInstalledPlugin(application *app.Application, current Values, pluginID string) error {
+	current.InstalledPlugin = &pluginID
+	return c.open(application, current, pagePlugins)
+}
+
 // OpenTerminal opens the Terminal page under Tools, including when a settings window is
 // already open: that window switches to the page and is raised, keeping its other values.
 func (c *Controller) OpenTerminal(application *app.Application, current Values) error {
@@ -771,6 +782,9 @@ func (c *Controller) open(application *app.Application, current Values, page pag
 		win := open.win
 		if current.MarketplaceQuery != nil {
 			open.requestQuery(*current.MarketplaceQuery)
+		}
+		if current.InstalledPlugin != nil {
+			open.requestInstalled(*current.InstalledPlugin)
 		}
 		if page != noPage {
 			open.requestPage(page)
@@ -941,6 +955,9 @@ const (
 	CapabilityToolWindow      = "toolWindow"
 	CapabilityCommand         = "command"
 	CapabilityVersionControl  = "versionControl"
+	// CapabilityAgent is an agent of the API-45 agents section; its CLI is the missing command
+	// the card offers to install.
+	CapabilityAgent = "agent"
 )
 
 // The values of Values.ProjectOpenDestination besides asking.

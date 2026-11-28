@@ -23,9 +23,9 @@ type CommandRequirements struct {
 
 // CommandConsumer is one systemCommand launch.
 type CommandConsumer struct {
-	// Kind is languageServer, buildProvider, vcsProvider, debugAdapter or backend.
+	// Kind is languageServer, buildProvider, vcsProvider, debugAdapter, backend or agent.
 	Kind string `json:"kind"`
-	// ID is the language, build system, VCS or adapter ID; nil for the backend.
+	// ID is the language, build system, VCS, adapter or agent ID; nil for the backend.
 	ID       *string           `json:"id"`
 	Commands []RequiredCommand `json:"commands"`
 }
@@ -120,9 +120,10 @@ type CommandDirectoryProbe struct {
 	Arguments []string `json:"arguments"`
 }
 
-// CommandInstallerRequirements lists the systemCommand launches of manifest and the installer
-// of each command. With platform, a download installer without an archive for it is left out;
-// a host that installs downloads always passes its own. It reads nothing and starts nothing.
+// CommandInstallerRequirements lists the systemCommand launches and agents of manifest and
+// the installer of each command. With platform, a download installer without an archive for it
+// is left out; a host that installs downloads always passes its own. It reads nothing and starts
+// nothing.
 func (c *Client) CommandInstallerRequirements(ctx context.Context, manifest json.RawMessage, platform *CommandArchivePlatform) (CommandRequirements, error) {
 	const command = "plugins.commandInstallers.requirements"
 	var result struct {

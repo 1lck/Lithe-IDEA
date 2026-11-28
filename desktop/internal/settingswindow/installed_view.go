@@ -899,6 +899,8 @@ func capabilityKindTitle(language i18n.Language, kind string) string {
 		return i18n.Shared(language, "native.command")
 	case CapabilityVersionControl:
 		return i18n.Shared(language, "native.versionControl")
+	case CapabilityAgent:
+		return i18n.Shared(language, "desktop.plugins.capabilityAgent")
 	}
 	return ""
 }

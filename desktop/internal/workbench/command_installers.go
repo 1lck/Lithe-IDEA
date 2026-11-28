@@ -81,9 +81,10 @@ func (s settingsCommandInstalls) manifest(ctx context.Context, pluginID string) 
 	return nil, fmt.Errorf("plugin %s is not enabled", pluginID)
 }
 
-// Missing asks Core for the plugin's systemCommand launches and looks each one's commands up
-// as its launch does: the debug adapter's lookup for a debug adapter, the plugin runner's for
-// everything else, both of which add the directories recorded for the plugin to PATH.
+// Missing asks Core for the plugin's systemCommand launches and agents and looks each one's
+// commands up as its launch does: the debug adapter's lookup for a debug adapter, the agent's
+// tool resolution for an agent, the plugin runner's for everything else, all of which add the
+// directories recorded for the plugin to PATH.
 func (s settingsCommandInstalls) Missing(ctx context.Context, pluginID string) (_ []settingswindow.MissingCommand, err error) {
 	// A failed check leaves the cards without install buttons, which the window falls back to.
 	defer func() {
@@ -115,7 +116,7 @@ func (s settingsCommandInstalls) Missing(ctx context.Context, pluginID string) (
 				installerID = *required.Installer
 			}
 		}
-		if len(commands) == 0 || s.found(ctx, pluginID, consumer.Kind, commands) {
+		if len(commands) == 0 || s.found(ctx, pluginID, manifest, consumer, commands) {
 			continue
 		}
 		if err := ctx.Err(); err != nil {
@@ -136,18 +137,49 @@ func (s settingsCommandInstalls) Missing(ctx context.Context, pluginID string) (
 	return missing, nil
 }
 
-// found reports whether a launch of kind finds one of commands. Only a launch that would fail
-// for want of a command counts as missing; any other failure is not one an installer fixes.
-func (s settingsCommandInstalls) found(ctx context.Context, pluginID, kind string, commands []string) bool {
+// found reports whether the launch or agent consumer finds one of commands. Only a launch that
+// would fail for want of a command counts as missing; any other failure is not one an installer
+// fixes.
+func (s settingsCommandInstalls) found(ctx context.Context, pluginID string, manifest json.RawMessage, consumer core.CommandConsumer, commands []string) bool {
 	var err error
-	if kind == "debugAdapter" {
+	switch consumer.Kind {
+	case "agent":
+		if consumer.ID == nil {
+			return true
+		}
+		tool, ok := manifestAgentTool(manifest, *consumer.ID)
+		if !ok {
+			return true
+		}
+		_, err = s.app.resolveAgentTool(ctx, "", pluginID, tool)
+		return !agentToolMissing(err)
+	case "debugAdapter":
 		lookup := s.app.installedCommands().Lookup(pluginID, func(name string) (string, error) { return debugLookupCommand(ctx, name) })
 		_, err = pluginhost.ResolveCommand(commands, lookup)
-	} else {
+	default:
 		_, err = s.app.plugins.Backend.ResolveCommand(pluginID, commands)
 	}
 	var missing *pluginhost.CommandMissingError
 	return !errors.As(err, &missing)
+}
+
+// manifestAgentTool is the tool of the agent agentID the manifest declares.
+func manifestAgentTool(manifest json.RawMessage, agentID string) (string, bool) {
+	var declared struct {
+		Agents []struct {
+			ID   string `json:"id"`
+			Tool string `json:"tool"`
+		} `json:"agents"`
+	}
+	if json.Unmarshal(manifest, &declared) != nil {
+		return "", false
+	}
+	for _, agent := range declared.Agents {
+		if agent.ID == agentID && agent.Tool != "" {
+			return agent.Tool, true
+		}
+	}
+	return "", false
 }
 
 // commandConsumerCapability is the capability card a launch of Core's consumer kind belongs
@@ -162,6 +194,8 @@ func commandConsumerCapability(kind string) string {
 		return settingswindow.CapabilityVersionControl
 	case "debugAdapter":
 		return settingswindow.CapabilityDebugger
+	case "agent":
+		return settingswindow.CapabilityAgent
 	}
 	return ""
 }

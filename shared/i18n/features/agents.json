@@ -478,6 +478,30 @@
       }
     },
     {
+      "id": "desktop.agents.cliMissing",
+      "description": "Notification when an agent's CLI is not installed; its button opens the plugin in Plugins, where its command installer is offered",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "agent": "string"
+      }
+    },
+    {
+      "id": "desktop.agents.cliOpenPlugins",
+      "description": "Button of the missing-CLI notification that opens the agent's plugin in Plugins",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.plugins.capabilityAgent",
+      "description": "Kind label of a feature card on a plugin's Features tab for an agent the plugin declares",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.agents.updateTitle",
       "description": "Title of the confirmation before updating an agent's CLI",
       "platforms": [
@@ -873,6 +897,9 @@
       "desktop.agents.permissionFailed": "Could not answer the request: {reason}",
       "desktop.agents.requestFailed": "The agent did not respond: {reason}",
       "desktop.agents.toolFailed": "Could not run {agent}: {reason}",
+      "desktop.agents.cliMissing": "Lithe can't find the command-line tool of {agent}. Plugins shows what is missing and installs it when the plugin offers an installer.",
+      "desktop.agents.cliOpenPlugins": "Open Plugins",
+      "desktop.plugins.capabilityAgent": "Agent",
       "desktop.agents.updateTitle": "Update {agent}?",
       "desktop.agents.updateDetail": "The update runs the CLI's own update command in a terminal.",
       "desktop.agents.updateConfirm": "Update",
@@ -980,6 +1007,9 @@
       "desktop.agents.permissionFailed": "无法回复请求：{reason}",
       "desktop.agents.requestFailed": "Agent 没有响应：{reason}",
       "desktop.agents.toolFailed": "无法运行 {agent}：{reason}",
+      "desktop.agents.cliMissing": "没有找到 {agent} 的命令行工具。可以在插件管理里查看缺少的命令；插件提供安装方式时可以直接安装。",
+      "desktop.agents.cliOpenPlugins": "打开插件管理",
+      "desktop.plugins.capabilityAgent": "Agent",
       "desktop.agents.updateTitle": "更新 {agent}？",
       "desktop.agents.updateDetail": "更新会在终端中运行该 CLI 自己的更新命令。",
       "desktop.agents.updateConfirm": "更新",

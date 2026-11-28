@@ -203,9 +203,11 @@ type window struct {
 	// searchField is the sidebar's search and marketQuery the marketplace's text.
 	searchField ui.Field
 	marketQuery string
-	// queryMu guards queryWanted, the query a request set for the next paint (requestQuery).
-	queryMu     sync.Mutex
-	queryWanted *string
+	// queryMu guards queryWanted, the query a request set for the next paint (requestQuery),
+	// and installedWanted, the plugin one asked the Installed tab to show (requestInstalled).
+	queryMu         sync.Mutex
+	queryWanted     *string
+	installedWanted *string
 	// The values the controls of the pages write into, set from the session's values in
 	// each paint: a change the control makes is what the window then applies.
 	themePick, languagePick, tabRowsPick, tabOverflowPick, shellPick, projectOpenPick, backgroundStrengthPick string
@@ -306,6 +308,9 @@ func newWindow(c *Controller, current Values) *window {
 		w.marketQuery = *current.MarketplaceQuery
 		w.pluginTab = pluginTabMarketplace
 	}
+	if current.InstalledPlugin != nil {
+		w.showInstalled(*current.InstalledPlugin)
+	}
 	w.market.search.report = c.opts.MarketplaceError
 	w.marketIcons = newMarketplaceIcons(c.opts.MarketplaceIcon, c.opts.MarketplaceIconError)
 	w.pluginSettings = newPluginSettingsForm(c.opts.PluginSettings)
@@ -378,6 +383,36 @@ func (w *window) requestQuery(query string) {
 	w.inv.Invalidate()
 }
 
+// requestInstalled asks the window to show the plugin pluginID on the Installed tab on its next
+// paint; it is safe to call from any goroutine.
+func (w *window) requestInstalled(pluginID string) {
+	w.queryMu.Lock()
+	w.installedWanted = &pluginID
+	w.queryMu.Unlock()
+	w.inv.Invalidate()
+}
+
+// takeInstalled returns the plugin a request asked the Installed tab to show, once.
+func (w *window) takeInstalled() (string, bool) {
+	w.queryMu.Lock()
+	defer w.queryMu.Unlock()
+	if w.installedWanted == nil {
+		return "", false
+	}
+	id := *w.installedWanted
+	w.installedWanted = nil
+	return id, true
+}
+
+// showInstalled switches the plugin page to the Installed tab on the Features of pluginID, where
+// its missing commands show, with every plugin listed so that a search or a chip that leaves it
+// out does not hide it.
+func (w *window) showInstalled(pluginID string) {
+	w.pluginTab = pluginTabInstalled
+	w.installed.query, w.installed.filter = "", installedAll
+	w.installed.selected, w.installed.tab = pluginID, installedFeatures
+}
+
 // takeQuery returns the query a request set, once.
 func (w *window) takeQuery() (string, bool) {
 	w.queryMu.Lock()
@@ -398,6 +433,9 @@ func (w *window) wake() {
 		// A search the workbench asks for is a search of the marketplace.
 		w.marketQuery = q
 		w.pluginTab = pluginTabMarketplace
+	}
+	if id, ok := w.takeInstalled(); ok {
+		w.showInstalled(id)
 	}
 	if w.pluginRegistryChanged.Swap(false) {
 		w.dynamic.invalidate()

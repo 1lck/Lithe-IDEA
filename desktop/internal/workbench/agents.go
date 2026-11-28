@@ -353,7 +353,7 @@ func (a *App) startAgentSession(ctx context.Context, kernel *agents.Client, serv
 			return "", 0, err
 		}
 	}
-	tool, err := a.resolveRunTool(ctx, root, agent.Tool)
+	tool, err := a.resolveAgentTool(ctx, root, agent.PluginID, agent.Tool)
 	if err != nil {
 		return "", 0, err
 	}
@@ -385,6 +385,10 @@ func (a *App) finishConversationStart(p *project, agent agents.CatalogAgent, ses
 			return
 		}
 		a.operationFailed("agents_start", err)
+		if agentToolMissing(err) {
+			a.notifyAgentToolMissing(agent)
+			return
+		}
 		a.notifyError(i18n.SharedFormat(a.language(), "desktop.agents.startFailed", map[string]string{"agent": agent.DisplayName, "reason": a.agentFailure(err)}))
 		return
 	}
@@ -684,10 +688,14 @@ func (a *App) runAgentTool(p *project, agent agents.CatalogAgent, action, operat
 	root := p.root
 	args = append([]string{}, args...)
 	a.background(p, agentCallTimeout, func(ctx context.Context) func(*App) {
-		tool, err := a.resolveRunTool(ctx, root, agent.Tool)
+		tool, err := a.resolveAgentTool(ctx, root, agent.PluginID, agent.Tool)
 		return func(a *App) {
 			if err != nil {
 				a.operationFailed(operation, err)
+				if agentToolMissing(err) {
+					a.notifyAgentToolMissing(agent)
+					return
+				}
 				a.notifyError(i18n.SharedFormat(a.language(), "desktop.agents.toolFailed", map[string]string{"agent": agent.DisplayName, "reason": err.Error()}))
 				return
 			}
