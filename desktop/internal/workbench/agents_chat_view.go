@@ -225,7 +225,7 @@ func (a *App) agentChatBody(c ui.C, p *project, conversation *agentConversation,
 				a.agentPending(c.Part("pending"), p, conversation)
 				a.agentPlan(c.Part("plan"), conversation)
 				a.agentPromptCard(c.Part("prompt"), p, conversation)
-				a.agentChatFooter(c.Part("footer"), p)
+				a.agentChatFooter(c, p)
 			})
 		})
 	})
@@ -819,7 +819,7 @@ func (a *App) agentPromptCard(c ui.C, p *project, conversation *agentConversatio
 				c.After(func() { a.sendPrompt(p, conversation, surfaceShortcut) })
 			}
 			ui.Row(c).FillWidth().Gap(6).Items(ui.Center).Children(func() {
-				a.agentSettingsChip(c.Part("settings"), p, conversation)
+				a.agentSettingsChip(c, p, conversation)
 				ui.Spacer(c)
 				a.agentMeters(c.Part("meters"), conversation)
 				a.agentSendButton(c.Part("send"), p, conversation)
@@ -844,7 +844,7 @@ func (a *App) agentSettingsChip(c ui.C, p *project, conversation *agentConversat
 		return
 	}
 	// In a narrow window the chip gives way, so the usage and the Send button stay in the card.
-	chip := a.agentHistoryChip(c, agentSettingsLabel(conversation), &icons.Sparkles, true, conversation.settingsOpen).
+	chip := a.agentHistoryChip(c.Part("settings"), agentSettingsLabel(conversation), &icons.Sparkles, true, conversation.settingsOpen).
 		Shrink(1).MinWidth(0).Tooltip(i18n.Shared(a.language(), "desktop.agents.session.menu"))
 	if chip.Clicked() {
 		c.After(func() { conversation.settingsOpen = true })
@@ -932,11 +932,12 @@ func (a *App) agentSettingsMenu(c ui.C, p *project, conversation *agentConversat
 		}
 		model, effort := t.Setting("model"), t.Setting("thoughtLevel")
 		ui.Column(c).FillWidth().Gap(4).Children(func() {
-			// A rule parts each block from the one before it.
+			// A rule parts each block from the one before it. A Divider takes no name, so it is
+			// declared before the block's Key is set.
 			first := true
-			rule := func(k ui.C) {
+			rule := func() {
 				if !first {
-					ui.Divider(k.Part("rule"))
+					ui.Divider(c)
 				}
 				first = false
 			}
@@ -951,8 +952,8 @@ func (a *App) agentSettingsMenu(c ui.C, p *project, conversation *agentConversat
 				if setting == model {
 					continue
 				}
+				rule()
 				k := c.KeyInt(i)
-				rule(k)
 				switch {
 				case setting == effort && len(setting.Options) >= 2:
 					ui.Column(k).FillWidth().Gap(2).Children(func() {
@@ -1093,7 +1094,7 @@ func (a *App) agentSettingPage(c ui.C, p *project, lang i18n.Language, conversat
 		if back.Clicked() {
 			c.After(func() { conversation.settingsPage = "" })
 		}
-		ui.Divider(c.Part("rule"))
+		ui.Divider(c)
 		ui.Column(c.Part("values")).FillWidth().Gap(1).Children(func() {
 			if a.agentSettingValues(c.Part("values"), p, conversation, setting, true) {
 				c.After(func() { conversation.settingsPage = "" })
@@ -1237,7 +1238,7 @@ func (a *App) agentUsageCard(c ui.C, lang i18n.Language, t *agents.Transcript) {
 			return
 		}
 		if hasContext {
-			ui.Divider(c.Part("rule"))
+			ui.Divider(c)
 		}
 		ui.Text(c, i18n.Shared(lang, "desktop.agents.rate.title")).FontSize(small).Weight(gfx.WeightSemibold).Color(a.colors.Text)
 		now := time.Now()
@@ -1333,7 +1334,7 @@ func (a *App) agentChatFooter(c ui.C, p *project) {
 			ui.Text(c, text).FontSize(small).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
 		})
 	}
-	ui.Row(c).FillWidth().Height(agentRowHeadHeight).Shrink(0).PadX(16).Gap(10).Items(ui.Center).Clip().Children(func() {
+	ui.Row(c.Part("footer")).FillWidth().Height(agentRowHeadHeight).Shrink(0).PadX(16).Gap(10).Items(ui.Center).Clip().Children(func() {
 		item(c.Part("host"), icons.Monitor, agentHostLabel(a.language()))
 		item(c.Part("folder"), icons.Folder, filepath.Base(p.root))
 		if branch := p.git.branch(); branch != "" {

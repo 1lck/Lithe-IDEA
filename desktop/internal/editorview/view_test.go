@@ -3,6 +3,7 @@ package editorview
 import (
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/syntax"
@@ -10,10 +11,15 @@ import (
 	"github.com/vivaui/viva/gfx"
 )
 
-// newTestView is a view of text with no grammar, its caret at the start.
+// newTestView is a view of text with no grammar, its caret at the start. Its doc blocks are
+// timed by a clock that stands still, so laying them out never runs over the frame budget or
+// trips the slow-block breaker however slow the machine is; a test of those limits sets its
+// own clock.
 func newTestView(t *testing.T, text string) *View {
 	t.Helper()
 	v := New(Config{HitID: gfx.Item(1), Label: "test", Content: Prepare([]byte(text))})
+	still := time.Unix(1000, 0)
+	v.docs.nowFn = func() time.Time { return still }
 	t.Cleanup(v.Close)
 	return v
 }

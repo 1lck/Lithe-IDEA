@@ -237,7 +237,7 @@ func (a *App) siteNavActions(c ui.C, entry *previewPage, tooLarge bool) {
 	}
 	language := a.language()
 	if entry.view.IsLoading() {
-		ui.Spinner(c.Part("loading")).Size(12, 12).Shrink(0)
+		ui.Spinner(c).Size(12, 12).Shrink(0)
 	}
 	if a.viewerIconButtonDisabled(c.Part("back"), i18n.Shared(language, "desktop.htmlPreview.back"), icons.ChevronLeft, !entry.view.CanGoBack()) {
 		entry.view.Back()

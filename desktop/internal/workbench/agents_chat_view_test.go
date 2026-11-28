@@ -236,6 +236,26 @@ func TestAgentEffortSliderPicksTheValueLetGoOf(t *testing.T) {
 	}
 }
 
+// The usage card lists the context the session uses, then, under a rule, each usage window.
+func TestAgentUsageCardListsTheContextAndEachUsageWindow(t *testing.T) {
+	conversation := sampleAgentConversation()
+	conversation.transcript.Apply(agents.Event{Kind: "usage", Model: "model-a", ContextUsed: 50_000, ContextWindow: 200_000})
+	conversation.transcript.Apply(agents.Event{Kind: "rateLimits", Windows: []agents.RateWindow{
+		{ID: "primary", UsedPercent: 40, WindowMinutes: 5 * 60}, {ID: "secondary", UsedPercent: 10, WindowMinutes: 7 * 24 * 60},
+	}})
+	conversation.contextOpen = true
+	h, _ := showAgentConversationWith(t, conversation)
+	lang := h.app.language()
+	for _, value := range []string{
+		i18n.Shared(lang, "desktop.agents.context.title"),
+		i18n.Shared(lang, "desktop.agents.rate.title"),
+		i18n.SharedFormat(lang, "desktop.agents.rate.hours", map[string]string{"count": "5"}),
+		i18n.Shared(lang, "desktop.agents.rate.weekly"),
+	} {
+		h.shownText(value)
+	}
+}
+
 // A conversation moves into an editor tab and back, both ways; closing its tab moves it back
 // too, and its session keeps running until the conversation is closed.
 func TestAgentConversationMovesBetweenTheToolWindowAndAnEditorTab(t *testing.T) {
