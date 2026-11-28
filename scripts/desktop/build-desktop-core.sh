@@ -395,7 +395,7 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # Core #215 provides plugin directory types and marks; #214 provides native doc rendering.
 # Core main after #213 includes deferred empty-directory probes and partial expansion diagnostics.
 # Core #221 (feat/editor-file-type-mappings) adds editor.fileTypeMappings.normalize and .resolve.
-PINNED_CORE_REVISION="f97228b3796ba2e867f049cb660d1322cc6b6b11"
+PINNED_CORE_REVISION="76ab4756319acb097dc6417659febf4fdd955716"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do
