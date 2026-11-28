@@ -532,7 +532,7 @@ func (a *App) docCommentMenuItems(c ui.C, d *document, menu *ui.MenuItems) {
 			}
 		}
 	}
-	if d.view.RequestedDocBlockCount() < d.view.DocBlockCount() {
+	if d.view.CanRenderAllDocBlocks() {
 		if menu.Item(i18n.Shared(language, "desktop.editor.renderAllDocComments")).Clicked() {
 			c.After(func() { a.setAllDocCommentsRendered(d, true) })
 		}

@@ -374,4 +374,35 @@ func TestDocCommentReadOnlyPrefPreservesWritableChoiceAndOffScreenRenderAllCance
 	if d.view.RequestedDocBlockCount() != 0 {
 		t.Fatalf("RequestedDocBlockCount = %d after Show Source for All, want 0", d.view.RequestedDocBlockCount())
 	}
+
+	// 3. Render All followed by Fold All (which collapses the fold starting on
+	// /** without clearing wantRendered): Render All must remain available and
+	// running it unfolds the same-start fold so the comment renders again.
+	d.view.GoToLine(1)
+	h.app.setAllDocCommentsRendered(d, true)
+	h.settleChain()
+	h.await("comment rendered before Fold All", func() bool {
+		return d.view.ActiveDocBlockCount() == 1
+	})
+	d.view.FoldAll()
+	h.settleChain()
+	if !d.view.CanRenderAllDocBlocks() {
+		t.Fatal("CanRenderAllDocBlocks() = false after FoldAll collapsed same-start doc comment fold, want true")
+	}
+	var renderAll *command
+	for _, cmd := range h.app.commands() {
+		if cmd.id == "editor.renderAllDocComments" {
+			c := cmd
+			renderAll = &c
+			break
+		}
+	}
+	if renderAll == nil || !renderAll.runnable() {
+		t.Fatal("editor.renderAllDocComments must remain runnable after FoldAll collapses a doc comment")
+	}
+	h.app.startCommand(*renderAll, surfacePalette)
+	h.settleChain()
+	h.await("Render All reopens same-start fold and renders comment", func() bool {
+		return d.view.ActiveDocBlockCount() == 1 && !d.view.CanRenderAllDocBlocks()
+	})
 }

@@ -1083,11 +1083,11 @@ func TestDocBlockDragSelectionBoundaryAndHighlight(t *testing.T) {
 
 	// Start drag on the declaration below the rendered Javadoc.
 	v.Pointer(gfx.PointerEvent{Target: v.cfg.HitID, Kind: gfx.PointerDown, Button: gfx.PointerButtonPrimary, ClickCount: 1, X: v.textLeft + 40, Y: codeY})
-	// Drag upward into the bottom quarter of the rendered Javadoc: must NOT swallow the comment.
+	// Drag upward into the bottom quarter of the rendered Javadoc: must NOT select the comment or its trailing newline.
 	v.Pointer(gfx.PointerEvent{Target: v.cfg.HitID, Kind: gfx.PointerMove, Button: gfx.PointerButtonPrimary, X: v.textLeft + 40, Y: blockTop + blockH*0.85})
 	start, end := v.Selection()
-	if start < v.lineEnd(ab.endLine) {
-		t.Fatalf("drag into bottom half unexpectedly selected doc comment: sel=[%d,%d) docEnd=%d", start, end, v.lineEnd(ab.endLine))
+	if start < v.text.LineStart(ab.endLine+1) {
+		t.Fatalf("drag into bottom half unexpectedly crossed into doc comment: sel=[%d,%d) nextLineStart=%d", start, end, v.text.LineStart(ab.endLine+1))
 	}
 	canvas.Reset()
 	v.Paint(canvas, area, look)
@@ -1098,13 +1098,22 @@ func TestDocBlockDragSelectionBoundaryAndHighlight(t *testing.T) {
 	// Drag further upward into the top quarter: selects the whole doc block atomically AND highlights it visibly.
 	v.Pointer(gfx.PointerEvent{Target: v.cfg.HitID, Kind: gfx.PointerMove, Button: gfx.PointerButtonPrimary, X: v.textLeft + 40, Y: blockTop + blockH*0.15})
 	start, end = v.Selection()
-	if start != v.text.LineStart(ab.startLine) || end <= v.lineEnd(ab.endLine) {
-		t.Fatalf("drag into top half sel=[%d,%d), want [%d, >%d)", start, end, v.text.LineStart(ab.startLine), v.lineEnd(ab.endLine))
+	if start != v.text.LineStart(ab.startLine) || end <= v.text.LineStart(ab.endLine+1) {
+		t.Fatalf("drag into top half sel=[%d,%d), want [%d, >%d)", start, end, v.text.LineStart(ab.startLine), v.text.LineStart(ab.endLine+1))
 	}
 	canvas.Reset()
 	v.Paint(canvas, area, look)
 	if !hasBlockSelectionFill(canvas) {
 		t.Fatal("expected visible selection highlight fill over rendered doc block before deletion")
+	}
+
+	// Release back in the bottom quarter and press Delete: only the selected declaration prefix is removed;
+	// the rendered doc comment and its newline stay completely intact.
+	v.Pointer(gfx.PointerEvent{Target: v.cfg.HitID, Kind: gfx.PointerMove, Button: gfx.PointerButtonPrimary, X: v.textLeft + 40, Y: blockTop + blockH*0.85})
+	v.Pointer(gfx.PointerEvent{Target: v.cfg.HitID, Kind: gfx.PointerUp, Button: gfx.PointerButtonPrimary, X: v.textLeft + 40, Y: blockTop + blockH*0.85})
+	v.Key(gfx.KeyEvent{Target: v.cfg.HitID, Key: gfx.KeyDelete})
+	if got := v.text.String(); !strings.HasPrefix(got, "/**\n * First paragraph.\n *\n * Second paragraph.\n */\n") {
+		t.Fatalf("bottom-half drag + Delete mutated doc comment: %q", got)
 	}
 }
 

@@ -603,6 +603,23 @@ func (v *View) RequestedDocBlockCount() int {
 	return n
 }
 
+// CanRenderAllDocBlocks reports whether SetAllDocBlocksRendered(true) has work
+// to do: either at least one known doc block is not yet requested for
+// rendering, or a collapsed fold starting on a doc block's StartLine is
+// currently blocking it from projecting.
+func (v *View) CanRenderAllDocBlocks() bool {
+	for i := range v.docs.blocks {
+		entry := &v.docs.blocks[i]
+		if !entry.wantRendered {
+			return true
+		}
+		if _, folded := v.fold.collapsed[entry.startLine]; folded {
+			return true
+		}
+	}
+	return false
+}
+
 // DocBlockCount returns the total number of known doc comment candidates in
 // the current document, regardless of whether they are rendered or in source.
 func (v *View) DocBlockCount() int {
@@ -1886,11 +1903,20 @@ func (v *View) docMinimapColor() gfx.Color {
 	return gfx.RGB24(0x7A8699)
 }
 
+func (v *View) activeDocBlockContainingLine(line int) int {
+	a := v.docs.active
+	i := sort.Search(len(a), func(k int) bool { return a[k].endLine >= line })
+	if i < len(a) && a[i].startLine <= line && line <= a[i].endLine {
+		return i
+	}
+	return -1
+}
+
 // docBlockSelected reports whether any active editor selection overlaps the
 // source byte span of rendered doc block ab.
 func (v *View) docBlockSelected(ab activeDocBlock, selStart, selEnd int) bool {
 	blockStart := v.text.LineStart(ab.startLine)
-	blockEnd := v.text.LineEnd(ab.endLine)
+	blockEnd := v.lineEnd(ab.endLine)
 	if blockEnd <= blockStart {
 		return false
 	}

@@ -560,6 +560,16 @@ func (v *View) Pointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
 
 // unitAt is the character, word or line at offset, by the unit of the drag.
 func (v *View) unitAt(offset int) (int, int) {
+	if v.dragUnit >= 2 && v.hasActiveDocBlocks() {
+		if idx := v.activeDocBlockContainingLine(v.text.LineOf(offset)); idx >= 0 {
+			ab := v.docs.active[idx]
+			end := v.lineEnd(ab.endLine)
+			if ab.endLine+1 < v.text.LineCount() {
+				end = v.text.LineStart(ab.endLine + 1)
+			}
+			return v.text.LineStart(ab.startLine), end
+		}
+	}
 	switch v.dragUnit {
 	case 2:
 		return v.clickedWordAt(offset)
@@ -595,6 +605,9 @@ func (v *View) offsetAt(x, y float32) int {
 		blockTop := v.area.Y + float32(ab.displayStartRow)*lineH - v.scroll
 		blockMid := blockTop + float32(ab.rows)*lineH*0.5
 		if y >= blockMid {
+			if ab.endLine+1 < v.text.LineCount() {
+				return v.text.LineStart(ab.endLine + 1)
+			}
 			return v.lineEnd(ab.endLine)
 		}
 		return v.text.LineStart(ab.startLine)
