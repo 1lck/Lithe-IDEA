@@ -15,7 +15,7 @@
 | `scripts/ci/common/` | 被两个及以上工作流共用的 CI 脚本，例如 Desktop Release 与 AutoBuild 共用的打包目标、格式和发布文件清单 |
 | `scripts/ci/<工作流名>/` | 只为某一个工作流存在的脚本，目录名与工作流名对应（例如 `desktop-release`、`desktop-autobuild`、`cancel-closed-pr-runs`） |
 | `scripts/release/notes/` | 发布说明的生成与校验 |
-| `scripts/macos/<作用子目录>/` | 只服务 macOS 上的 Lithe 产品的脚本，子目录按作用命名（现有 `package/`） |
+| `scripts/macos/<作用子目录>/` | 只服务 macOS 上的 Lithe 产品的脚本，子目录按作用命名（目前没有） |
 | `scripts/desktop/perf/` | Viva 桌面端的性能基线：编辑器基准的运行、记录、对比和报告 |
 | `scripts/desktop/` | 只服务 Viva 桌面端（`desktop/`，Go）的构建、打包、验证和运行入口：构建它链接的 Lithe-core-rust 静态库，以及带 cgo 参数运行 `desktop/` 里的 go 命令 |
 | `scripts/install/` | 给用户运行的安装脚本，一行命令从更新源下载并安装发行版；只服务一个平台的脚本文件名带平台名（现有 `linux.sh`） |

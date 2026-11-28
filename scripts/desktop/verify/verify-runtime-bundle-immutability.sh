@@ -88,32 +88,4 @@ for workflow in $installed_package_workflows; do
     fi
 done
 
-# Retain the legacy checks when those clients are present, so a checkout that
-# contains both architectures cannot silently stop checking their paths.
-bundle_write_pattern='(Bundle\.main\.(resourceURL|bundleURL)|Contents/Resources).*(write|createDirectory|copyItem|moveItem|removeItem)|((write|createDirectory|copyItem|moveItem|removeItem).*)(Bundle\.main\.(resourceURL|bundleURL)|Contents/Resources)'
-if [[ -d macos/Sources ]]; then
-    bundle_write_violations=$(
-        { find macos/Sources -type f -name '*.swift' -print0 \
-            | xargs -0 /usr/bin/grep -En -- "$bundle_write_pattern"; } 2>&1 || true
-    )
-    if [[ -n "$bundle_write_violations" ]]; then
-        print -u2 -- "Runtime code must not write to a path derived from the macOS app bundle:"
-        print -u2 -- "$bundle_write_violations"
-        exit 1
-    fi
-fi
-
-windows_bundle_write_pattern='(resource_dir\(\)|resolve_resource\().*(write|create_dir|copy|rename|remove_file)|((write|create_dir|copy|rename|remove_file).*)(resource_dir\(\)|resolve_resource\()'
-if [[ -d windows/tauri/src-tauri/src ]]; then
-    windows_bundle_write_violations=$(
-        { find windows/tauri/src-tauri/src -type f -name '*.rs' -print0 \
-            | xargs -0 /usr/bin/grep -En -- "$windows_bundle_write_pattern"; } 2>&1 || true
-    )
-    if [[ -n "$windows_bundle_write_violations" ]]; then
-        print -u2 -- "Runtime code must not write to Windows packaged resources:"
-        print -u2 -- "$windows_bundle_write_violations"
-        exit 1
-    fi
-fi
-
-print -- "Runtime bundle immutability checks passed (desktop macOS and Windows sources; ${#installed_package_workflows} workflows keep their installed-package tests)."
+print -- "Runtime bundle immutability checks passed (shared desktop sources for macOS and Windows; ${#installed_package_workflows} workflows keep their installed-package tests)."
