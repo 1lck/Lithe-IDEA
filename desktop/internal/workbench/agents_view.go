@@ -8,6 +8,8 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/agents"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/vivaui/viva/components"
+	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -19,8 +21,13 @@ import (
 const (
 	// agentToolOutputLines is how many lines of a tool call's output a row shows.
 	agentToolOutputLines = 6
-	// agentPlanLines is how many plan entries the window shows.
+	// agentPlanLines is how many plan entries the unfolded plan card shows.
 	agentPlanLines = 8
+	// agentPermissionPlaces is how many files of a tool call the permission card names.
+	agentPermissionPlaces = 3
+	// agentPermissionRadius rounds the permission and plan cards, less than the prompt card
+	// they sit over.
+	agentPermissionRadius = 14
 )
 
 // agentsTabsShown reports whether the header shows the Chat and History tabs, in place of the
@@ -286,41 +293,112 @@ func lastLines(text string, n int) string {
 	return text
 }
 
-// agentPending declares the permission requests waiting for the user, each with the options
-// the agent offered.
+// agentPending declares the permission request waiting first for the user as a card over the
+// prompt card, as Claude Desktop asks: who asks, the tool call with the files it touches, and a
+// row for each answer the agent offers, the first one marked as the one to take. Requests that
+// wait behind it are counted in its corner and come up as it is answered.
 func (a *App) agentPending(c ui.C, p *project, conversation *agentConversation) {
-	pending := conversation.transcript.Pending
-	if len(pending) == 0 {
+	t := conversation.transcript
+	if len(t.Pending) == 0 {
 		return
 	}
+	request := t.Pending[0]
 	lang := a.language()
-	ui.Column(c).FillWidth().Shrink(0).PadX(10).PadY(6).Gap(6).Background(a.colors.Hover).Children(func() {
-		for i, request := range pending {
-			k := c.KeyInt(i)
-			ui.Column(k).FillWidth().Gap(4).Children(func() {
-				ui.Wrap(k, i18n.SharedFormat(lang, "desktop.agents.permission", map[string]string{"title": request.Title})).
-					FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Text)
-				ui.Flow(k).FillWidth().Gap(6).Children(func() {
-					for j, option := range request.Options {
-						label := permissionOptionLabel(lang, option)
-						button := ui.Button(k.KeyInt(j), label).Disabled(conversation.answering != "")
-						if label != option.Label {
-							// The agent's own wording says what the choice covers,
-							// such as remembering it only for this session.
-							button = button.Tooltip(option.Label)
+	small, medium := a.theme.Metrics.FontSizeS, a.theme.Metrics.FontSizeM
+	kind, title := "", request.Title
+	var places []agents.ToolLocation
+	if call := t.ToolCall(request.ToolCallID); call != nil {
+		kind, places = call.ToolKind, call.Locations
+		if title == "" {
+			title = call.Title
+		}
+	}
+	ui.Column(c).FillWidth().Shrink(0).PadSides(4, 12, 4, 12).Children(func() {
+		ui.Column(c).FillWidth().Radius(agentPermissionRadius).Border(1, a.colors.Line).Background(a.colors.Editor).
+			Pad(10).Gap(8).Children(func() {
+			ui.Row(c).FillWidth().Gap(6).Items(ui.Center).PadX(2).Children(func() {
+				ui.Icon(c, icons.ShieldCheck).Size(14, 14).Color(a.colors.Accent).Shrink(0)
+				ui.Wrap(c, i18n.SharedFormat(lang, "desktop.agents.permission.ask", map[string]string{"agent": conversation.agent.DisplayName})).
+					FontSize(medium).Weight(gfx.WeightSemibold).Color(a.colors.Text).Grow(1).Shrink(1).MinWidth(0)
+				if n := len(t.Pending); n > 1 {
+					ui.Text(c, "1/"+strconv.Itoa(n)).FontSize(small).Color(a.colors.Subtle).Shrink(0)
+				}
+			})
+			ui.Row(c.Part("call")).FillWidth().Gap(8).Items(ui.Start).PadX(10).PadY(8).Radius(8).Background(a.colors.Hover).Children(func() {
+				ui.Icon(c, agentToolIcon(kind)).Size(14, 14).Color(a.colors.Subtle).Shrink(0).MarginTop(2)
+				ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(3).Children(func() {
+					ui.Wrap(c, title).FontSize(small).Mono().Color(a.colors.Text).FillWidth()
+					for i, place := range places {
+						if i == agentPermissionPlaces {
+							ui.Text(c.KeyInt(i), i18n.SharedFormat(lang, "desktop.agents.permission.morePlaces",
+								map[string]string{"count": strconv.Itoa(len(places) - i)})).FontSize(small).Color(a.colors.Subtle)
+							break
 						}
-						if !strings.HasPrefix(option.OptionKind, "allow") {
-							button = button.Outline()
-						}
-						if button.Clicked() {
-							permission, choice := request.Permission, option.ID
-							k.After(func() { a.answerPermission(p, conversation, permission, choice) })
-						}
+						ui.Text(c.KeyInt(i), agentShownPath(p, place.Path)).FontSize(small).Color(a.colors.Subtle).Ellipsis().FillWidth()
 					}
 				})
 			})
-		}
+			ui.Column(c.Part("options")).FillWidth().Gap(2).Children(func() {
+				first := agentFirstAllow(request.Options)
+				for j, option := range request.Options {
+					if a.agentPermissionOption(c.KeyInt(j), lang, option, j == first, conversation.answering != "") {
+						permission, choice := request.Permission, option.ID
+						c.After(func() { a.answerPermission(p, conversation, permission, choice) })
+					}
+				}
+			})
+		})
 	})
+}
+
+// agentFirstAllow is the index of the first option that allows the call, the answer the card
+// marks; -1 when the agent offers none.
+func agentFirstAllow(options []agents.PermissionOption) int {
+	for i, option := range options {
+		if strings.HasPrefix(option.OptionKind, "allow") {
+			return i
+		}
+	}
+	return -1
+}
+
+// agentPermissionOption declares one answer to a permission request as a row across the card:
+// a mark of what it does and its words, the agent's own wording in its tooltip when they
+// differ. The marked row is filled with the accent. It reports a click.
+func (a *App) agentPermissionOption(c ui.C, lang i18n.Language, option agents.PermissionOption, marked, disabled bool) bool {
+	label := permissionOptionLabel(lang, option)
+	icon, iconColor := icons.CircleX, a.colors.Subtle
+	switch option.OptionKind {
+	case "allowOnce":
+		icon, iconColor = icons.Check, a.colors.Success
+	case "allowAlways":
+		icon, iconColor = icons.CircleCheck, a.colors.Success
+	}
+	text := a.colors.Text
+	focused := components.ButtonRecipe(a.theme, components.ButtonGhost, gfx.State{FocusVisible: true})
+	row := ui.ButtonBase(c, label).FillWidth().Height(30).PadX(10).Gap(8).Radius(8).Items(ui.Center).Disabled(disabled).
+		Focus(ui.Look{}.Ring(focused.RingWidth, focused.Ring))
+	if marked {
+		// The theme's primary button, as the answer to take.
+		rest := components.ButtonRecipe(a.theme, components.ButtonDefault, gfx.State{})
+		hover := components.ButtonRecipe(a.theme, components.ButtonDefault, gfx.State{Hovered: true})
+		pressed := components.ButtonRecipe(a.theme, components.ButtonDefault, gfx.State{Pressed: true})
+		iconColor, text = rest.Foreground, rest.Foreground
+		row = row.Background(rest.Background).Hover(ui.Look{}.Background(hover.Background)).
+			Pressed(ui.Look{}.Background(pressed.Background))
+	} else {
+		row = row.Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active))
+	}
+	if label != option.Label {
+		// The agent's own wording says what the choice covers, such as remembering it only for
+		// this session.
+		row = row.Tooltip(option.Label)
+	}
+	row.Children(func() {
+		ui.Icon(c, icon).Size(14, 14).Color(iconColor).Shrink(0)
+		ui.Text(c, label).FontSize(a.theme.Metrics.FontSizeM).Color(text).Ellipsis().Shrink(1).MinWidth(0)
+	})
+	return row.Clicked()
 }
 
 // permissionOptionLabel is the button text of a permission option: the translation of its
@@ -339,31 +417,92 @@ func permissionOptionLabel(lang i18n.Language, option agents.PermissionOption) s
 	return option.Label
 }
 
-// agentPlan declares the agent's latest plan, its first entries.
+// agentPlan declares the agent's latest plan as a card over the prompt card: a head with how
+// many entries are done and, folded, the entry in progress; unfolded, the first entries, each
+// marked done, in progress or waiting. The head folds and unfolds it.
 func (a *App) agentPlan(c ui.C, conversation *agentConversation) {
 	plan := conversation.transcript.Plan
 	if len(plan) == 0 {
 		return
 	}
+	lang := a.language()
 	small := a.theme.Metrics.FontSizeS
-	ui.Column(c).FillWidth().Shrink(0).PadX(10).PadY(4).Gap(2).Children(func() {
-		for i, entry := range plan {
-			if i == agentPlanLines {
-				break
+	done, current := 0, -1
+	for i, entry := range plan {
+		switch entry.Status {
+		case "completed":
+			done++
+		case "inProgress":
+			if current < 0 {
+				current = i
 			}
-			mark, color := "○", a.colors.Subtle
-			switch entry.Status {
-			case "inProgress":
-				mark, color = "◐", a.colors.Accent
-			case "completed":
-				mark, color = "●", a.colors.Success
-			}
-			ui.Row(c.KeyInt(i)).FillWidth().Gap(6).Items(ui.Center).Children(func() {
-				ui.Text(c, mark).FontSize(small).Color(color).Shrink(0)
-				ui.Text(c, entry.Content).FontSize(small).Color(a.colors.Text).Ellipsis().Shrink(1)
-			})
 		}
+	}
+	open := conversation.planOpen
+	ui.Column(c).FillWidth().Shrink(0).PadSides(4, 12, 0, 12).Children(func() {
+		ui.Column(c).FillWidth().Radius(agentPermissionRadius).Border(1, a.colors.Line).Background(a.colors.Editor).
+			PadX(6).PadY(4).Gap(2).Children(func() {
+			tip := i18n.Shared(lang, "desktop.agents.plan.show")
+			if open {
+				tip = i18n.Shared(lang, "desktop.agents.plan.hide")
+			}
+			head := ui.ButtonBase(c.Part("head"), i18n.Shared(lang, "desktop.agents.plan.title")).FillWidth().Height(26).PadX(6).Gap(6).
+				Radius(6).Items(ui.Center).Hover(ui.Look{}.Background(a.colors.Hover)).Tooltip(tip)
+			head.Children(func() {
+				ui.Icon(c, icons.CircleCheck).Size(14, 14).Color(a.colors.Subtle).Shrink(0)
+				ui.Text(c, i18n.Shared(lang, "desktop.agents.plan.title")).FontSize(small).Weight(gfx.WeightSemibold).Color(a.colors.Text).Shrink(0)
+				ui.Text(c, i18n.SharedFormat(lang, "desktop.agents.plan.progress",
+					map[string]string{"done": strconv.Itoa(done), "total": strconv.Itoa(len(plan))})).FontSize(small).Color(a.colors.Subtle).Shrink(0)
+				if !open && current >= 0 {
+					ui.Text(c, plan[current].Content).FontSize(small).Color(a.colors.Text).Ellipsis().Grow(1).Shrink(1).MinWidth(0)
+				} else {
+					ui.Spacer(c)
+				}
+				icon := icons.ChevronUp
+				if open {
+					icon = icons.ChevronDown
+				}
+				ui.Icon(c, icon).Size(12, 12).Color(a.colors.Subtle).Shrink(0)
+			})
+			if head.Clicked() {
+				c.After(func() { conversation.planOpen = !open })
+			}
+			if !open {
+				return
+			}
+			for i, entry := range plan {
+				if i == agentPlanLines {
+					ui.Text(c.KeyInt(i), i18n.SharedFormat(lang, "desktop.agents.plan.more",
+						map[string]string{"count": strconv.Itoa(len(plan) - i)})).FontSize(small).Color(a.colors.Subtle).PadX(28).PadY(2)
+					break
+				}
+				ui.Row(c.KeyInt(i)).FillWidth().Gap(8).Items(ui.Center).PadX(8).Height(22).Children(func() {
+					a.agentPlanMark(c, entry.Status)
+					color := a.colors.Text
+					if entry.Status == "completed" {
+						color = a.colors.Subtle
+					}
+					line := ui.Text(c, entry.Content).FontSize(small).Color(color).Ellipsis().Shrink(1).MinWidth(0)
+					if entry.Status == "completed" {
+						line.Strike()
+					}
+				})
+			}
+		})
 	})
+}
+
+// agentPlanMark declares the mark of a plan entry: a check for one done, a spinning circle for
+// the one in progress and an empty ring for one waiting.
+func (a *App) agentPlanMark(c ui.C, status string) {
+	switch status {
+	case "completed":
+		ui.Icon(c, icons.CircleCheck).Size(14, 14).Color(a.colors.Success).Shrink(0)
+	case "inProgress":
+		ui.Icon(c, icons.LoaderCircle).Size(14, 14).Color(a.colors.Accent).Shrink(0)
+	default:
+		ui.Row(c).Size(12, 12).Margin(1).Radius(6).Border(1.5, a.colors.Subtle).Shrink(0)
+	}
 }
 
 // compactCount writes a count as 1234, 12.3K or 1.2M.

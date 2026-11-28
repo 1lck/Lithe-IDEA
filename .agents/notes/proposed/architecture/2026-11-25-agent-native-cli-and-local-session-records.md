@@ -235,14 +235,14 @@ Core 定义一套与具体 Agent 无关的会话事件，两种模式都翻译�
 1. **Core 会话记录**：SQLite 缓存、增量读取、统计、搜索、MCP 工具和日志。用合成测试插件 `dev.lithe.test.agent-sessions` 提供解析函数。
 2. **API-45 契约**：`agents[]` 清单、原生模式的启动与转发、ACP 客户端、四种 SDK。
 3. **桌面端界面**。
-4. **插件**：通用管理插件 `lithe-plugin-agent-hub`、Claude Code `lithe-plugin-claude-code`（原生 `-p` 加终端形态）、Codex `lithe-plugin-codex`（`app-server`）。反重力（原生或 ACP，不开放）以后再做。
+4. **插件**：同一个仓库 Lithe-IDEA/lithe-ai-plugins 的 `plugins/` 下分目录维护：通用管理插件 `plugins/hub`、Claude Code `plugins/claude-code`（原生 `-p` 加终端形态）、Codex `plugins/codex`（`app-server`）。反重力（原生或 ACP，不开放）以后再做。
 
 进度（2026-11-28）：
 
 - 第 1 期、第 2 期的原生模式已合入 Core（#216）。用量的速度排行、会话按整行分页读取、CLI 安装方式和 IDE 连接的会话搜索在 Core Draft PR Lithe-IDEA/Lithe-core-rust#217，属于 `agents` 0 内的补充。ACP 客户端还没做（#2487），目前没有只提供 ACP 的 Agent 插件。
 - 第 3 期在桌面端 Draft PR #2492，固定 Core main `76ab475`（#221，在 #220 的合入提交 `12bf730` 之后；#217、#219、#220 都已合入）。第 7 节表里的功能都已实现：对话文字可选择复制，历史页可查看已记录会话，CLI 缺失时引导安装，MCP 会话搜索开关，会话记录后台同步；2026-11-28 又照参考图重做了历史页和对话页，加上侧栏与标签页双向切换、模型与推理等级切换（#220 的会话配置项）和提问导航条。两端原生整机验收还没做。
 - 提问导航条跳到某个提问时，桌面端先让列表停止跟随末尾，列表离开末尾或有新行进来后再恢复（`agentConversation.jump`）。这是 Viva 的缺陷：跟随末尾的 `ui.List` 上调用 `ListState.ScrollTo`，滚动请求在本帧 `Follow(true)` 之前应用，不会脱离跟随，下一帧又被拉回末尾。按“Viva 的问题在 fork 修复”的规则，在 Lithe-IDEA/viva 修复并向上游提 PR，升级固定版本后删掉这段处理。
-- 第 4 期三个插件已在各自仓库实现：`lithe-plugin-agent-hub` 0.1.0、`lithe-plugin-claude-code` 0.3.0、`lithe-plugin-codex` 0.4.0（后两个已上报并切换会话配置项），依赖未发布的宿主能力，都只能发预发布版，不进 Store。管理插件仓库的宿主端到端测试用真实 Core 和三个插件包，从隔离 HOME 里的 Claude Code、Codex 会话文件一路读到用量、速度和额度的界面。插件界面文字的多语言在 #2493。
+- 第 4 期三个插件已在 Lithe-IDEA/lithe-ai-plugins 实现：Agent Hub 0.1.0、Claude Code 0.4.0、Codex 0.5.0（后两个已上报并切换会话配置项和权限模式），依赖未发布的宿主能力。插件版本由维护者自己发布，仓库里不放发版工作流和发布说明。管理插件的宿主端到端测试用真实 Core 和三个插件包，从隔离 HOME 里的 Claude Code、Codex 会话文件一路读到用量、速度和额度的界面。插件界面文字的多语言在 #2493。
 
 ### 9. 契约细节（v0）
 
@@ -291,8 +291,9 @@ Core 定义一套与具体 Agent 无关的会话事件，两种模式都翻译�
 | 桌面端 → Core | `agents.setConfigOption` | `{session, option, value}`，只接受来源为 `user` 的请求；只能选后端最近一次列出的设置和取值，否则报 `agents.unknownConfigOption`、`agents.unknownConfigValue` |
 | Core → 后端 | `lithe/host/agents/didSetConfigOption` | `{session, option, value}`；后端按 CLI 的方式写入（Codex 在下一轮 `turn/start` 带上，Claude Code 用 `set_model`、`apply_flag_settings`、`set_permission_mode` 控制请求），生效后再报一次 `configOptions` |
 
-- 选项由插件后端从 CLI 自己的回答里取（Codex `model/list`，Claude Code `initialize` 的回答和 `get_settings`），不在插件或宿主里写死模型表。
-- 桌面端只显示插件给的名称；没有 `thoughtLevel` 时不显示滑块，没有任何配置项时只显示当前模型名，不放不能用的控件。
+- 选项由插件后端从 CLI 自己的回答里取（Codex `model/list`、`permissionProfile/list`，Claude Code `initialize` 的回答和 `get_settings`），不在插件或宿主里写死模型表。
+- 模式（权限模式、审批人等）的名单、名称和取值由各插件按自己 CLI 的叫法维护：CLI 能列出的就列出（Codex 的权限档案），列不出的（Claude Code 的权限模式）由插件跟着支持的 CLI 版本维护，名称照搬 CLI 自己菜单的叫法。各家叫法不同，宿主不按 ID 认某个模式，也不另起名字。
+- 桌面端只按 `category` 给 `model` 和 `thoughtLevel` 画专用控件（模型列表、推理等级滑块），其余设置一律以插件给的 `name` 作标题，点开二级页列出取值和说明；没有 `thoughtLevel` 时不显示滑块，没有任何配置项时只显示当前模型名，不放不能用的控件。
 
 **Core 内部调用插件函数。** 启动函数、`scan` 和 `read` 由 Core 直接调用插件后端，操作 ID 用 Core 保留的前缀，结果不进入桌面端的事件队列。这和跨插件调用的 relay 是同一种做法，桌面端不需要逐跳搬运。
 

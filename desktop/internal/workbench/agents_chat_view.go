@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/agents"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -45,6 +46,9 @@ const (
 	agentNavCardWidth = 260
 	// agentCardRadius rounds the prompt card.
 	agentCardRadius = 20
+	// agentSegmentRunes bounds the name of each value of a setting the settings menu shows as
+	// segments.
+	agentSegmentRunes = 8
 	// agentChangedShown bounds the changed files a turn lists.
 	agentChangedShown = 10
 	// agentLocationsShown bounds the files an open tool call lists.
@@ -882,15 +886,15 @@ func agentValueName(value agents.ConfigValue) string {
 	return value.Value
 }
 
-// agentSettingHeading is the heading of a setting in the menu.
+// agentSettingHeading is the heading of a setting in the menu. The model and the reasoning effort
+// are the roles the host draws its picker for; every other setting, the permission mode among
+// them, is named as its agent names it, since each agent has its own modes and words for them.
 func agentSettingHeading(lang i18n.Language, setting *agents.ConfigOption) string {
 	switch setting.Category {
 	case "model":
 		return i18n.Shared(lang, "desktop.agents.session.model")
 	case "thoughtLevel":
 		return i18n.Shared(lang, "desktop.agents.session.effort")
-	case "mode":
-		return i18n.Shared(lang, "desktop.agents.session.mode")
 	}
 	if setting.Name != "" {
 		return setting.Name
@@ -898,69 +902,204 @@ func agentSettingHeading(lang i18n.Language, setting *agents.ConfigOption) strin
 	return setting.ID
 }
 
-// agentSettingsMenu declares the menu over the settings chip: each setting the backend
-// reports, the reasoning effort on a slider and every other one as a list to pick from.
+// agentSettingsMenu declares the menu over the settings chip. Its first page lists the models,
+// then the reasoning effort on a slider, a setting of two or three short values as segments,
+// and every other setting, such as the permission mode, as a row naming the value shown that
+// opens a page of its own: there each value is listed with what it does, under a row that
+// goes back. A narrow tool window keeps every setting this way, one level deep.
 func (a *App) agentSettingsMenu(c ui.C, p *project, conversation *agentConversation, anchor ui.Box) {
 	if !conversation.settingsOpen {
 		return
 	}
 	t := conversation.transcript
 	lang := a.language()
-	effort := t.Setting("thoughtLevel")
 	open := true
 	spec := ui.PopoverSpec{
 		Side: components.PopoverTop, Align: ui.Start, Offset: chromeMenuOffset, Width: agentPopupWidth, ConsumeOutsidePress: true,
-		Title: i18n.Shared(lang, "desktop.agents.session.menu"),
+	}
+	var page *agents.ConfigOption
+	if conversation.settingsPage != "" {
+		for i := range t.ConfigOptions {
+			if t.ConfigOptions[i].ID == conversation.settingsPage {
+				page = &t.ConfigOptions[i]
+			}
+		}
 	}
 	ui.Popover(c, anchor, &open, spec, func() {
-		ui.Column(c).FillWidth().Gap(8).Children(func() {
-			for i := range t.ConfigOptions {
-				setting := &t.ConfigOptions[i]
-				k := c.KeyInt(i)
-				if i > 0 {
+		if page != nil {
+			a.agentSettingPage(c.Part("page"), p, lang, conversation, page)
+			return
+		}
+		model, effort := t.Setting("model"), t.Setting("thoughtLevel")
+		ui.Column(c).FillWidth().Gap(4).Children(func() {
+			// A rule parts each block from the one before it.
+			first := true
+			rule := func(k ui.C) {
+				if !first {
 					ui.Divider(k.Part("rule"))
 				}
-				ui.Column(k).FillWidth().Gap(2).Children(func() {
-					if setting == effort && len(setting.Options) >= 2 {
-						a.agentEffortSlider(k, p, lang, conversation, setting)
-					} else {
-						a.agentSettingChoices(k, p, lang, conversation, setting)
-					}
+				first = false
+			}
+			if model != nil {
+				first = false
+				ui.Column(c.Part("model")).FillWidth().Gap(1).Children(func() {
+					a.agentSettingValues(c.Part("model"), p, conversation, model, false)
 				})
+			}
+			for i := range t.ConfigOptions {
+				setting := &t.ConfigOptions[i]
+				if setting == model {
+					continue
+				}
+				k := c.KeyInt(i)
+				rule(k)
+				switch {
+				case setting == effort && len(setting.Options) >= 2:
+					ui.Column(k).FillWidth().Gap(2).Children(func() {
+						a.agentEffortSlider(k, p, lang, conversation, setting)
+					})
+				case agentSegmented(setting):
+					a.agentSettingSegments(k, p, lang, conversation, setting)
+				default:
+					a.agentSettingRow(k, lang, conversation, setting)
+				}
 			}
 		})
 	})
 	if !open {
 		conversation.settingsOpen = false
+		conversation.settingsPage = ""
 	}
 }
 
-// agentSettingChoices declares a setting's values, the one shown checked; a click picks one.
-func (a *App) agentSettingChoices(c ui.C, p *project, lang i18n.Language, conversation *agentConversation, setting *agents.ConfigOption) {
+// agentSegmented reports whether a setting shows as segments on the menu's first page: two or
+// three values, each named in a word or two, and none the permission mode, whose values want
+// the words of what they do.
+func agentSegmented(setting *agents.ConfigOption) bool {
+	if setting.Category == "mode" || len(setting.Options) < 2 || len(setting.Options) > 3 {
+		return false
+	}
+	for _, value := range setting.Options {
+		if utf8.RuneCountInString(agentValueName(value)) > agentSegmentRunes {
+			return false
+		}
+	}
+	return true
+}
+
+// agentSettingValues declares a setting's values, the one shown checked; a click picks one.
+// With described set each value's description is written under its name, otherwise it is the
+// row's tooltip. It reports whether a value was picked.
+func (a *App) agentSettingValues(c ui.C, p *project, conversation *agentConversation, setting *agents.ConfigOption, described bool) bool {
 	focused := components.ButtonRecipe(a.theme, components.ButtonGhost, gfx.State{FocusVisible: true})
-	ui.Text(c, agentSettingHeading(lang, setting)).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).PadX(6).PadY(2)
 	shown := conversation.shownValue(setting)
+	picked := false
 	for j, value := range setting.Options {
 		name := agentValueName(value)
 		chosen := value.Value == shown
-		choice := ui.ButtonBase(c.KeyInt(j), name).FillWidth().Height(26).PadX(6).Gap(6).Radius(6).Items(ui.Center).
+		choice := ui.ButtonBase(c.KeyInt(j), name).FillWidth().MinHeight(28).PadX(8).PadY(4).Gap(8).Radius(6).Items(ui.Center).
 			Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active)).
 			Focus(ui.Look{}.Ring(focused.RingWidth, focused.Ring))
-		if value.Description != "" {
+		if chosen {
+			choice = choice.Background(a.colors.Active)
+		}
+		if value.Description != "" && !described {
 			choice = choice.Tooltip(value.Description)
 		}
 		choice.Children(func() {
-			ui.Text(c, name).FontSize(a.theme.Metrics.FontSizeM).Color(a.colors.Text).Ellipsis().Shrink(1).MinWidth(0)
-			ui.Spacer(c)
+			ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(1).Children(func() {
+				ui.Text(c, name).FontSize(a.theme.Metrics.FontSizeM).Color(a.colors.Text).Ellipsis().FillWidth()
+				if described && value.Description != "" {
+					ui.Wrap(c, value.Description).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).FillWidth()
+				}
+			})
 			if chosen {
 				ui.Icon(c, icons.Check).Size(14, 14).Color(a.colors.Text).Shrink(0)
 			}
 		})
 		if choice.Clicked() && !chosen {
-			id, picked := setting.ID, value.Value
-			c.After(func() { a.setAgentOption(p, conversation, id, picked) })
+			id, value := setting.ID, value.Value
+			picked = true
+			c.After(func() { a.setAgentOption(p, conversation, id, value) })
 		}
 	}
+	return picked
+}
+
+// agentSettingSegments declares a setting of a few short values as its heading over a row of
+// segments, the one shown raised; a click picks one.
+func (a *App) agentSettingSegments(c ui.C, p *project, lang i18n.Language, conversation *agentConversation, setting *agents.ConfigOption) {
+	small := a.theme.Metrics.FontSizeS
+	shown := conversation.shownValue(setting)
+	ui.Row(c).FillWidth().Gap(8).Items(ui.Center).PadX(8).PadY(2).Children(func() {
+		ui.Text(c, agentSettingHeading(lang, setting)).FontSize(a.theme.Metrics.FontSizeM).Color(a.colors.Text).Ellipsis().Grow(1).Shrink(1).MinWidth(0)
+		ui.Row(c.Part("segments")).Shrink(0).Gap(2).Pad(2).Radius(8).Background(a.colors.Hover).Children(func() {
+			for j, value := range setting.Options {
+				name := agentValueName(value)
+				chosen := value.Value == shown
+				segment := ui.ButtonBase(c.KeyInt(j), name).Height(22).PadX(10).Radius(6).Items(ui.Center).
+					Hover(ui.Look{}.Background(a.colors.Active))
+				if chosen {
+					segment = segment.Background(a.colors.Editor).Border(1, a.colors.Line)
+				}
+				if value.Description != "" {
+					segment = segment.Tooltip(value.Description)
+				}
+				segment.Children(func() {
+					ui.Text(c, name).FontSize(small).Color(a.colors.Text)
+				})
+				if segment.Clicked() && !chosen {
+					id, value := setting.ID, value.Value
+					c.After(func() { a.setAgentOption(p, conversation, id, value) })
+				}
+			}
+		})
+	})
+}
+
+// agentSettingRow declares a setting as a row with its heading and the name of the value shown,
+// opening the page that lists its values.
+func (a *App) agentSettingRow(c ui.C, lang i18n.Language, conversation *agentConversation, setting *agents.ConfigOption) {
+	focused := components.ButtonRecipe(a.theme, components.ButtonGhost, gfx.State{FocusVisible: true})
+	heading := agentSettingHeading(lang, setting)
+	row := ui.ButtonBase(c, heading).FillWidth().Height(28).PadX(8).Gap(6).Radius(6).Items(ui.Center).
+		Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active)).
+		Focus(ui.Look{}.Ring(focused.RingWidth, focused.Ring))
+	row.Children(func() {
+		ui.Text(c, heading).FontSize(a.theme.Metrics.FontSizeM).Color(a.colors.Text).Ellipsis().Shrink(1).MinWidth(0)
+		ui.Spacer(c)
+		ui.Text(c, agentShownName(conversation, setting)).FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Subtle).Ellipsis().Shrink(1).MinWidth(0)
+		ui.Icon(c, icons.ChevronRight).Size(12, 12).Color(a.colors.Subtle).Shrink(0)
+	})
+	if row.Clicked() {
+		id := setting.ID
+		c.After(func() { conversation.settingsPage = id })
+	}
+}
+
+// agentSettingPage declares the page of one setting: a row back to the menu's first page under
+// the setting's heading, then its values with what each does. Picking one goes back.
+func (a *App) agentSettingPage(c ui.C, p *project, lang i18n.Language, conversation *agentConversation, setting *agents.ConfigOption) {
+	focused := components.ButtonRecipe(a.theme, components.ButtonGhost, gfx.State{FocusVisible: true})
+	ui.Column(c).FillWidth().Gap(4).Children(func() {
+		back := ui.ButtonBase(c.Part("back"), i18n.Shared(lang, "desktop.agents.session.back")).FillWidth().Height(28).PadX(4).Gap(4).
+			Radius(6).Items(ui.Center).Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active)).
+			Focus(ui.Look{}.Ring(focused.RingWidth, focused.Ring))
+		back.Children(func() {
+			ui.Icon(c, icons.ChevronLeft).Size(14, 14).Color(a.colors.Subtle).Shrink(0)
+			ui.Text(c, agentSettingHeading(lang, setting)).FontSize(a.theme.Metrics.FontSizeM).Weight(gfx.WeightSemibold).
+				Color(a.colors.Text).Ellipsis().Shrink(1).MinWidth(0)
+		})
+		if back.Clicked() {
+			c.After(func() { conversation.settingsPage = "" })
+		}
+		ui.Divider(c.Part("rule"))
+		ui.Column(c.Part("values")).FillWidth().Gap(1).Children(func() {
+			if a.agentSettingValues(c.Part("values"), p, conversation, setting, true) {
+				c.After(func() { conversation.settingsPage = "" })
+			}
+		})
+	})
 }
 
 // agentEffortSlider declares the reasoning effort as a slider over its values, least to most.

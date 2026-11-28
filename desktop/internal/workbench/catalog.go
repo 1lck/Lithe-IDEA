@@ -264,7 +264,7 @@ var catalog = []item{
 	{id: itemPorts, zone: zoneBottomLeft, icon: stripeLucide(icons.ArrowLeftRight), label: func(m *i18n.Messages) string { return m.Tools.Ports }, panel: true, remote: true},
 
 	{id: itemBuild, zone: zoneRightTop, icon: &toolicons.Build, label: func(m *i18n.Messages) string { return m.Tools.Build }, panel: true},
-	{id: itemAgents, zone: zoneRightTop, icon: stripeLucide(icons.Sparkles), label: func(m *i18n.Messages) string { return m.Tools.Agents }, panel: true, local: true},
+	{id: itemAgents, zone: zoneRightTop, icon: stripeLucide(icons.Bot), label: func(m *i18n.Messages) string { return m.Tools.Agents }, panel: true, local: true},
 	{id: itemNotifications, zone: zoneRightTop, icon: &toolicons.Notifications, label: func(m *i18n.Messages) string { return m.Tools.Notifications }, panel: true},
 
 	{id: itemBackground, zone: zoneBottomRight, icon: stripeLucide(icons.Image), label: func(m *i18n.Messages) string { return m.Tools.Background }},

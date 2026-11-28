@@ -92,6 +92,9 @@ func TestVisualAgents(t *testing.T) {
 			shot("chat-done")
 			done.settingsOpen = true
 			shot("chat-settings")
+			done.settingsPage = "approval"
+			shot("chat-settings-mode")
+			done.settingsPage = ""
 			done.settingsOpen = false
 			done.contextOpen = true
 			shot("chat-context")
@@ -236,6 +239,13 @@ func sampleFinishedConversation(agent agents.CatalogAgent, root string) *agentCo
 		}},
 		{ID: "effort", Name: "Effort", Category: "thoughtLevel", CurrentValue: "high", Options: []agents.ConfigValue{
 			{Value: "low", Name: "Low"}, {Value: "medium", Name: "Medium"}, {Value: "high", Name: "High"}, {Value: "max", Name: "Max"},
+		}},
+		// The agent names its modes and the setting itself; the host shows them as given.
+		{ID: "approval", Name: "Approval mode", Category: "mode", CurrentValue: "ask", Options: []agents.ConfigValue{
+			{Value: "ask", Name: "Ask first", Description: "Ask before edits and commands"},
+			{Value: "edits", Name: "Edit freely", Description: "Edit files without asking"},
+			{Value: "plan", Name: "Plan only", Description: "Plan without editing files or running commands"},
+			{Value: "auto", Name: "Auto", Description: "A safety check approves routine actions and asks about risky ones"},
 		}},
 	}})
 	turn := func(n uint64, at time.Time, prompt string, events []agents.Event, took time.Duration) {

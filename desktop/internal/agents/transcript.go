@@ -123,6 +123,15 @@ func (t *Transcript) Setting(category string) *ConfigOption {
 	return nil
 }
 
+// ToolCall is the entry of the tool call the backend named id, nil when the transcript holds
+// none, such as one dropped to keep the bounds.
+func (t *Transcript) ToolCall(id string) *Entry {
+	if at, ok := t.index["t:"+id]; ok && id != "" {
+		return &t.Entries[at]
+	}
+	return nil
+}
+
 // Live reports whether the session has not ended.
 func (t *Transcript) Live() bool { return t.Exit == nil }
 

@@ -231,16 +231,6 @@
       ]
     },
     {
-      "id": "desktop.agents.permission",
-      "description": "Question shown with a permission request from the agent",
-      "platforms": [
-        "desktop"
-      ],
-      "parameters": {
-        "title": "string"
-      }
-    },
-    {
       "id": "desktop.agents.option.allowOnce",
       "description": "Button that allows what the agent asked for this one time; the agent's own wording is the button's tooltip",
       "platforms": [
@@ -267,6 +257,68 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.agents.permission.ask",
+      "description": "Heading of the card that asks the user whether the agent may make the tool call shown under it",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "agent": "string"
+      }
+    },
+    {
+      "id": "desktop.agents.permission.morePlaces",
+      "description": "Last line of the files a permission request lists, counting the ones left out",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
+    },
+    {
+      "id": "desktop.agents.plan.title",
+      "description": "Heading of the card that lists the agent's plan",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.plan.progress",
+      "description": "How many entries of the agent's plan are done, beside the plan card's heading",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "done": "string",
+        "total": "string"
+      }
+    },
+    {
+      "id": "desktop.agents.plan.show",
+      "description": "Tooltip of the folded plan card's heading, which lists every entry",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.plan.hide",
+      "description": "Tooltip of the unfolded plan card's heading, which folds it to the entry in progress",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.plan.more",
+      "description": "Last line of the unfolded plan card, counting the entries left out",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "count": "string"
+      }
     },
     {
       "id": "desktop.agents.ended",
@@ -1364,8 +1416,8 @@
       ]
     },
     {
-      "id": "desktop.agents.session.mode",
-      "description": "Heading of the mode choices in the session settings menu",
+      "id": "desktop.agents.session.back",
+      "description": "Accessible name of the row that goes back from a setting's page to the first page of the session settings menu",
       "platforms": [
         "desktop"
       ]
@@ -1716,11 +1768,17 @@
       "desktop.agents.turnEnded.maxTurns": "The agent reached its step limit.",
       "desktop.agents.turnEnded.refused": "The agent declined to answer.",
       "desktop.agents.turnEnded.failed": "The turn failed.",
-      "desktop.agents.permission": "The agent asks: {title}",
       "desktop.agents.option.allowOnce": "Allow",
       "desktop.agents.option.allowAlways": "Always Allow",
       "desktop.agents.option.rejectOnce": "Deny",
       "desktop.agents.option.rejectAlways": "Always Deny",
+      "desktop.agents.permission.ask": "Allow {agent} to do this?",
+      "desktop.agents.permission.morePlaces": "+{count} more",
+      "desktop.agents.plan.title": "Plan",
+      "desktop.agents.plan.progress": "{done}/{total} done",
+      "desktop.agents.plan.show": "Show all steps",
+      "desktop.agents.plan.hide": "Show only the current step",
+      "desktop.agents.plan.more": "+{count} more",
       "desktop.agents.ended": "Ended",
       "desktop.agents.working": "Working",
       "desktop.agents.promptLabel": "Prompt",
@@ -1862,7 +1920,7 @@
       "desktop.agents.session.menu": "Session settings",
       "desktop.agents.session.model": "Model",
       "desktop.agents.session.effort": "Reasoning effort",
-      "desktop.agents.session.mode": "Mode",
+      "desktop.agents.session.back": "Back to session settings",
       "desktop.agents.context.title": "Context window",
       "desktop.agents.usedPercent": "{percent}% used",
       "desktop.agents.leftPercent": "{percent}% left",
@@ -1929,11 +1987,17 @@
       "desktop.agents.turnEnded.maxTurns": "Agent 达到步数上限。",
       "desktop.agents.turnEnded.refused": "Agent 拒绝回答。",
       "desktop.agents.turnEnded.failed": "本轮失败。",
-      "desktop.agents.permission": "Agent 请求：{title}",
       "desktop.agents.option.allowOnce": "允许",
       "desktop.agents.option.allowAlways": "总是允许",
       "desktop.agents.option.rejectOnce": "拒绝",
       "desktop.agents.option.rejectAlways": "总是拒绝",
+      "desktop.agents.permission.ask": "允许 {agent} 执行这项操作？",
+      "desktop.agents.permission.morePlaces": "还有 {count} 个",
+      "desktop.agents.plan.title": "计划",
+      "desktop.agents.plan.progress": "已完成 {done}/{total}",
+      "desktop.agents.plan.show": "展开全部步骤",
+      "desktop.agents.plan.hide": "只显示当前步骤",
+      "desktop.agents.plan.more": "还有 {count} 项",
       "desktop.agents.ended": "已结束",
       "desktop.agents.working": "处理中",
       "desktop.agents.promptLabel": "提示",
@@ -2075,7 +2139,7 @@
       "desktop.agents.session.menu": "会话设置",
       "desktop.agents.session.model": "模型",
       "desktop.agents.session.effort": "推理等级",
-      "desktop.agents.session.mode": "模式",
+      "desktop.agents.session.back": "返回会话设置",
       "desktop.agents.context.title": "上下文窗口",
       "desktop.agents.usedPercent": "已用 {percent}%",
       "desktop.agents.leftPercent": "剩余 {percent}%",

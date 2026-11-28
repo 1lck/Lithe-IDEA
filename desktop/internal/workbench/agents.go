@@ -161,6 +161,11 @@ type agentConversation struct {
 	effortFor   string
 	// settingsOpen says the settings menu is open; contextOpen the card of the context used.
 	settingsOpen, contextOpen bool
+	// settingsPage is the ID of the setting whose values the settings menu lists on a page of
+	// their own, empty for the menu's first page.
+	settingsPage string
+	// planOpen says the plan card lists every entry, not only the one in progress.
+	planOpen bool
 	// rows are the rows the transcript shows, made again each paint from the entries, and
 	// prompts the rows of the user's prompts among them (agents_chat_view.go).
 	rows    []agentRow
