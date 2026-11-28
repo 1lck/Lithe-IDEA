@@ -60,6 +60,7 @@ func (t *fileTree) removalConflicts(paths ...string) bool {
 }
 
 func (t *fileTree) beginRemoval(paths []string) {
+	t.beginWrite()
 	if t.removing == nil {
 		t.removing = make(map[string]int, len(paths))
 	}
@@ -68,8 +69,7 @@ func (t *fileTree) beginRemoval(paths []string) {
 	}
 }
 
-// endRemoval releases the confirmed roots. When the last removal ends, close callbacks queued
-// while it ran continue in the order they arrived.
+// endRemoval releases the confirmed roots and the deletion's write slot.
 func (t *fileTree) endRemoval(paths []string) {
 	for _, at := range paths {
 		count := t.removing[at]
@@ -79,24 +79,31 @@ func (t *fileTree) endRemoval(paths []string) {
 			t.removing[at] = count - 1
 		}
 	}
-	if len(t.removing) != 0 || len(t.removalWaiters) == 0 {
+	t.endWrite()
+}
+
+// Writes are registered and released on the window thread. A move's completion
+// registers its history and directory-rule writes before releasing its own slot.
+func (t *fileTree) beginWrite() { t.pendingWrites++ }
+
+func (t *fileTree) endWrite() {
+	t.pendingWrites--
+	if t.pendingWrites != 0 {
 		return
 	}
-	waiters := t.removalWaiters
-	t.removalWaiters = nil
+	waiters := t.writeWaiters
+	t.writeWaiters = nil
 	for _, done := range waiters {
-		done()
+		t.afterWrites(done) // An earlier waiter can start a save of its own.
 	}
 }
 
-// afterTreeRemovals runs done at once when no local removal is active, or after the last active
-// one reports its result.
-func (t *fileTree) afterTreeRemovals(done func()) {
-	if len(t.removing) == 0 {
+func (t *fileTree) afterWrites(done func()) {
+	if t.pendingWrites == 0 {
 		done()
 		return
 	}
-	t.removalWaiters = append(t.removalWaiters, done)
+	t.writeWaiters = append(t.writeWaiters, done)
 }
 
 // rejectRemovalWrite refuses a project-tree write that overlaps a removal already confirmed.
@@ -244,13 +251,19 @@ func (a *App) removeTreeItems(p *project, paths []string, permanent bool) {
 		a.background(p, 0, func(context.Context) func(*App) {
 			failed := 0
 			var reason error
-			for _, f := range full {
+			var removed []string
+			for i, f := range full {
 				if err := remove(f); err != nil {
 					failed++
 					reason = err
+				} else if i < len(paths) {
+					removed = append(removed, paths[i])
 				}
 			}
 			return func(a *App) {
+				for _, rel := range removed {
+					a.relocateDirectoryRules(p, rel, "")
+				}
 				a.finishRemoval(p, paths, parents, performed, failed, reason, failure)
 			}
 		})

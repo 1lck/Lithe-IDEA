@@ -24,6 +24,8 @@ const (
 	pageGeneral
 	pageNetwork
 	pageEditor
+	pageFileTypeMappings
+	pageDirectoryMarks
 	pageFonts
 	pageKeymap
 	pageProcessTermination
@@ -52,10 +54,11 @@ const (
 	pageConsole
 	pageTrustedLocations
 	pageRemoteWorkspace
-	// pageAI is the group "AI"; the two pages after it belong to it.
+	// pageAI is the group "AI"; the three pages after it belong to it.
 	pageAI
 	pageAIGeneration
 	pageIDEAPI
+	pageAgents
 	// pageAbout is the last entry of the top level: the application itself, its version,
 	// its updates and where its community is, rather than a setting of a tool.
 	pageAbout
@@ -72,6 +75,8 @@ var parents = [pageCount]pageID{
 	pageGeneral:            pageAppearance,
 	pageNetwork:            pageAppearance,
 	pageEditor:             pageAppearance,
+	pageFileTypeMappings:   pageAppearance,
+	pageDirectoryMarks:     pageAppearance,
 	pageFonts:              pageAppearance,
 	pageKeymap:             pageAppearance,
 	pageProcessTermination: pageAppearance,
@@ -91,6 +96,7 @@ var parents = [pageCount]pageID{
 	pageAI:                 noPage,
 	pageAIGeneration:       pageAI,
 	pageIDEAPI:             pageAI,
+	pageAgents:             pageAI,
 	pageAbout:              noPage,
 }
 
@@ -135,6 +141,10 @@ func titleOf(messages *i18n.SettingsMessages, id pageID) string {
 		return messages.Network
 	case pageEditor:
 		return messages.Editor
+	case pageFileTypeMappings:
+		return messages.FileTypeMappings
+	case pageDirectoryMarks:
+		return messages.DirectoryMarks
 	case pageFonts:
 		return messages.Fonts
 	case pageKeymap:
@@ -173,6 +183,8 @@ func titleOf(messages *i18n.SettingsMessages, id pageID) string {
 		return messages.AIGeneration
 	case pageIDEAPI:
 		return messages.IDEAPI
+	case pageAgents:
+		return messages.Agents
 	case pageAbout:
 		return messages.About
 	}
@@ -351,6 +363,8 @@ func pageKeywords(language i18n.Language, id pageID) string {
 			i18n.Shared(language, "desktop.editorPrefs.rainbowVariables") + " " +
 			i18n.Shared(language, "desktop.editorPrefs.indentGuides") + " " +
 			i18n.Shared(language, "desktop.editorPrefs.rainbowIndentGuides")
+	case pageFileTypeMappings:
+		return i18n.Shared(language, "desktop.fileTypeMappings.keywords")
 	case pageBuild:
 		return i18n.Shared(language, "desktop.buildSettings.keywordsBuild")
 	case pageToolchains:

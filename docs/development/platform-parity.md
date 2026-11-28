@@ -34,7 +34,7 @@ macOS 和 Windows 的功能状态以 `shared/platform-feature-matrix/features/<i
 
 `.github/workflows/verify-platform-feature-matrix.yml` 在指向 main 的 PR、main 推送和手动运行时校验清单、证据路径并生成阅读视图。PR 门禁比较能力 JSON 的实际内容，忽略格式、键顺序和条目顶层 `lastReviewed` 日期变化；公共配置不能满足门禁。条目是否与代码改动对应、运行证据是否充分仍由 reviewer 确认。纯重构可由 reviewer 添加 `matrix-exempt` 标签，增删标签都会重新执行独立矩阵检查；Desktop CI 的 Linux 作业也执行同一门禁，修改标签后需重新运行该失败作业。
 
-Actions 摘要提供当前版本的 HTML、Markdown、CSV、JSON 下载附件。现有 Pages 工作流在 main 合并后把矩阵发布到 Agent Notes 站点的 `platform-feature-matrix/` 子目录，保持看板首页不变；页面显示提交 SHA。历史 PR 请下载对应 Actions artifact（保留 14 天），不要用在线 main 页面作为 PR 验证结果。本地也可重新生成历史版本视图。
+Actions 摘要提供当前版本的 HTML、Markdown、CSV、JSON 下载附件。Pages 工作流在每次桌面端发版成功后（或手动运行时）用 main 的最新提交生成矩阵，发布到工程看板站点的 `platform-feature-matrix/` 子目录，保持看板首页不变；页面显示提交 SHA。历史 PR 请下载对应 Actions artifact（保留 14 天），不要用在线 main 页面作为 PR 验证结果。本地也可重新生成历史版本视图。
 
 ## 旧分支迁移
 

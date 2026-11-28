@@ -211,6 +211,14 @@ func (v *View) replaceInlayHints(prepared PreparedInlayHints) {
 		v.inlay = inlayState{prepared: prepared}
 		return
 	}
+	if len(v.docs.active) > 0 || v.docs.activeDirty {
+		anchor := v.captureDocScrollAnchor(v.lineH, v.area.Y, v.textLeft, v.scrollX)
+		v.inlay = inlayState{prepared: prepared}
+		v.reflowInlayRows()
+		v.rebuildActiveDocBlocks()
+		v.restoreDocScrollAnchor(anchor)
+		return
+	}
 	row := int(v.scroll / v.lineH)
 	line, sub := v.rowLine(row)
 	part := v.scroll - float32(row)*v.lineH
@@ -278,8 +286,13 @@ func (v *View) VisibleLineRange() (firstLine, lastLine int, ok bool) {
 	if !ok {
 		return 0, 0, false
 	}
-	firstLine, _ = v.rowLine(firstRow)
-	lastLine, _ = v.rowLine(lastRow)
+	firstDR := v.displayRowAt(firstRow)
+	lastDR := v.displayRowAt(lastRow)
+	firstLine = firstDR.line
+	lastLine = lastDR.line
+	if lastDR.kind == displayDocBlock {
+		lastLine = v.docs.active[lastDR.block].endLine
+	}
 	return firstLine, lastLine, true
 }
 
@@ -294,8 +307,13 @@ func (v *View) ViewportLineRanges(dst []LineSpan, marginRows int) []LineSpan {
 	if !ok {
 		return dst
 	}
-	first, _ := v.rowLine(firstRow)
-	last, _ := v.rowLine(lastRow)
+	firstDR := v.displayRowAt(firstRow)
+	lastDR := v.displayRowAt(lastRow)
+	first := firstDR.line
+	last := lastDR.line
+	if lastDR.kind == displayDocBlock {
+		last = v.docs.active[lastDR.block].endLine
+	}
 	if len(v.fold.collapsed) == 0 || first == last {
 		return append(dst, LineSpan{first, last})
 	}
@@ -304,9 +322,9 @@ func (v *View) ViewportLineRanges(dst []LineSpan, marginRows int) []LineSpan {
 	for line := first; line < last; {
 		next := line + 1
 		if v.fold.hides(next) {
-			// Hidden lines share the next visible line's first row. Map that row
-			// back once, regardless of how many logical lines the fold hides.
-			next, _ = v.rowLine(v.rowStartForLine(next))
+			// Hidden lines share the next visible line's first base row. Map that
+			// base row back once, regardless of how many logical lines the fold hides.
+			next, _ = v.baseRowLine(v.rowStartForLine(next))
 			dst = append(dst, span)
 			span.First = next
 		}
@@ -353,7 +371,11 @@ func (v *View) InlayHintAt(x, y float32) (int, gfx.Rect, bool) {
 	if rowIndex < 0 || rowIndex >= v.rowCount() {
 		return 0, gfx.Rect{}, false
 	}
-	line, sub := v.rowLine(rowIndex)
+	dr := v.displayRowAt(rowIndex)
+	if dr.kind == displayDocBlock {
+		return 0, gfx.Rect{}, false
+	}
+	line, sub := dr.line, dr.sub
 	hints := v.lineInlayHints(line)
 	if len(hints) == 0 {
 		return 0, gfx.Rect{}, false

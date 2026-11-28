@@ -10,7 +10,7 @@ import (
 )
 
 func TestIDEAPIToolExposureIsTheServedList(t *testing.T) {
-	exposure := ideAPIToolExposure()
+	exposure := ideAPIToolExposure(false)
 	if len(exposure) != len(ideAPIServedTools) || len(exposure) == 0 {
 		t.Fatalf("exposure = %v, served = %v", exposure, ideAPIServedTools)
 	}
@@ -18,6 +18,23 @@ func TestIDEAPIToolExposureIsTheServedList(t *testing.T) {
 		if tool.Name != ideAPIServedTools[i] || len(tool.Arguments) != 0 {
 			t.Fatalf("exposure[%d] = %+v", i, tool)
 		}
+	}
+	if ideAPIServesSessions(exposure) {
+		t.Fatal("the session tools are declared without the user's choice")
+	}
+	// The session tools follow the workflow tools only when the user lets MCP clients search
+	// local sessions, and declaring them leaves the served list itself untouched.
+	withSessions := ideAPIToolExposure(true)
+	if len(withSessions) != len(ideAPIServedTools)+len(ideAPISessionTools) || !ideAPIServesSessions(withSessions) {
+		t.Fatalf("exposure with sessions = %v", withSessions)
+	}
+	for i, name := range ideAPISessionTools {
+		if withSessions[len(ideAPIServedTools)+i].Name != name {
+			t.Fatalf("exposure with sessions = %v", withSessions)
+		}
+	}
+	if slices.ContainsFunc(ideAPIServedTools, func(name string) bool { return slices.Contains(ideAPISessionTools, name) }) {
+		t.Fatal("ideAPIToolExposure(true) changed the served list")
 	}
 	// Build configure is dispatched since the Build window applies configuration changes.
 	if !slices.Contains(ideAPIServedTools, "lithe_run_start") || !slices.Contains(ideAPIServedTools, "lithe_build_configure") {

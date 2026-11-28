@@ -105,12 +105,13 @@ type Service struct {
 	Host *BackendHost
 	// Contexts holds the workspace contexts plugin backends see.
 	Contexts *WorkspaceContexts
-	// ContextIssue records a failed notification to an already running backend.
+	// ContextIssue records a failed relay refresh or workspace notification.
 	ContextIssue func(context.Context, error)
-	// contextsNotifyMu serializes didChangeContexts delivery with backend activation so a
-	// backend that starts after a workspace opens receives the latest revision once.
-	contextsNotifyMu sync.Mutex
-	contextsNotified map[string]workspaceNotificationRevision
+	// contextsNotifyMu serializes relay refresh and didChangeContexts delivery
+	// with backend activation, and guards both revision trackers.
+	contextsNotifyMu        sync.Mutex
+	contextsNotified        map[string]workspaceNotificationRevision
+	contextsRefreshRevision uint64
 	// workbench is the window the document, editor, window and terminal services drive.
 	workbench Workbench
 	messages  *messageLimiter
@@ -199,8 +200,8 @@ func open(kernel Kernel, preferences *store.Store, root string, first bool) (*Se
 	approvals := plugintrust.New(preferences)
 	state := pluginstate.New(preferences)
 	hostServices := pluginhost.NewServices()
-	// Nothing else removes what an interrupted install or uninstall left behind, and
-	// Open runs before any installation can start.
+	// Sweep collects interrupted installations when no other process is using
+	// the scratch directories for an installation or removal.
 	if first {
 		if err := pluginpkg.Sweep(root); err != nil {
 			return nil, fmt.Errorf("%w: %w", ErrAssembly, err)

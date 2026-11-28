@@ -8,6 +8,57 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 )
 
+// unloadBuildModel removes the instance's contribution to the Project tree before it reloads.
+func (p *project) unloadBuildModel(instance *buildInstance) {
+	if instance.modelLoaded {
+		instance.modelLoaded = false
+		p.tree.changeModuleRoots(instance.Model.Projects, -1)
+	}
+}
+
+// changeModuleRoots applies one model's addition or removal. Several models can
+// name the same path. Core uses "." for the workspace root, which the tree calls "".
+func (t *fileTree) changeModuleRoots(projects []core.BuildProject, delta int) {
+	if len(projects) == 0 {
+		return
+	}
+	if t.moduleRoots == nil {
+		t.moduleRoots = make(map[string]int, len(projects))
+	}
+	changed := false
+	for _, project := range projects {
+		path := project.Path
+		if path == "." {
+			path = ""
+		}
+		before := t.moduleRoots[path]
+		after := before + delta
+		if after > 0 {
+			t.moduleRoots[path] = after
+		} else {
+			delete(t.moduleRoots, path)
+		}
+		changed = changed || (before > 0) != (after > 0)
+	}
+	if changed {
+		t.moduleRootsChanged()
+	}
+}
+
+func (t *fileTree) clearModuleRoots() {
+	if len(t.moduleRoots) > 0 {
+		t.moduleRoots = nil
+		t.moduleRootsChanged()
+	}
+}
+
+func (t *fileTree) moduleRootsChanged() {
+	t.measureDirty = true
+	if t.wake != nil {
+		t.wake()
+	}
+}
+
 // moduleFor returns the build project a workspace-relative file belongs to: the project whose
 // directory is the deepest ancestor of the file. Only models that are loaded and current take
 // part. A model that is loading, reloading or failed is skipped, so a file is never named after

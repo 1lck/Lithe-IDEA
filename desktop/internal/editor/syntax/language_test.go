@@ -231,6 +231,30 @@ func TestPluginLanguages(t *testing.T) {
 	}
 }
 
+func TestLanguageLookupHelpersAndKnownIDs(t *testing.T) {
+	r := NewRegistry()
+	if lang, ok := r.BundledForPath("Cargo.toml"); !ok || lang.ID != "toml" {
+		t.Fatalf("BundledForPath(Cargo.toml) = %v, %v", lang, ok)
+	}
+	if _, ok := r.PluginForPath("Cargo.toml"); ok {
+		t.Fatal("PluginForPath(Cargo.toml) unexpectedly matched without plugins")
+	}
+	r.SetPluginLanguages([]PluginLanguage{{ID: "customlang", Extensions: []string{".cust"}}})
+	if lang, ok := r.PluginForPath("foo.cust"); !ok || lang.ID != "customlang" {
+		t.Fatalf("PluginForPath(foo.cust) = %v, %v", lang, ok)
+	}
+	if s := r.SyntaxForLanguage("toml", "uv.lock"); s == nil || s.Language().ID != "toml" {
+		t.Fatalf("SyntaxForLanguage(toml, uv.lock) = %v", s)
+	}
+	if c := r.CommentsForLanguage("toml", "uv.lock"); c.Line != "#" {
+		t.Fatalf("CommentsForLanguage(toml, uv.lock) = %+v", c)
+	}
+	ids := r.KnownLanguageIDs()
+	if !slices.Contains(ids, "toml") || !slices.Contains(ids, "customlang") || !slices.IsSorted(ids) {
+		t.Fatalf("KnownLanguageIDs missing expected entries or unsorted: %v", ids)
+	}
+}
+
 // tokenNames returns, for each text in want, the name of the token text starts in, at its first
 // occurrence in source.
 func tokenNames(t *testing.T, s *Syntax, source string, want map[string]string) map[string]string {

@@ -5,10 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 	"maps"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -17,9 +14,11 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugininstall"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugintrust"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 )
 
 const (
@@ -42,7 +41,8 @@ func (a *App) refreshPluginState() {
 	}
 	a.background(nil, pluginStateTimeout, func(ctx context.Context) func(*App) {
 		entries, err := a.plugins.CurrentInstalled(ctx)
-		facts := installedPluginFacts(entries, a.plugins.Manager)
+		facts, factsErr := installedPluginFacts(entries, a.plugins.Manager)
+		err = errors.Join(err, factsErr)
 		return func(a *App) {
 			a.pluginFacts.Store(&facts)
 			if err != nil {
@@ -159,7 +159,13 @@ func (a *App) preparePluginInstall(feedback settingswindow.PluginInstallFeedback
 		// The review window's context ends the install; the install still belongs to the
 		// action that started it, so its records and Core requests carry its op.
 		origin := core.OriginOf(work)
-		plan, err := prepare(core.WithOrigin(feedback.Context, origin))
+		ctx := core.WithOrigin(feedback.Context, origin)
+		finishStaging, err := pluginpkg.ProtectStaging(ctx, a.plugins.Root)
+		var plan plugininstall.Plan
+		if err == nil {
+			defer func() { a.recordPluginInstallCleanup(work, finishStaging()) }()
+			plan, err = prepare(ctx)
+		}
 		if err != nil {
 			// log-exempt: 用户取消：关闭审查窗口取消未完成的安装。
 			cancelled := feedback.Context.Err() != nil
@@ -384,6 +390,7 @@ func (a *App) reloadPluginLanguages() {
 			l.finish()
 		}
 	}
+	agentTicket := a.agentConfigureTicket()
 	a.background(nil, pluginStateTimeout, func(ctx context.Context) func(*App) {
 		if a.pluginReloadGeneration.Load() != generation {
 			return nil
@@ -474,11 +481,13 @@ func (a *App) reloadPluginLanguages() {
 		if stale {
 			return nil
 		}
+		agentCatalog := a.configureAgents(ctx, snapshot, agentTicket)
 		return func(a *App) {
 			if a.pluginReloadGeneration.Load() != generation {
 				return
 			}
 			a.applyHiddenDirectories(hidden)
+			a.applyAgentCatalog(agentCatalog)
 			if p := a.project; p != nil && !p.everywhereSymbols.discovering {
 				p.everywhereSymbols.discoveryStarted = false
 				if a.everywhereView.open && everywhereShowsSymbols(p.everywhere.scope) {
@@ -556,6 +565,10 @@ type pluginManifestFacts struct {
 		ID          string `json:"id"`
 		DisplayName string `json:"displayName"`
 	} `json:"vcsProviders"`
+	Agents []struct {
+		ID          string `json:"id"`
+		DisplayName string `json:"displayName"`
+	} `json:"agents"`
 	UI struct {
 		ToolWindows []struct {
 			ID    string `json:"id"`
@@ -570,7 +583,7 @@ type pluginManifestFacts struct {
 	SettingActions []json.RawMessage `json:"settingActions"`
 }
 
-// pluginApprovals looks up what the user approved for one installed version.
+// pluginApprovals looks up a version in the all-or-nothing approval store.
 type pluginApprovals interface {
 	Approval(id, version string) (plugintrust.Record, bool, error)
 }
@@ -579,9 +592,11 @@ type pluginApprovals interface {
 // approval recorded, in the order the Installed tab lists them: by name, then by ID. It reads
 // files, so it runs off the window thread. A package whose manifest cannot be read still gets an
 // entry with its ID, version and path, so the Installed tab lists every package on disk;
-// approvals may be nil, which leaves every source unknown.
-func installedPluginFacts(entries []pluginmanager.Entry, approvals pluginApprovals) []settingswindow.PluginFacts {
+// approvals may be nil, which leaves every source unknown. The caller reports
+// metadata failures once alongside the partial results.
+func installedPluginFacts(entries []pluginmanager.Entry, approvals pluginApprovals) ([]settingswindow.PluginFacts, error) {
 	facts := make([]settingswindow.PluginFacts, 0, len(entries))
+	var failures []error
 	for _, entry := range entries {
 		item := settingswindow.PluginFacts{
 			ID:      entry.Installed.ID,
@@ -589,7 +604,12 @@ func installedPluginFacts(entries []pluginmanager.Entry, approvals pluginApprova
 			Path:    entry.Installed.Path,
 		}
 		if approvals != nil {
-			if record, ok, err := approvals.Approval(entry.Installed.ID, entry.Installed.Version); err == nil && ok {
+			record, ok, err := approvals.Approval(item.ID, item.Version)
+			if err != nil {
+				failures = append(failures, err)
+				// Each lookup reads the same store. Try it again on the next refresh.
+				approvals = nil
+			} else if ok {
 				item.Source = string(record.Source)
 				item.ArchiveSHA256 = record.ArchiveSHA256
 				item.ContentDigest = record.ContentDigest
@@ -598,9 +618,14 @@ func installedPluginFacts(entries []pluginmanager.Entry, approvals pluginApprova
 				}
 			}
 		}
-		if data, err := os.ReadFile(filepath.Join(entry.Installed.Path, "plugin.json")); err == nil {
+		data, err := pluginservice.ReadInstalledManifest(entry.Installed)
+		if err != nil {
+			failures = append(failures, err)
+		} else {
 			var manifest pluginManifestFacts
-			if json.Unmarshal(data, &manifest) == nil {
+			if err := json.Unmarshal(data, &manifest); err != nil {
+				failures = append(failures, fmt.Errorf("decode installed manifest for %s@%s: %w", item.ID, item.Version, err))
+			} else {
 				describeManifest(&item, manifest)
 			}
 		}
@@ -612,7 +637,7 @@ func installedPluginFacts(entries []pluginmanager.Entry, approvals pluginApprova
 		}
 		return strings.Compare(left.ID, right.ID)
 	})
-	return facts
+	return facts, errors.Join(failures...)
 }
 
 // pluginFactsName is the name the Installed tab sorts by: the manifest's, or the ID when the
@@ -707,6 +732,11 @@ func describeManifest(item *settingswindow.PluginFacts, manifest pluginManifestF
 	for _, provider := range manifest.VcsProviders {
 		item.Capabilities = append(item.Capabilities, settingswindow.PluginCapability{
 			Kind: settingswindow.CapabilityVersionControl, ID: provider.ID, Title: provider.DisplayName,
+		})
+	}
+	for _, agent := range manifest.Agents {
+		item.Capabilities = append(item.Capabilities, settingswindow.PluginCapability{
+			Kind: settingswindow.CapabilityAgent, ID: agent.ID, Title: agent.DisplayName,
 		})
 	}
 }

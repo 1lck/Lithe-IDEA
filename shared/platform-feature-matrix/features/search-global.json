@@ -13,7 +13,8 @@
       ".agents/notes/implemented/feature/2026-11-08-viva-project-search.md",
       "desktop/internal/workbench/search_idea_test.go",
       "desktop/internal/workbench/search_visual_test.go",
-      "desktop/internal/workbench/search_everywhere_view.go"
+      "desktop/internal/workbench/search_everywhere_view.go",
+      "desktop/internal/workbench/search_options_log_test.go"
     ]
   },
   "windows": {
@@ -26,7 +27,8 @@
       ".agents/notes/implemented/feature/2026-11-08-viva-project-search.md",
       "desktop/internal/workbench/search_idea_test.go",
       "desktop/internal/workbench/search_visual_test.go",
-      "desktop/internal/workbench/search_everywhere_view.go"
+      "desktop/internal/workbench/search_everywhere_view.go",
+      "desktop/internal/workbench/search_options_log_test.go"
     ]
   },
   "owner": "Search",
@@ -77,5 +79,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva：All 合并正文与文件/符号/动作；删除500条总截断，继续按需分页。Core 增强空格分词、星号片段、路径缩写、跳字母缩写和文件名:行号，未宣称完整MinusculeMatcher等价。正文读取脏文档快照并使用可配置大小。外部库语义由语言服务提供；两端原生验收保持pending。 搜索结果的文件名、类型、符号与正文预览统一使用13pt界面字体；分类和来源筛选改为“类型 / Types”，包含Class、Enum、Interface、Struct，符号保持其他声明。回归验证两个来源分离、匹配片段仍用同一字体。 #2199补齐：首屏之后异步完整计数与已加载文件明细、计数失败重试；按清单选择器启动相关LSP并接入晚就绪符号查询；临时生成目录/内部链接选项，手动排除和外部链接边界保留，循环检测、目标监听重建和项目树别名刷新。验证使用真实文件和通用契约fixture，两端原生窗口仍pending。 类型/符号只列语言服务在项目目录内报告的结果，页签块内名称后的 ⓘ 说明种类与范围；文件类筛选到不了这些结果，两个页签不显示筛选。包含依赖等非项目结果尚未实现。"
+  "notes": "Viva：All 合并正文与文件/符号/动作；删除500条总截断，继续按需分页。Core 增强空格分词、星号片段、路径缩写、跳字母缩写和文件名:行号，未宣称完整MinusculeMatcher等价。正文读取脏文档快照并使用可配置大小。外部库语义由语言服务提供；两端原生验收保持pending。 搜索结果的文件名、类型、符号与正文预览统一使用13pt界面字体；分类和来源筛选改为“类型 / Types”，包含Class、Enum、Interface、Struct，符号保持其他声明。回归验证两个来源分离、匹配片段仍用同一字体。 #2199补齐：首屏之后异步完整计数与已加载文件明细、计数失败重试；按清单选择器启动相关LSP并接入晚就绪符号查询；临时生成目录/内部链接选项，手动排除和外部链接边界保留，循环检测、目标监听重建和项目树别名刷新。验证使用真实文件和通用契约fixture，两端原生窗口仍pending。 类型/符号只列语言服务在项目目录内报告的结果，页签块内名称后的 ⓘ 说明种类与范围；文件类筛选到不了这些结果，两个页签不显示筛选。包含依赖等非项目结果尚未实现。 2026-11-29：在全局搜索的筛选弹窗里切换选项后，app.action.performed 会漏记，改为读 Changed 后记录；search_options_log_test.go 覆盖。"
 }

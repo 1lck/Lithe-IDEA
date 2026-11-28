@@ -130,6 +130,8 @@ func TestDefaultSidebarListsTheTopLevelWithAppearanceExpanded(t *testing.T) {
 		{page: pageGeneral, level: 1},
 		{page: pageNetwork, level: 1},
 		{page: pageEditor, level: 1},
+		{page: pageFileTypeMappings, level: 1},
+		{page: pageDirectoryMarks, level: 1},
 		{page: pageFonts, level: 1},
 		{page: pageKeymap, level: 1},
 		{page: pageProcessTermination, level: 1},
@@ -166,8 +168,8 @@ func TestExpandedToolsGroupListsTerminal(t *testing.T) {
 	open := initialOpen()
 	open[pageTools] = true
 	rows := appendVisible(nil, english(), &open, "")
-	if len(rows) != 19 {
-		t.Fatalf("rows = %v, want the 14 of the default sidebar and the five pages of Tools", rows)
+	if len(rows) != 21 {
+		t.Fatalf("rows = %v, want the 16 of the default sidebar and the five pages of Tools", rows)
 	}
 	for i, r := range rows {
 		if r.page != pageTools {
@@ -229,7 +231,7 @@ func TestSearchKeepsTheGroupOfAMatchingPageExpanded(t *testing.T) {
 func TestSearchOnAGroupTitleKeepsAllItsPages(t *testing.T) {
 	var open [pageCount]bool
 	rows := appendVisible(nil, english(), &open, foldQuery("appearance"))
-	want := []pageID{pageAppearance, pageGeneral, pageNetwork, pageEditor, pageFonts, pageKeymap, pageProcessTermination}
+	want := []pageID{pageAppearance, pageGeneral, pageNetwork, pageEditor, pageFileTypeMappings, pageDirectoryMarks, pageFonts, pageKeymap, pageProcessTermination}
 	if got := pagesOf(rows); !slices.Equal(got, want) {
 		t.Fatalf("pages = %v, want %v", got, want)
 	}
@@ -284,8 +286,8 @@ func TestAppendVisibleKeepsWhatIsAlreadyInDst(t *testing.T) {
 	open := initialOpen()
 	dst := []row{{page: pageAI}}
 	rows := appendVisible(dst, english(), &open, "")
-	if len(rows) != 15 || rows[0] != (row{page: pageAI}) {
-		t.Fatalf("rows = %v, want the old row followed by the 14 of the sidebar", rows)
+	if len(rows) != 17 || rows[0] != (row{page: pageAI}) {
+		t.Fatalf("rows = %v, want the old row followed by the 16 of the sidebar", rows)
 	}
 }
 

@@ -488,7 +488,7 @@ func TestProjectTreeRefreshPreservesSurvivingState(t *testing.T) {
 	// replace lists a folder again and lays the rows out as Core says, as a listing does.
 	replace := func(n *treeNode, nodes []core.WorkspaceNode) {
 		t.Helper()
-		tree.replaceChildren(n, nodes)
+		p.replaceChildren(n, nodes)
 		if !tree.rowsDirty {
 			t.Fatal("a listing left the rows as they were")
 		}
@@ -690,14 +690,15 @@ func TestChangeListRowSelectionFollowsCore(t *testing.T) {
 }
 
 func TestProjectTreePathIndexDropsReplacedSubtree(t *testing.T) {
-	tree := fileTree{root: &treeNode{dir: true, expanded: true}}
-	tree.replaceChildren(tree.root, []core.WorkspaceNode{{Path: "src", Name: "src", IsDirectory: true}})
+	p := &project{tree: fileTree{root: &treeNode{dir: true, expanded: true}}}
+	tree := &p.tree
+	p.replaceChildren(tree.root, []core.WorkspaceNode{{Path: "src", Name: "src", IsDirectory: true}})
 	folder := tree.root.children[0]
-	tree.replaceChildren(folder, []core.WorkspaceNode{{Path: "src/main.go", Name: "main.go"}})
+	p.replaceChildren(folder, []core.WorkspaceNode{{Path: "src/main.go", Name: "main.go"}})
 	if tree.find("src/main.go") == nil {
 		t.Fatal("loaded child was not indexed")
 	}
-	tree.replaceChildren(tree.root, []core.WorkspaceNode{{Path: "src", Name: "src"}})
+	p.replaceChildren(tree.root, []core.WorkspaceNode{{Path: "src", Name: "src"}})
 	if tree.find("src/main.go") != nil || tree.find("src") == nil || tree.find("src").dir {
 		t.Fatal("replacing a directory left its old subtree in the path index")
 	}
@@ -765,6 +766,81 @@ func TestProjectTreeFollowsExternalDirectoryChanges(t *testing.T) {
 	}
 }
 
+func TestProjectTreeRefreshesCollapsedEmptyLinkOnTargetEvent(t *testing.T) {
+	alias := &treeNode{path: "alias", dir: true, listed: true, empty: true, linked: true}
+	p := &project{remote: &remoteProject{}}
+	p.tree.root = &treeNode{dir: true, expanded: true, children: []*treeNode{alias}}
+	p.tree.reading = true // Inspect the next batch before any filesystem I/O.
+	a := &App{}
+	a.applyFilteredTreeEvents(p, []string{"target/new.txt"})
+	if alias.empty || alias.listed || p.tree.pending["alias"] != nil {
+		t.Fatal("target change should make the alias expandable without reading it")
+	}
+}
+
+func TestProjectTreeResyncInvalidatesCollapsedEmptyWithoutReading(t *testing.T) {
+	child := &treeNode{path: "outer/inner", dir: true, listed: true, empty: true}
+	outer := &treeNode{path: "outer", dir: true, listed: true, children: []*treeNode{child}}
+	p := &project{remote: &remoteProject{}}
+	p.tree.root = &treeNode{dir: true, expanded: true, children: []*treeNode{outer}}
+	p.tree.reading = true
+	(&App{}).resyncTreeListings(p)
+	if child.listed || child.empty || len(p.tree.pending) != 1 || p.tree.pending[""] != p.tree.root {
+		t.Fatal("resync should queue only the open root and invalidate its empty child")
+	}
+}
+
+func TestProjectTreeSameNameReplacement(t *testing.T) {
+	for _, loading := range []bool{false, true} {
+		child := &treeNode{path: "cache", dir: true, listed: true, empty: true, loading: loading}
+		p := &project{remote: &remoteProject{}}
+		p.tree.root = &treeNode{dir: true, expanded: true, children: []*treeNode{child}}
+		p.tree.reading = true
+		a := &App{}
+		a.applyFilteredTreeEvents(p, []string{"cache"})
+		if p.tree.pending[""] != p.tree.root {
+			t.Fatal("the parent must still check for a rename or deletion")
+		}
+		if loading {
+			if p.tree.pending["cache"] != child || child.revision == 0 {
+				t.Fatal("the replaced directory's in-flight listing was not superseded")
+			}
+		} else {
+			if child.empty || p.tree.pending["cache"] != nil {
+				t.Fatal("replacement should enable disclosure without an eager read")
+			}
+			a.toggleFolder(p, child)
+			if p.tree.pending["cache"] != child {
+				t.Fatal("click did not request the replacement's contents")
+			}
+		}
+	}
+}
+
+func TestProjectTreeRemoteWatchCoverage(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		watch     *remoteWatch
+		keepEmpty bool
+	}{
+		{"healthy", &remoteWatch{watching: true}, true},
+		{"partial", &remoteWatch{watching: true, partial: true}, false},
+		{"disconnected", nil, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			child := &treeNode{path: "empty", dir: true, listed: true, empty: true}
+			p := &project{remote: &remoteProject{watch: tc.watch}}
+			p.tree.root = &treeNode{dir: true, expanded: true, children: []*treeNode{child}}
+			p.replaceChildren(p.tree.root, []core.WorkspaceNode{
+				{Path: "empty", IsDirectory: true}, {Path: "new-sibling.txt"},
+			})
+			if child.empty != tc.keepEmpty || child.listed != tc.keepEmpty {
+				t.Fatalf("after sibling change: empty=%t listed=%t, want %t", child.empty, child.listed, tc.keepEmpty)
+			}
+		})
+	}
+}
+
 func TestProjectTreeEmptyFolderBecomesExpandable(t *testing.T) {
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, "empty"), 0o700); err != nil {
@@ -775,9 +851,11 @@ func TestProjectTreeEmptyFolderBecomesExpandable(t *testing.T) {
 	p := h.app.project
 	awaitDocumentState(t, h, func() bool { return p.tree.root != nil && p.tree.root.listed })
 	folder := p.tree.find("empty")
-	if folder == nil || !folder.empty {
-		t.Fatal("Core did not report the initially empty directory")
+	if folder == nil || folder.listed || folder.empty {
+		t.Fatal("the parent listing should leave its child unchecked")
 	}
+	h.app.toggleFolder(p, folder)
+	awaitDocumentState(t, h, func() bool { return folder.listed && folder.empty && !folder.expanded })
 	if err := os.WriteFile(filepath.Join(root, "empty", "created.txt"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -801,9 +879,11 @@ func TestProjectTreeManyEmptyDirectoriesShareRecursiveWatch(t *testing.T) {
 	p := h.app.project
 	awaitDocumentState(t, h, func() bool { return p.tree.root != nil && p.tree.root.listed })
 	folder := p.tree.find("folder-139")
-	if folder == nil || !folder.empty {
-		t.Fatal("expected an empty directory")
+	if folder == nil || folder.listed {
+		t.Fatal("expected an unloaded directory")
 	}
+	h.app.toggleFolder(p, folder)
+	awaitDocumentState(t, h, func() bool { return folder.empty })
 	if err := os.WriteFile(filepath.Join(root, "folder-139", "new.txt"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -837,6 +917,7 @@ func TestProjectTreeCollapsedDirectoryBecomesEmpty(t *testing.T) {
 	if err := os.Remove(file); err != nil {
 		t.Fatal(err)
 	}
+	h.app.toggleFolder(p, folder)
 	awaitDocumentState(t, h, func() bool { return folder.empty })
 }
 
@@ -1109,6 +1190,89 @@ func TestProjectTreeRootIsVisibleAndCollapsible(t *testing.T) {
 	}
 }
 
+func TestProjectTreeStylesLoadedBuildModuleRoots(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "ModuleWorkspace")
+	writeTreeFiles(t, root, "common/src/file.txt", "docs/guide.txt", "module-a/file.txt", "module-b/file.txt")
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	p := h.openTree(t, root)
+	h.click(center(h.treeRowHit("common").Bounds))
+
+	checkRow := func(name string, weight float32, wantBadge bool) {
+		t.Helper()
+		row := h.treeRowHit(name).Bounds
+		snapshot := h.driver.Snapshot()
+		for _, label := range snapshot.Labels {
+			if label.Value != name || label.Bounds.Y < row.Y || label.Bounds.Y >= row.Y+row.Height {
+				continue
+			}
+			badge := slices.ContainsFunc(snapshot.Primitives, func(primitive app.Primitive) bool {
+				if primitive.Kind != app.TrianglePrimitive {
+					return false
+				}
+				color := primitive.Color
+				point := primitive.Points[0]
+				return color.Blue > color.Red+0.25 && color.Blue > color.Green+0.2 &&
+					point.X >= label.Bounds.X-treelist.Icon-treelist.Gap && point.X < label.Bounds.X &&
+					point.Y >= row.Y && point.Y < row.Y+row.Height
+			})
+			if label.Weight != weight || badge != wantBadge {
+				t.Errorf("%s: weight=%g, blue badge=%v, want weight=%g, blue badge=%v", name, label.Weight, badge, weight, wantBadge)
+			}
+			return
+		}
+		t.Fatalf("no label for %q in the Project tree", name)
+	}
+	model := func(paths ...string) core.BuildModel {
+		var result core.BuildModel
+		for _, path := range paths {
+			result.Projects = append(result.Projects, core.BuildProject{ID: path, Name: filepath.Base(path), Path: path})
+		}
+		return result
+	}
+
+	checkRow("ModuleWorkspace", gfx.WeightSemibold, false)
+	checkRow("common", gfx.WeightRegular, false)
+	a := h.app
+	const pluginID = "dev.lithe.test.module-roots"
+	// The second model is in flight. Deliver its result separately below.
+	a.finishBuildDetection(p, p.build.generation, []buildInstance{
+		{BuildInstance: core.BuildInstance{ID: "first"}, Model: model(".", "common"), modelLoaded: true},
+		{BuildInstance: core.BuildInstance{ID: "second", ModelSource: "command"}, PluginID: pluginID, modelLoading: true},
+	}, nil)
+	h.settle()
+	checkRow("ModuleWorkspace", gfx.WeightBold, true)
+	checkRow("common", gfx.WeightBold, true)
+	checkRow("module-a", gfx.WeightRegular, false)
+
+	a.finishBuildModel(p, "second", model("common", "module-a"), nil)
+	h.settle()
+	checkRow("module-a", gfx.WeightBold, true)
+	checkRow("module-b", gfx.WeightRegular, false)
+	checkRow("docs", gfx.WeightRegular, false)
+	checkRow("src", gfx.WeightRegular, false)
+
+	// Settings invalidate this unselected instance without loading a replacement yet.
+	a.reloadPluginBuildModels(p, pluginID)
+	h.settle()
+	checkRow("common", gfx.WeightBold, true)
+	checkRow("module-a", gfx.WeightRegular, false)
+
+	a.finishBuildModel(p, "second", model("module-b"), nil)
+	h.settle()
+	checkRow("common", gfx.WeightBold, true)
+	checkRow("module-a", gfx.WeightRegular, false)
+	checkRow("module-b", gfx.WeightBold, true)
+	checkRow("src", gfx.WeightRegular, false)
+
+	a.invalidateBuild(p)
+	if err := h.driver.Advance(time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	checkRow("ModuleWorkspace", gfx.WeightSemibold, false)
+	checkRow("common", gfx.WeightRegular, false)
+	checkRow("module-b", gfx.WeightRegular, false)
+}
+
 func TestProjectTreeEmptyRootRemainsVisible(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	h.open(t.TempDir())
@@ -1201,9 +1365,7 @@ func TestProjectTreeKeyboardKeepsSelectionVisible(t *testing.T) {
 	if err := h.driver.Click(point.X, point.Y); err != nil {
 		t.Fatal(err)
 	}
-	if !first.empty {
-		t.Fatal("empty directory was not identified by Core")
-	}
+	awaitDocumentState(t, h, func() bool { return first.listed && first.empty })
 	if err := h.driver.Key(gfx.KeyRight, 0); err != nil {
 		t.Fatal(err)
 	}

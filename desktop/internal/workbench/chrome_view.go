@@ -656,8 +656,9 @@ func (a *App) projectMenu(c ui.C, anchor ui.Box) {
 				})
 			}
 			for _, i := range recents {
-				path := a.recent[i].Path
-				row := a.welcome.row(path, len(a.recent))
+				entry := a.recent[i]
+				path := entry.Path
+				row := a.welcome.entryRow(entry, len(a.recent))
 				missing := a.missing[path]
 				// A folder that is gone cannot be opened, so its row is shown and not offered.
 				hit, remove := a.projectMenuRow(c.Key(path), row, a.title.branches[path], false, missing)
@@ -690,14 +691,14 @@ func (a *App) projectMenu(c ui.C, anchor ui.Box) {
 		path := a.recent[removed].Path
 		c.After(func() {
 			a.performed("workspace.recent.remove", surfaceMenu)
-			a.reduceRecent(a.recent, core.RemoveRecent(path), true)
+			a.changeRecent(core.RemoveRecent(path), nil)
 		})
 	case picked >= 0:
 		// The path is taken now: opening a project replaces the recent list the index is into.
 		path := a.recent[picked].Path
 		a.title.projectOpen = false
 		a.performed("workspace.project.switch", surfaceMenu)
-		a.post(func(a *App) { a.openProject(path) })
+		a.post(func(a *App) { a.openRecent(path) })
 	case current, !open:
 		// The open project is already open, so choosing it only closes the menu.
 		a.title.projectOpen = false

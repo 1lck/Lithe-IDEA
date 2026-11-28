@@ -1,0 +1,43 @@
+name: Resolve the pinned desktop Core
+description: >-
+  Reads the Lithe-core-rust revision that scripts/desktop/build-desktop-core.sh builds and names the
+  C library of a Linux runner. Desktop CI, Desktop Core cache, Desktop AutoBuild, Desktop Release
+  and the remote server workflow build their Core cache keys from these outputs, so the keys of
+  one workflow match the keys of another.
+
+outputs:
+  revision:
+    description: The PINNED_CORE_REVISION commit of scripts/desktop/build-desktop-core.sh.
+    value: ${{ steps.resolve.outputs.revision }}
+  libc:
+    description: >-
+      "glibc<version>-" on a Linux runner, such as "glibc2.35-", and empty on macOS and Windows.
+      A Core built against a newer glibc does not run where only an older glibc is installed, so
+      every Linux Core cache key names the glibc it was built against. Linux release packages
+      build on Ubuntu 22.04 (glibc 2.35); a Core cached from a newer runner image never reaches them.
+    value: ${{ steps.resolve.outputs.libc }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve pinned Core revision
+      id: resolve
+      shell: bash
+      run: |
+        rev="$(sed -n 's/^PINNED_CORE_REVISION="\([0-9a-f]\{40\}\)"$/\1/p' scripts/desktop/build-desktop-core.sh)"
+        if [[ -z "$rev" ]]; then
+          printf '%s\n' 'Could not read PINNED_CORE_REVISION from scripts/desktop/build-desktop-core.sh.' >&2
+          exit 1
+        fi
+        libc=''
+        if [[ "$RUNNER_OS" == 'Linux' ]]; then
+          # getconf prints "glibc 2.35".
+          libc="$(getconf GNU_LIBC_VERSION | tr -d ' ')"
+          if [[ ! "$libc" =~ ^glibc[0-9]+\.[0-9]+$ ]]; then
+            printf 'Could not read the glibc version of this runner: %s\n' "$libc" >&2
+            exit 1
+          fi
+          libc+='-'
+        fi
+        printf 'revision=%s\n' "$rev" >> "$GITHUB_OUTPUT"
+        printf 'libc=%s\n' "$libc" >> "$GITHUB_OUTPUT"

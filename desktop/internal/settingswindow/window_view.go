@@ -381,6 +381,10 @@ func (w *window) content(c ui.C) {
 			w.generalPage(c)
 		case w.sess.page == pageEditor:
 			w.editorPage(c)
+		case w.sess.page == pageFileTypeMappings:
+			w.fileTypeMappingsPage(c)
+		case w.sess.page == pageDirectoryMarks:
+			w.directoryMarksPage(c)
 		case w.sess.page == pageFonts:
 			w.fontsPage(c)
 		case w.sess.page == pageBuild:
@@ -415,6 +419,8 @@ func (w *window) content(c ui.C) {
 			w.processTerminationPage(c)
 		case w.sess.page == pageIDEAPI && w.ctrl.opts.IDEAPI != nil:
 			w.ideAPIPage(c)
+		case w.sess.page == pageAgents && w.ctrl.opts.Agents != nil:
+			w.agentsPage(c)
 		case w.sess.page == pageAbout:
 			w.aboutPage(c)
 		default:

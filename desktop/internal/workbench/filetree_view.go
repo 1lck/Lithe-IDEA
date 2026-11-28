@@ -4,6 +4,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/shortcuts"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/treelist"
 	"github.com/vivaui/viva/components"
@@ -86,6 +87,27 @@ func (a *App) projectTree(c ui.C, p *project) {
 		Collapsed: fileicons.TreeChevron(false, a.colors.Dark),
 		Expanded:  fileicons.TreeChevron(true, a.colors.Dark),
 		Size:      16,
+	}
+	t.view.RowBackground = func(i int) gfx.Color {
+		if p.indexing.hideBgTint || i < 0 || i >= len(t.rows) {
+			return gfx.Color{}
+		}
+		n := t.rows[i]
+		if n == nil || n == t.root {
+			return gfx.Color{}
+		}
+		entry, ok := p.indexing.presentation[n.path]
+		if !ok || entry.BgColor == "" {
+			return gfx.Color{}
+		}
+		alpha := uint8(34)
+		if a.colors.Dark {
+			alpha = 42
+		}
+		if col, ok := parseHexColor(entry.BgColor, alpha); ok {
+			return col
+		}
+		return gfx.Color{}
 	}
 	tree := ui.Tree(c, &t.view, len(t.rows), t.label, func(i int) {
 		a.drawTreeContent(c, p, t.view.RowID(i), t.rows[i])
@@ -171,8 +193,23 @@ func (a *App) syncTreeSelection(canvas *gfx.Canvas, t *fileTree) {
 	}
 }
 
+func (t *fileTree) isModuleRoot(n *treeNode) bool {
+	_, module := t.moduleRoots[n.path]
+	return n.dir && module
+}
+
+func (t *fileTree) rowWeight(n *treeNode) float32 {
+	if t.isModuleRoot(n) {
+		return gfx.WeightBold
+	}
+	if n == t.root {
+		return gfx.WeightSemibold
+	}
+	return gfx.WeightRegular
+}
+
 // measureTree is how wide the widest row is: the width the rows are given so that every name
-// shows whole. It is measured again only when rows came or went, or the font changed.
+// shows whole. It is measured again only when the rows, their weights, or the font change.
 func (a *App) measureTree(canvas *gfx.Canvas, t *fileTree) float32 {
 	font := float32(treeFontSize)
 	if !t.measureDirty && t.measureFont == font {
@@ -180,33 +217,71 @@ func (a *App) measureTree(canvas *gfx.Canvas, t *fileTree) float32 {
 	}
 	width := float32(0)
 	for _, n := range t.rows {
-		weight := gfx.WeightRegular
-		if n == t.root {
-			weight = gfx.WeightSemibold
-		}
 		// Every row starts after the room of a chevron, which a row without one keeps empty.
-		row := float32(n.depth*treelist.Indent) + treeChevron + treelist.Icon + treelist.Gap + canvas.TextWidthWeight(n.name, font, weight) + treelist.Trailing
+		row := float32(n.depth*treelist.Indent) + treeChevron + treelist.Icon + treelist.Gap + canvas.TextWidthWeight(n.name, font, t.rowWeight(n)) + treelist.Trailing
 		width = max(width, row)
 	}
 	t.measureDirty, t.measureFont = false, font
 	return width + treeScrollPad
 }
 
-// drawTreeContent declares what row of the tree shows after its chevron: the node's icon and its
-// name, the root's in bold, which labels the row and carries its context menu. Viva's Tree
+// drawTreeContent declares what a row shows after its chevron: the node's icon and the name
+// that labels the row and carries its context menu. Viva's Tree
 // starts a row without a chevron (a file, an empty folder) where the chevron of a folder at its
 // depth is, so such a row keeps the chevron's room empty, and its icon lines up with the icons
 // of the folders beside it.
 func (a *App) drawTreeContent(c ui.C, p *project, row gfx.ID, n *treeNode) {
+	entry, hasMeta := p.indexing.presentation[n.path]
 	content := func() {
-		icon := fileicons.ForFile(n.name, a.colors.Dark)
-		if n.dir {
+		var icon gfx.Icon
+		iconTint := a.colors.Subtle
+		switch {
+		case n.dir && hasMeta && (entry.Role != "plain" || entry.Color != ""):
+			if entry.Icon == "folder" && entry.Color != "" {
+				icon = icons.Folder
+			} else {
+				icon = a.directoryIconFor(p, entry.Icon)
+			}
+			if tinted, ok := readableTreeTint(entry.Color, a.colors.Dark); ok {
+				iconTint = tinted
+			}
+		case p.tree.isModuleRoot(n):
+			icon = fileicons.ForBuildNode(fileicons.BuildProject, a.colors.Dark)
+		case n.dir:
 			icon = fileicons.ForDirectory(n.name, a.colors.Dark)
+		default:
+			icon = fileicons.ForFile(n.name, a.colors.Dark)
 		}
-		ui.Icon(c, icon).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Subtle)
-		name := ui.Text(c, n.name).FontSize(treeFontSize).Color(a.treeTextColor(p, n)).Shrink(0)
-		if n == p.tree.root {
-			name.Bold()
+		ui.Icon(c, icon).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(iconTint)
+		textColor := a.treeTextColor(p, n)
+		if hasMeta {
+			if entry.Excluded {
+				textColor = a.colors.Subtle
+			} else if entry.Color != "" && (n.dir || entry.TintText) {
+				if _, hasGit := p.git.tree[n.path]; !hasGit {
+					if tinted, ok := readableTreeTint(entry.Color, a.colors.Dark); ok {
+						textColor = tinted
+					}
+				}
+			}
+		}
+		name := ui.Text(c, n.name).FontSize(treeFontSize).Weight(p.tree.rowWeight(n)).Color(textColor).Shrink(0)
+		if n.dir && !p.indexing.hideTags && hasMeta && entry.Tag != "" {
+			tagFg := a.colors.Subtle
+			tagBg := a.colors.Hover
+			if tinted, ok := readableTreeTint(entry.Color, a.colors.Dark); ok {
+				tagFg = tinted
+			}
+			bgAlpha := uint8(42)
+			if a.colors.Dark {
+				bgAlpha = 56
+			}
+			if bg, ok := parseHexColor(entry.Color, bgAlpha); ok {
+				tagBg = bg
+			}
+			ui.Row(c).Shrink(0).PadSides(1, 5, 1, 5).Radius(3).Background(tagBg).Children(func() {
+				ui.Text(c, entry.Tag).FontSize(11).Color(tagFg).Shrink(0)
+			})
 		}
 		a.projectTreeMenu(c, p, row, n, name)
 	}

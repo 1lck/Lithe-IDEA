@@ -11,7 +11,7 @@ Core 命令的契约文档、schema 和 fixture 只有一份，放在 Lithe-core
 - 新增或修改 Core 命令的契约和 fixture，只在 Core 的 PR 里改，和命令代码一起合入。本仓库没有要同步的副本。
 - 桌面测试用 `contractfixture.CoreFixture("<相对 rust/fixtures 的路径>")` 读取 fixture。目录由 `scripts/desktop/desktop-go.sh` 导出的 `LITHE_CORE_FIXTURE_DIR` 给出，和本次链接的 Core 是同一份检出。直接运行 `go test` 会因为没有这个变量而报错，这是有意的。
 - Core 改了 fixture 以后，把 `scripts/desktop/build-desktop-core.sh` 的 `PINNED_CORE_REVISION` 升到包含该改动的 commit，桌面测试就会读到新版本。本地联调时用 `LITHE_CORE_RUST_DIR` 指向自己的 Core 检出。
-- i18n 生成器的格式样例（`format-v1.json`、`native-abi-v1.json`）只给本仓库的 `scripts/i18n/test-i18n.mjs` 使用，Core 不读取它们，所以移到了 `shared/i18n/fixtures/`。
+- i18n 生成器的格式样例（`format-v1.json`、`native-abi-v1.json`）Core 不读取，当时移到了本仓库的 `shared/i18n/fixtures/`；它们只服务旧客户端的原生字符串表，后来随那条生成路径一起删除，现在不再有这个目录。
 
 ## 问题
 
@@ -35,7 +35,7 @@ Rust Core 拆成独立仓库后，应用契约和 fixture 在两个仓库各有�
 | Core 命令契约、接口说明和 schema | Lithe-core-rust 的 `rust/contracts/` |
 | Core 命令 fixture | Lithe-core-rust 的 `rust/fixtures/` |
 | 插件契约、插件开发资料和 SDK | Lithe-core-rust 的 `shared/plugins/` |
-| i18n 生成器格式样例 | 本仓库的 `shared/i18n/fixtures/` |
+| i18n 生成器格式样例 | 已随旧客户端的原生字符串表生成路径删除 |
 | 跨平台功能矩阵 | 本仓库的 `shared/platform-feature-matrix/` |
 
 删除副本之前，Lithe-core-rust#24 先补齐了 Core 一侧：补回命令总表和 AI configuration 章节，并新增测试 `api_command_table_lists_exactly_the_parsed_commands`，命令表和 `CoreCommand::parse` 不一致时直接失败。
@@ -80,7 +80,6 @@ Rust Core 拆成独立仓库后，应用契约和 fixture 在两个仓库各有�
 - `scripts/desktop/desktop-go.sh test ./...` 用链接的 Core 检出里的 fixture 运行桌面测试。
 - `./scripts/agent-notes/verify-agent-notes.sh` 检查 Note 的适用范围和相对链接。
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh` 和 `node scripts/platform-feature-matrix/test-platform-feature-matrix.mjs` 检查功能矩阵证据。
-- `node --test --test-timeout=60000 scripts/i18n/test-i18n.mjs` 读取 `shared/i18n/fixtures/` 的格式样例。
 
 ## 适用范围
 
@@ -88,6 +87,5 @@ Rust Core 拆成独立仓库后，应用契约和 fixture 在两个仓库各有�
 - `scripts/desktop/desktop-go.sh`
 - `scripts/desktop/build-desktop-core.sh`
 - `.gitignore`
-- `shared/i18n/fixtures/`
 - `https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/contracts`
 - `https://github.com/Lithe-IDEA/Lithe-core-rust/tree/main/rust/fixtures`

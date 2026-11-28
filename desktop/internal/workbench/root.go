@@ -149,6 +149,8 @@ func (a *App) endPaint() {
 	a.endPluginPageFrame()
 	a.endPreviewFrame()
 	a.endPluginViews()
+	a.endAgentHistoryFrame()
+	a.endAgentChatFrame()
 }
 
 // page declares the window: one stack, so what is declared after the workbench lies over it

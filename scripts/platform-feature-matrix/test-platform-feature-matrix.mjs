@@ -81,8 +81,8 @@ test("gate rejects metadata, formatting and date-only edits, accepts capability 
   f.git("config", "user.email", "matrix@example.invalid");
   const commit = () => { f.git("add", "."); f.git("-c", "commit.gpgsign=false", "commit", "-qm", "fixture"); return f.git("rev-parse", "HEAD").trim(); };
   const base = commit();
-  mkdirSync(resolve(f.root, "macos/Sources"), { recursive: true });
-  writeFileSync(resolve(f.root, "macos/Sources/fixture.swift"), "// fixture\n");
+  mkdirSync(resolve(f.root, "desktop/internal"), { recursive: true });
+  writeFileSync(resolve(f.root, "desktop/internal/fixture.go"), "package fixture\n");
   const metadata = resolve(f.directory, "metadata.json");
   writeFileSync(metadata, readFileSync(metadata, "utf8").replace("2026-09-29", "2026-09-30"));
   f.save({ ...f.feature, lastReviewed: "2026-10-02" });

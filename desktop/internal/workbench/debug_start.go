@@ -9,6 +9,7 @@ import (
 	"maps"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -585,9 +586,6 @@ func (a *App) beginDebug(p *project, start debugStart) {
 			// which Core's default discovery limit bounds.
 			window += time.Duration(policy.Limits.DiscoveryMilliseconds) * time.Millisecond
 		}
-		if override := a.debugInitializeWindow; override > 0 {
-			window = override
-		}
 		a.watchDebugInitialize(p, session, window)
 		if err := session.writeFrames(update.OutboundFrames); err != nil {
 			return a.debugWriteFailed(p, session, err)
@@ -721,6 +719,14 @@ func (a *App) startAdapterProcess(ctx context.Context, p *project, session *debu
 		_ = stdin.Close()
 	}
 	if err != nil {
+		if prepared.UsesConfiguredExecutable {
+			var pathError *os.PathError
+			var execError *exec.Error
+			if (errors.As(err, &pathError) && pathError.Path == spec.Executable) ||
+				(errors.As(err, &execError) && execError.Name == spec.Executable) {
+				return &debugAdapterExecutableError{cause: err}
+			}
+		}
 		return err
 	}
 	session.process.Store(process)

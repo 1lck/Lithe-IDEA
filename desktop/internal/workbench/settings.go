@@ -44,6 +44,8 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 			a.operationFailedIn(ctx, "file_associations", err)
 		},
 		SearchPreferences: appSearchPreferences{app: a},
+		DirectoryMarks:    appDirectoryMarks{app: a},
+		FileTypeMappings:  appFileTypeMappings{app: a},
 		PluginInstallsClosed: func() {
 			a.post(func(a *App) { a.closePluginDownloads() })
 		},
@@ -360,6 +362,7 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		},
 		AIProviders: a.aiProviderStatuses,
 		IDEAPI:      a.ideAPISettingsLoader(),
+		Agents:      a.agentSessionsLoader(),
 	})
 }
 
@@ -377,10 +380,8 @@ func (a *App) setMarketplaceWidth(width float32) {
 }
 
 // setSettingsWindowSize keeps the size the user gave the settings window, which the next one
-// opens at. Every project tab of the window holds its own copy of the settings and saves it
-// whole, so each tab takes the size: the next window opens at it whichever tab opens it, and no
-// tab writes the old size back. One owner for the settings of every tab and window (#1851)
-// replaces this.
+// opens at. Mirror the size to every tab so whichever tab later opens the window
+// or saves settings uses the new size.
 func (a *App) setSettingsWindowSize(width, height int) {
 	if a.settings.SettingsWindowWidth == width && a.settings.SettingsWindowHeight == height {
 		return
@@ -389,7 +390,7 @@ func (a *App) setSettingsWindowSize(width, height int) {
 		tab.settings.SettingsWindowWidth, tab.settings.SettingsWindowHeight = width, height
 	}
 	a.settings.SettingsWindowWidth, a.settings.SettingsWindowHeight = width, height
-	a.saveSettings()
+	a.enqueueSettingsSave(true, &settingsWindowSize{width, height})
 }
 
 // closeSettingsWindow closes the open settings window as this workbench closes. It keeps the
@@ -461,10 +462,24 @@ const (
 	// settingsToolchainsPage is the Toolchains page, where a build's options dialog leads to the
 	// runtime its builds and launches use.
 	settingsToolchainsPage
+	// settingsDirectoryMarks is the Directory Marks & Colors page under Appearance & Behavior.
+	settingsDirectoryMarks
+	// settingsAgents is the Agents page under AI, where the user lets Lithe read the sessions
+	// of a plugin's agents; the Agent tool window's History tab leads there.
+	settingsAgents
+	// settingsInstalledPlugin is the Installed tab of the Plugins page on one plugin, whose ID is
+	// the query; a missing agent CLI leads there, where the plugin's command installer is offered.
+	settingsInstalledPlugin
 )
 
 func (a *App) openSettingsPage(surface actionSurface, page settingsPage) {
 	a.openSettingsPageWith(surface, page, "")
+}
+
+// openInstalledPluginSettings opens the Plugins page on the installed plugin pluginID, where its
+// missing commands and their installers are listed.
+func (a *App) openInstalledPluginSettings(surface actionSurface, pluginID string) {
+	a.openSettingsPageWith(surface, settingsInstalledPlugin, pluginID)
 }
 
 // publishWorkspaceBuildOptions refreshes settings links after detection or a project change.
@@ -521,7 +536,7 @@ func (a *App) openSettingsPageWith(surface actionSurface, page settingsPage, que
 	if a.application == nil {
 		return
 	}
-	if page == settingsPlugins || page == settingsMarketplace {
+	if page == settingsPlugins || page == settingsMarketplace || page == settingsInstalledPlugin {
 		a.reloadPluginLanguages()
 	}
 	a.post(func(a *App) {
@@ -572,6 +587,12 @@ func (a *App) openSettingsPageWith(surface actionSurface, page settingsPage, que
 			err = a.settingsWindow.OpenGit(a.application, current)
 		case settingsToolchainsPage:
 			err = a.settingsWindow.OpenToolchains(a.application, current)
+		case settingsDirectoryMarks:
+			err = a.settingsWindow.OpenDirectoryMarks(a.application, current)
+		case settingsAgents:
+			err = a.settingsWindow.OpenAgents(a.application, current)
+		case settingsInstalledPlugin:
+			err = a.settingsWindow.OpenInstalledPlugin(a.application, current, query)
 		default:
 			err = a.settingsWindow.Open(a.application, current)
 		}

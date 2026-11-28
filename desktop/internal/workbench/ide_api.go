@@ -15,12 +15,16 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/idehelp"
 )
 
-// ideAPIPollInterval bounds the wait between two polls of the broker. The Core
-// delivers at most one request per poll, so this also bounds the latency.
+// ideAPIPollInterval is the delay after an empty poll or a transient poll failure.
 const ideAPIPollInterval = 200 * time.Millisecond
 
-// ideAPICallTimeout bounds one Core call of the loop (claim, validate, respond).
+// ideAPICallTimeout bounds validation, dispatch and the reply to the broker.
 const ideAPICallTimeout = 10 * time.Second
+
+// Older brokers expire requests 120 seconds after enqueue but omit the remaining
+// budget from poll. Local builds using those revisions use the last known empty
+// queue as a lower bound on enqueue time. The pinned broker supplies the budget.
+const ideAPIBrokerTimeout = 120 * time.Second
 
 // ideAPIStopTimeout bounds how long closing waits for the loop before it still
 // asks the Core to close the connection.
@@ -38,6 +42,8 @@ type ideAPIConnection struct {
 	configuration json.RawMessage
 	cancel        context.CancelFunc
 	done          chan struct{}
+	// cursorKey signs the session cursors the connection answers (ide_api_sessions.go).
+	cursorKey [32]byte
 }
 
 // ideAPIState is the project's connection. Enable and close run on the window thread;
@@ -51,6 +57,9 @@ type ideAPIState struct {
 	current       *ideAPIOperation
 	epoch         string
 	nextOperation int
+	// closes counts the times the connection was taken down, so a reconnect that finds the
+	// user disabled the connection meanwhile leaves it off. It is guarded by mu.
+	closes uint64
 }
 
 // ideAPIDirectory is the private directory the Core keeps connection descriptors and
@@ -88,7 +97,8 @@ func (a *App) ideAPIEnable(p *project, permissions core.IDEPermissions, helperPa
 	}
 	ctx, cancel := context.WithTimeout(p.ctx, ideAPICallTimeout)
 	defer cancel()
-	exposure := ideAPIToolExposure()
+	exposure := ideAPIToolExposure(a.ideAPISessionsDeclared.Load())
+	queueEmptyAt := time.Now() // the descriptor cannot accept calls before open
 	opened, err := a.kernel.IDEHostOpen(ctx, core.IDEHostOpenRequest{
 		Directory:    a.ideAPIDirectory(),
 		WorkspaceKey: p.root,
@@ -110,13 +120,20 @@ func (a *App) ideAPIEnable(p *project, permissions core.IDEPermissions, helperPa
 		cancel:        loopCancel,
 		done:          make(chan struct{}),
 	}
+	if _, err := rand.Read(conn.cursorKey[:]); err != nil {
+		loopCancel()
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), ideAPICallTimeout)
+		defer closeCancel()
+		_, _ = a.kernel.IDEHostClose(closeCtx, opened.HostID)
+		return nil, err
+	}
 	p.ideAPI.mu.Lock()
 	p.ideAPI.conn = conn
 	p.ideAPI.mu.Unlock()
 	a.tasks.running.Add(1)
 	go func() {
 		defer a.tasks.running.Done()
-		a.ideAPILoop(loopCtx, conn)
+		a.ideAPILoop(loopCtx, conn, queueEmptyAt)
 	}()
 	return conn.configuration, nil
 }
@@ -130,6 +147,7 @@ func (a *App) ideAPIDisable(p *project) {
 	p.ideAPI.mu.Lock()
 	conn := p.ideAPI.conn
 	p.ideAPI.conn = nil
+	p.ideAPI.closes++
 	p.ideAPI.mu.Unlock()
 	if conn == nil {
 		return
@@ -138,21 +156,29 @@ func (a *App) ideAPIDisable(p *project) {
 	a.tasks.running.Add(1)
 	go func() {
 		defer a.tasks.running.Done()
-		timer := time.NewTimer(ideAPIStopTimeout)
-		defer timer.Stop()
-		select {
-		case <-conn.done:
-		case <-timer.C:
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), ideAPICallTimeout)
-		defer cancel()
-		_, _ = a.kernel.IDEHostClose(ctx, conn.hostID)
+		a.ideAPIStop(conn)
 	}()
 }
 
-// ideAPILoop runs open → poll → claim → dispatch → respond until ctx ends. It polls on a
-// bounded interval and holds no state beyond the connection it was started with.
-func (a *App) ideAPILoop(ctx context.Context, conn *ideAPIConnection) {
+// ideAPIStop stops a connection's loop, waiting at most ideAPIStopTimeout, and then closes the
+// connection in the Core, which releases its descriptor lock. It blocks; the caller runs it off
+// the window thread.
+func (a *App) ideAPIStop(conn *ideAPIConnection) {
+	conn.cancel()
+	timer := time.NewTimer(ideAPIStopTimeout)
+	defer timer.Stop()
+	select {
+	case <-conn.done:
+	case <-timer.C:
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), ideAPICallTimeout)
+	defer cancel()
+	_, _ = a.kernel.IDEHostClose(ctx, conn.hostID)
+}
+
+// ideAPILoop serves one connection until it closes. Core's poll atomically takes an
+// unexpired request. Only event-driven hosts that receive a bare ID need a separate claim.
+func (a *App) ideAPILoop(ctx context.Context, conn *ideAPIConnection, queueEmptyAt time.Time) {
 	defer close(conn.done)
 	timer := time.NewTimer(0)
 	defer timer.Stop()
@@ -162,37 +188,44 @@ func (a *App) ideAPILoop(ctx context.Context, conn *ideAPIConnection) {
 			return
 		case <-timer.C:
 		}
+		start := time.Now()
 		polled, err := a.kernel.IDEHostPoll(ctx, conn.hostID)
-		if err != nil && ctx.Err() != nil {
-			return
+		if err == nil && len(polled.Requests) > 0 {
+			for _, request := range polled.Requests {
+				deadline := ideAPIRequestDeadline(start, queueEmptyAt, request.RemainingMilliseconds)
+				a.ideAPIHandle(ctx, conn, request, deadline)
+			}
+			timer.Reset(0)
+		} else {
+			if err == nil {
+				queueEmptyAt = start
+			}
+			timer.Reset(ideAPIPollInterval)
 		}
-		for _, request := range polled.Requests {
-			a.ideAPIHandle(ctx, conn, request.RequestID)
-		}
-		timer.Reset(ideAPIPollInterval)
 	}
 }
 
-// ideAPIHandle claims one request right before the action, validates it against the
-// connection's grants in the Core, dispatches it and responds. A request the claim
-// does not return is never executed.
-func (a *App) ideAPIHandle(ctx context.Context, conn *ideAPIConnection, requestID string) {
-	callCtx, cancel := context.WithTimeout(ctx, ideAPICallTimeout)
-	claim, err := a.kernel.IDEHostClaim(callCtx, conn.hostID, requestID)
-	cancel()
-	if err != nil || claim.Request == nil || claim.Request.RemainingMilliseconds <= 0 {
-		return
+// Measure from before poll, so a delayed reply cannot extend either deadline.
+func ideAPIRequestDeadline(start, queueEmptyAt time.Time, remaining *int64) time.Time {
+	budget := queueEmptyAt.Add(ideAPIBrokerTimeout).Sub(start)
+	if remaining != nil {
+		budget = time.Duration(max(0, min(*remaining, ideAPICallTimeout.Milliseconds()))) * time.Millisecond
 	}
-	request := claim.Request
+	return start.Add(min(budget, ideAPICallTimeout))
+}
+
+// ideAPIHandle validates and executes the request returned by poll exactly once.
+func (a *App) ideAPIHandle(ctx context.Context, conn *ideAPIConnection, request core.IDEHostRequest, deadline time.Time) {
 	var arguments any = map[string]any{}
 	if len(request.Arguments) > 0 {
 		arguments = request.Arguments
 	}
-	callCtx, cancel = context.WithTimeout(ctx, ideAPICallTimeout)
+	callCtx, cancel := context.WithDeadline(ctx, deadline)
 	validation, err := a.kernel.IDEHostValidate(callCtx, request.Name, arguments, conn.permissions, conn.exposure)
-	cancel()
 	var result any
 	switch {
+	case callCtx.Err() != nil || !time.Now().Before(deadline):
+		result = ideAPITimeout()
 	case err != nil:
 		result = ideAPIFailure("OPERATION_FAILED", err.Error())
 	case !validation.OK && validation.Error != nil:
@@ -200,12 +233,11 @@ func (a *App) ideAPIHandle(ctx context.Context, conn *ideAPIConnection, requestI
 	case !validation.OK:
 		result = ideAPIFailure("INVALID_ARGUMENTS", "The call was rejected")
 	default:
-		dispatchCtx, stop := context.WithTimeout(ctx, ideAPICallTimeout)
-		result = a.ideAPIDispatch(dispatchCtx, conn, request.Name, request.Arguments)
-		stop()
+		result = a.ideAPIDispatch(callCtx, conn, request.Name, request.Arguments)
 	}
+	cancel()
 	callCtx, cancel = context.WithTimeout(ctx, ideAPICallTimeout)
-	_, _ = a.kernel.IDEHostRespond(callCtx, conn.hostID, requestID, result)
+	_, _ = a.kernel.IDEHostRespond(callCtx, conn.hostID, request.RequestID, result)
 	cancel()
 }
 

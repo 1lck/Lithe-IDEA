@@ -17,7 +17,8 @@ const installedPackageWorkflows = [
   ["desktop/internal/plugininstall/pending_test.go", "TestStageUpdateLeavesInstalledPackageUnchanged"],
   ["desktop/internal/pluginservice/package_lifecycle_test.go", "TestUninstallWaitsForPackagePublicationInAnotherProcess"],
   ["desktop/internal/workbench/editor_preferences_publication_test.go", "TestEditorPreferencesLeavesInstalledPackageUnchanged"],
-  ["desktop/internal/workbench/remote_devcontainer_form_test.go", "TestRemoteDevcontainerConfigurationLeavesInstalledPackageUnchanged"],
+  ["desktop/internal/workbench/file_type_mappings_test.go", "TestFileTypeMappingsStayOutsideInstalledPackage"],
+  ["desktop/internal/workbench/welcome_recent_test.go", "TestRecentProjectsLeaveInstalledPackageUnchanged"],
 ];
 
 function workflowTest(name, body = "\tif !installedpackagetest.Run(t) {\n\t\treturn\n\t}\n") {
@@ -71,15 +72,6 @@ test("ignores test-only executable lookups but rejects missing desktop sources",
   f.write("desktop/internal/resource_test.go", "package sample\nvar path = os.Executable()\n");
   assert.equal(f.run().status, 0);
   rmSync(resolve(f.root, "desktop/cmd"), { recursive: true });
-  assert.notEqual(f.run().status, 0);
-});
-
-test("retains legacy macOS and Windows write checks when those sources exist", { timeout: 15000 }, (t) => {
-  const f = fixture(t);
-  f.write("macos/Sources/bad.swift", "Bundle.main.resourceURL.write(data)\n");
-  assert.notEqual(f.run().status, 0);
-  f.write("macos/Sources/bad.swift", "Bundle.main.resourceURL\n");
-  f.write("windows/tauri/src-tauri/src/bad.rs", "resource_dir().write(data);\n");
   assert.notEqual(f.run().status, 0);
 });
 

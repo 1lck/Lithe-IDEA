@@ -51,6 +51,7 @@ func TestRemoteHostContainersOpenAFolderInAContainerOnTheHost(t *testing.T) {
 	lang := h.app.language()
 	r := &h.app.remote
 	entryID, session := b.entryID, b.session.ID
+	fingerprint := r.entry(entryID).TargetFingerprint
 	var listed, sessions []string
 	k.set(func(k *remoteHostKernel) {
 		listed, sessions = slices.Clone(k.containers.listed), slices.Clone(k.containers.sessions)
@@ -109,7 +110,7 @@ func TestRemoteHostContainersOpenAFolderInAContainerOnTheHost(t *testing.T) {
 	p := h.openBrowsedProject(t, r.browser)
 	identity := entryID + "/docker:app@" + remoteTestHostContainer
 	anchor, _ := h.app.remoteAnchor()
-	if want := remoteplaceholder.Root(anchor, identity, remoteTestHome+"/project"); p.root != want || p.remote.connectionID != identity {
+	if want := remoteplaceholder.Root(anchor, identity+"/"+fingerprint, remoteTestHome+"/project"); p.root != want || p.remote.connectionID != identity {
 		t.Fatal("the workspace is not placed under the connection's and the container's identity")
 	}
 	if got, want := h.app.projectDisplayName(p), "project [Container: "+name+"]"; got != want {

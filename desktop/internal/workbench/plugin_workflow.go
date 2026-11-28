@@ -447,6 +447,52 @@ func (w pluginWorkbench) UpdateStatus(ctx context.Context, root string, update p
 	return err
 }
 
+func (w pluginWorkbench) UpdateDirectoryTypes(ctx context.Context, root string, update pluginservice.DirectoryTypesUpdate) error {
+	_, err := onWindow(w.app, ctx, func(a *App) (struct{}, error) {
+		p, err := a.projectAt(root)
+		if err != nil {
+			if update.Remove {
+				return struct{}{}, nil
+			}
+			return struct{}{}, err
+		}
+		if update.Remove || len(update.Types) == 0 {
+			delete(p.indexing.pluginTypesByKey, update.ID)
+		} else {
+			if p.indexing.pluginTypesByKey == nil {
+				p.indexing.pluginTypesByKey = map[string][]core.PluginDirectoryType{}
+			}
+			p.indexing.pluginTypesByKey[update.ID] = append([]core.PluginDirectoryType(nil), update.Types...)
+		}
+		a.installIndexing(p, true)
+		return struct{}{}, nil
+	})
+	return err
+}
+
+func (w pluginWorkbench) UpdateDirectoryMarks(ctx context.Context, root string, update pluginservice.DirectoryMarksUpdate) error {
+	_, err := onWindow(w.app, ctx, func(a *App) (struct{}, error) {
+		p, err := a.projectAt(root)
+		if err != nil {
+			if update.Remove {
+				return struct{}{}, nil
+			}
+			return struct{}{}, err
+		}
+		if update.Remove || len(update.Marks) == 0 {
+			delete(p.indexing.pluginMarksByKey, update.ID)
+		} else {
+			if p.indexing.pluginMarksByKey == nil {
+				p.indexing.pluginMarksByKey = map[string][]core.PluginDirectoryMark{}
+			}
+			p.indexing.pluginMarksByKey[update.ID] = append([]core.PluginDirectoryMark(nil), update.Marks...)
+		}
+		a.installIndexing(p, true)
+		return struct{}{}, nil
+	})
+	return err
+}
+
 func (w pluginWorkbench) ReleaseWorkflow(root, kind, id string) {
 	w.app.post(func(a *App) {
 		p, err := a.projectAt(root)
@@ -463,6 +509,16 @@ func (w pluginWorkbench) ReleaseWorkflow(root, kind, id string) {
 			p.workflow.progress = slices.DeleteFunc(p.workflow.progress, func(item pluginservice.ProgressUpdate) bool { return item.ID == id })
 		case "statusBar":
 			p.workflow.status = slices.DeleteFunc(p.workflow.status, func(item pluginservice.StatusUpdate) bool { return item.ID == id })
+		case "directoryTypes":
+			if _, ok := p.indexing.pluginTypesByKey[id]; ok {
+				delete(p.indexing.pluginTypesByKey, id)
+				a.installIndexing(p, true)
+			}
+		case "directoryMarks":
+			if _, ok := p.indexing.pluginMarksByKey[id]; ok {
+				delete(p.indexing.pluginMarksByKey, id)
+				a.installIndexing(p, true)
+			}
 		}
 	})
 }

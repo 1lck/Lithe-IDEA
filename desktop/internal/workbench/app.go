@@ -25,6 +25,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/agents"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/ai"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildinfo"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -76,7 +77,6 @@ type Kernel interface {
 	EditBuildIgnoredPaths(ctx context.Context, request core.BuildIgnoredPathsEditRequest) (core.BuildIgnoredPathsEdit, error)
 	IDEHostOpen(ctx context.Context, request core.IDEHostOpenRequest) (core.IDEHostOpenResult, error)
 	IDEHostPoll(ctx context.Context, hostID string) (core.IDEHostPollResult, error)
-	IDEHostClaim(ctx context.Context, hostID, requestID string) (core.IDEHostClaimResult, error)
 	IDEHostRespond(ctx context.Context, hostID, requestID string, result any) (core.IDEHostRespondResult, error)
 	IDEHostClose(ctx context.Context, hostID string) (core.IDEHostCloseResult, error)
 	IDEHostValidate(ctx context.Context, name string, arguments any, permissions core.IDEPermissions, toolExposure []core.IDEToolExposure) (core.IDEHostValidateResult, error)
@@ -133,7 +133,7 @@ type Kernel interface {
 	BeforeLaunchField(ctx context.Context, root, configurationID string, plugins *core.RunTypePlugins) (core.RunBeforeLaunchField, error)
 	RunArgumentText(ctx context.Context, lists [][]string) ([]string, error)
 	// CreateWorkspaceEntry, RenameWorkspaceEntry, CopyWorkspaceEntry and ResolveWorkspaceEntry
-	// make the file changes a plugin asks for (pluginfilechanges.go).
+	// make local workspace changes for plugins and the project tree.
 	CreateWorkspaceEntry(ctx context.Context, creation core.WorkspaceEntryCreation) (core.WorkspaceEntry, error)
 	RenameWorkspaceEntry(ctx context.Context, root, path, target string) (core.WorkspaceEntry, error)
 	CopyWorkspaceEntry(ctx context.Context, root, path, target string) (core.WorkspaceEntry, error)
@@ -352,6 +352,10 @@ type Options struct {
 	// the pull request description, with the providers of the user's Codex and Claude
 	// configuration. nil leaves AI generation unavailable instead of refusing to start.
 	AIKernel ai.Kernel
+	// AgentKernel runs the agents of agent plugins (API-45, the agents package): the Agent tool
+	// window's sessions, the local session records and their usage. nil leaves the Agent tool
+	// window empty instead of refusing to start.
+	AgentKernel *agents.Client
 	// PluginInitializeTimeout bounds every plugin backend's startup handshake.
 	// Zero keeps Core's default. Host tests whose fixture is a copy of the large
 	// instrumented test binary raise it so scheduler load cannot masquerade as
@@ -530,11 +534,18 @@ type settings struct {
 	// UnknownSettingsNoticed names the set of settings this version could not read that the
 	// first window last told about, so the same set is told once (settings_kept.go).
 	UnknownSettingsNoticed string `json:"unknownSettingsNoticed,omitempty"`
+	// AgentSessionConsent names, by plugin ID, the agent plugins whose local session files the
+	// user lets Lithe read (agents.go). Absent is no: installing a plugin never grants it.
+	AgentSessionConsent map[string]bool `json:"agentSessionConsent,omitempty"`
+	// AgentSessionsMCPSearch is the user's choice to let the MCP clients of an IDE connection
+	// search and read the sessions of the agents in AgentSessionConsent (ide_api_sessions.go).
+	// Absent is no.
+	AgentSessionsMCPSearch bool `json:"agentSessionsMcpSearch,omitempty"`
 }
 
 const (
 	settingsFile = "settings.json"
-	recentFile   = "recent-projects.json"
+	recentFile   = "recent-projects-v2.json"
 )
 
 // project is an open project. A project is replaced, never reused: background work
@@ -634,7 +645,8 @@ type project struct {
 	rebase rebaseState
 	// gitHistory is the history actions of the log's commit menu and the merge, cherry-pick or
 	// revert Git holds active (git_history.go).
-	gitHistory historyState
+	gitHistory       historyState
+	fileTypeMappings *projectFileTypeMappings
 }
 
 // App is the state of the window.
@@ -675,11 +687,9 @@ type App struct {
 	// savedBackground is the window background last offered to the store (window_background.go).
 	savedBackground gfx.Color
 	focus           focusTarget
-	// debugHostedPort, debugInitializeWindow, and debugInitializeTrigger replace,
-	// in tests, asking the language server for a debug port and Core's initialize
-	// deadline. Production leaves all three zero.
+	// Tests can supply a hosted port and trigger the initialize deadline.
+	// Production leaves both nil.
 	debugHostedPort        func(ctx context.Context, p *project, adapter debugAdapter) (int, error)
-	debugInitializeWindow  time.Duration
 	debugInitializeTrigger <-chan struct{}
 	kernel                 Kernel
 	store                  *store.Store
@@ -721,7 +731,9 @@ type App struct {
 	recommendationFetcher  func(ctx context.Context, sources []PluginRecommendationSource) ([]core.MarketplaceRecommendationCatalog, error)
 	tasks                  taskQueue
 	// languages are the languages the editor knows, made when the first file is opened.
-	languages *syntax.Registry
+	languages              *syntax.Registry
+	globalFileTypeMappings atomic.Pointer[[]core.FileTypeMapping]
+	activeProjectMappings  atomic.Pointer[projectFileTypeMappings]
 	// initialLanguageLoad lets early opens of unknown extensionless files wait for the
 	// enabled language snapshot while the project restores known paths immediately.
 	initialLanguageLoad atomic.Pointer[languageLoad]
@@ -766,6 +778,8 @@ type App struct {
 	consoleEncodings atomic.Pointer[settingswindow.ConsoleEncodings]
 
 	settingsSubscription *settingsSubscription
+	settingsPublication  *editorPreferencesPublication
+	settingsDiskWriter   func(*store.Store, settings) (string, error)
 	// plugins is the plugin stack, nil when the window was built without a plugin
 	// kernel or without a writable plugin root.
 	plugins *pluginservice.Service
@@ -809,10 +823,26 @@ type App struct {
 	pluginServerMu sync.Mutex
 	// aiKernel runs AI generation (ai_generation.go), nil when the window was built without one.
 	aiKernel ai.Kernel
+	// agentKernel runs agent sessions and records (agents.go), nil when the window was built
+	// without one; agentsView is the Agent tool window's state.
+	agentKernel *agents.Client
+	agentsView  agentsState
+	// agentSettingsState is what the Agents settings page reads from its own thread
+	// (settings_agents.go).
+	agentSettingsState agentSettingsBridge
+	// agentConfigureIssued numbers the agent configurations the window thread starts;
+	// agentConfigureDone, guarded by agentConfigureMu, is the newest one handed to Core, so a
+	// configuration started earlier never replaces a later one's catalog and consent.
+	agentConfigureIssued uint64
+	agentConfigureMu     sync.Mutex
+	agentConfigureDone   uint64
 	// inline is the editor's AI inline edit dialog (inlineedit.go).
 	inline inlineEditState
 	// ideAPIBridgeState lets the IDE Connection settings page reach the open project (settings_ide_api.go).
 	ideAPIBridgeState ideAPIBridge
+	// ideAPISessionsDeclared is whether a connection opened now declares the session tools; the
+	// window thread sets it (refreshIDEAPISessionTools) and any goroutine opening one reads it.
+	ideAPISessionsDeclared atomic.Bool
 	// pluginServers are the language servers this window started, keyed by plugin.
 	pluginServers map[string]*pluginServer
 	// Native restart tokens prevent a late stop completion from restarting a
@@ -873,8 +903,9 @@ type App struct {
 	projectToolLists func(context.Context, []string) (map[string]toolList, error)
 	projectCommand   func(context.Context, string) (projectgen.Command, error)
 	// pendingOpen is what a generator asked to open once its project is open.
-	pendingOpen pendingOpenFiles
-	recent      []core.RecentProject
+	pendingOpen  pendingOpenFiles
+	recent       []core.RecentProject
+	recentWrites recentWrites
 	// missing marks recent projects whose folder was gone when the list last changed.
 	missing map[string]bool
 
@@ -988,10 +1019,12 @@ func New(options Options) *App {
 		commitView:           newCommitView(),
 		delays:               defaultLogDelays,
 		aiKernel:             options.AIKernel,
+		agentKernel:          options.AgentKernel,
 		listShells:           localshell.InstalledShells,
 	}
 	if a.documentOnly {
 		a.aiKernel = nil
+		a.agentKernel = nil
 		policy, err := a.kernel.CLIOpenTarget(context.Background(), "file")
 		a.documentCommands = make(map[string]bool, len(policy.Commands))
 		for _, id := range policy.Commands {
@@ -1009,10 +1042,22 @@ func New(options Options) *App {
 	if options.first == nil {
 		_, restoreErr = restorePendingSettings(a.store, buildinfo.InstalledChannel(), options.Version)
 	}
-	_, settingsErr := a.store.Load(settingsFile, &a.settings)
+	var settingsErr error
+	var queued *settings
+	var queuedGeometry settingsGeometry
+	if options.first != nil {
+		a.settingsPublication = options.first.settingsPublication
+		queued, queuedGeometry = a.settingsPublication.queuedSettings()
+	}
+	if queued != nil {
+		a.settings = queued.clone()
+	} else {
+		_, settingsErr = a.store.Load(settingsFile, &a.settings)
+	}
 	if settingsErr != nil {
 		a.settings = settings{}
 	}
+	queuedGeometry.apply(&a.settings)
 	consoleEncoding := a.settings.ConsoleEncoding
 	a.consoleEncoding.Store(&consoleEncoding)
 	// A value of a shape this version cannot take leaves only its own setting on the default;
@@ -1087,11 +1132,14 @@ func New(options Options) *App {
 		a.backgroundFailed("update_snapshot", restoreErr)
 	}
 	a.loadSearchPreferences()
+	a.loadGlobalFileTypeMappings()
 	if !a.documentOnly {
 		a.openPlugins(options)
 	}
 	a.settingsWindow = a.newSettingsWindow()
-	if !a.documentOnly {
+	if options.first != nil {
+		a.refreshRecent()
+	} else if !a.documentOnly {
 		a.loadRecent()
 	}
 	a.loadChrome()
@@ -1163,7 +1211,7 @@ func (a *App) openPlugins(options Options) {
 	}
 	service.RuntimeIssue = a.recordPluginRuntimeIssue
 	service.ContextIssue = func(ctx context.Context, err error) {
-		a.backgroundFailedIn(ctx, "plugin_workspace_context_notification", err)
+		a.backgroundFailedIn(ctx, "plugin_workspace_context_refresh", err)
 	}
 	service.SetRuntimeLanguage(a.language().Code())
 	if err := service.AttachWorkbench(pluginWorkbench{app: a}); err != nil {
@@ -1570,22 +1618,12 @@ func (a *App) setTheme(choice themeChoice) {
 	a.saveSettings()
 }
 
-func (a *App) saveSettings() {
-	// The background is the window's, which another tab may have changed since this one loaded.
-	a.settings.WorkbenchBackground = a.savedBackgroundState()
-	a.updates.store(&a.settings)
-	backup, err := a.saveSettingsSnapshot()
-	a.reportSettingsSave(backup, err)
-}
-
 func (a *App) reportSettingsSave(backup string, err error) {
 	if backup != "" {
 		a.noticeSettingsBackup(backup)
 	}
 	if err != nil {
-		a.operationFailed("settings_save", documentLogError(err))
 		a.notifyError(a.text.Errors.SaveFailed(err.Error()))
-		return
 	}
 }
 
@@ -1686,45 +1724,6 @@ func (a *App) hidePanel(s slot) {
 	}
 }
 
-// loadRecent reads the recent project list and lets the kernel order and bound it.
-func (a *App) loadRecent() {
-	var entries []core.RecentProject
-	if _, err := a.store.Load(recentFile, &entries); err != nil {
-		a.storedStateFailed("recent_projects", err)
-		a.notifyError(a.text.Errors.Core(err.Error()))
-		entries = nil
-	}
-	a.reduceRecent(entries, core.NormalizeRecent(), false)
-}
-
-// reduceRecent sends one change of the recent project list to the kernel and keeps
-// the result, saving it when save is set.
-func (a *App) reduceRecent(entries []core.RecentProject, action core.RecentAction, save bool) {
-	ctx, cancel := context.WithTimeout(a.operationContext(context.Background()), kernelCallTimeout)
-	defer cancel()
-	result, err := a.kernel.ReduceRecentProjects(ctx, entries, action, 0)
-	if err != nil {
-		a.operationFailed("workspace_recent_reduce", documentLogError(err))
-		a.notifyError(a.text.Errors.Core(err.Error()))
-		return
-	}
-	if save {
-		if err := a.store.Save(recentFile, result.Entries); err != nil {
-			a.operationFailed("workspace_recent_save", documentLogError(err))
-			a.notifyError(a.text.Errors.SaveFailed(err.Error()))
-			return
-		}
-	}
-	a.recent = result.Entries
-	clear(a.missing)
-	for _, entry := range a.recent {
-		if info, err := os.Stat(entry.Path); err != nil || !info.IsDir() {
-			a.missing[entry.Path] = true
-		}
-	}
-	a.refreshWelcomeBranches()
-}
-
 // chooseProject asks for a project folder and opens it; surface is where the user asked.
 // The system dialog runs off the window thread so the window keeps painting behind it.
 func (a *App) chooseProject(surface actionSurface) {
@@ -1769,8 +1768,8 @@ func (a *App) openProjectHere(path string) {
 // code allowed to run when trusted and in safe mode otherwise (workspace_trust.go).
 func (a *App) openProjectWithTrust(root string, trusted bool) {
 	a.requestCloseProject(func() {
-		a.reduceRecent(a.recent, core.RecordRecent(root, a.now()), true)
-		p := &project{root: root, name: filepath.Base(root), commit: newCommitState()}
+		a.changeRecent(core.RecordRecent(root, a.now()), nil)
+		p := &project{root: root, name: filepath.Base(root), commit: newCommitState(), fileTypeMappings: newProjectFileTypeMappings(root)}
 		p.trust.codeAllowed.Store(trusted)
 		// Every Git command the project runs is kept in the Git console, and in safe mode Core
 		// runs none: the repository's configuration can name programs Git runs (#2208).
@@ -1779,6 +1778,8 @@ func (a *App) openProjectWithTrust(root string, trusted bool) {
 		a.searchView.reset()
 		a.openTerminals(p)
 		a.project = p
+		a.activeProjectMappings.Store(p.fileTypeMappings)
+		a.loadProjectFileTypeMappings(p, p.fileTypeMappings)
 		a.ideAPISetProject(p)
 		if a.plugins != nil && a.plugins.Contexts != nil {
 			p.pluginContext = a.plugins.Contexts.Open(root).ContextRef
@@ -1821,7 +1822,7 @@ func (a *App) requestCloseProject(after func()) {
 		return
 	}
 	a.closingProject = true
-	a.saveProjectDocuments(p, func(ok bool) {
+	saved := func(ok bool) {
 		a.closingProject = false
 		if !ok || a.project != p {
 			return
@@ -1833,14 +1834,17 @@ func (a *App) requestCloseProject(after func()) {
 		a.confirmProcessExit(p, lifecycle, func() {
 			// A remote workspace then decides the programs its host runs (remote_close.go).
 			a.confirmRemoteClose(p, func() {
-				p.tree.afterTreeRemovals(func() {
+				p.tree.afterWrites(func() {
 					if a.project == p {
 						a.finishCloseProject(p, after)
 					}
 				})
 			})
 		})
-	})
+	}
+	// A committed move can still have tabs at their old paths. Don't verify or
+	// save them for close until the result has installed their new paths.
+	p.tree.afterWrites(func() { a.saveProjectDocuments(p, saved) })
 }
 
 // finishCloseProject takes the project apart once saving and the exit
@@ -1856,6 +1860,7 @@ func (a *App) finishCloseProject(p *project, after func()) {
 	} else {
 		// A project closed on its own leaves its tab when the window has others.
 		a.sessions.leave(a)
+		a.sessions.active.refreshRecent()
 	}
 }
 
@@ -1880,6 +1885,7 @@ func (a *App) disposeProject(p *project) {
 	}
 	a.cancelPrompts()
 	a.ideAPIDisable(p)
+	a.closeAgentSessions(p)
 	if p.remote == nil {
 		finishLog := a.prepareLogClose(p, gitTimeout)
 		if finishLog != nil {
@@ -1916,6 +1922,7 @@ func (a *App) disposeProject(p *project) {
 	a.problems.reset()
 	a.toolchainRoot.Store(nil)
 	a.publishWorkspaceBuildOptions(nil)
+	a.activeProjectMappings.Store(nil)
 	a.project = nil
 	a.chrome.setRemote(false)
 	a.ideAPISetProject(nil)

@@ -114,6 +114,19 @@ func defaultLookup(command string) (string, error) {
 	return lookupPath(command)
 }
 
+// LookupCommand finds command on PATH and answers its canonical path, as discovery does when
+// Options.Lookup is unset. A caller that also looks elsewhere wraps it.
+func LookupCommand(command string) (string, error) {
+	return defaultLookup(command)
+}
+
+// CanonicalPath is the path discovery reports for an executable found outside PATH: absolute,
+// through every filesystem redirect, so it matches the definition's layouts the same way a PATH
+// hit does.
+func CanonicalPath(name string) (string, error) {
+	return canonicalPath(name)
+}
+
 var lookupPath = func(command string) (string, error) {
 	found, err := exec.LookPath(command)
 	if err != nil {

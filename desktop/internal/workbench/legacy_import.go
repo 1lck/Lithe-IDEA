@@ -15,6 +15,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/legacyimport"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -312,29 +313,45 @@ func (a *App) applyLegacyImport() {
 	if fonts, ok := legacyFonts(a.settings.Fonts, f, chosen[legacyEditorFont], chosen[legacyTerminalFont]); ok {
 		a.setFonts(fonts)
 	}
-	a.saveSettings()
+	batch := a.queueSettingsSave()
 	language := a.language()
-	if err := a.verifySettingsSaved(); err != nil {
-		a.operationFailed("settings_import_legacy_apply", err)
-		a.notifyError(i18n.SharedFormat(language, "desktop.legacyImport.failed", map[string]string{"error": err.Error()}))
+	expected := a.settings.clone()
+	dir := a.store.Dir()
+	a.background(nil, settingsFlushTimeout, func(ctx context.Context) func(*App) {
+		err := batch.wait(ctx)
+		if err == nil {
+			var stored settings
+			_, err = store.At(dir).Load(settingsFile, &stored)
+			if err == nil {
+				err = sameJSON(stored, expected)
+			}
+		}
+		return func(a *App) {
+			if err != nil {
+				a.operationFailed("settings_import_legacy_apply", err)
+				a.notifyError(i18n.SharedFormat(language, "desktop.legacyImport.failed", map[string]string{"error": err.Error()}))
+				return
+			}
+			a.finishLegacyImport(f, chosen[legacyRecent], language)
+		}
+	})
+}
+
+func (a *App) finishLegacyImport(f legacyimport.Found, includeRecent bool, language i18n.Language) {
+	if !includeRecent {
+		a.notifySuccess(i18n.SharedFormat(language, "desktop.legacyImport.done", map[string]string{"recent": "0"}))
 		return
 	}
-	imported := 0
-	if chosen[legacyRecent] {
-		entries := slices.Clone(a.recent)
-		for _, recent := range f.Recent {
-			entries = append(entries, core.RecentProject{Path: recent.Path, LastOpenedAt: recent.OpenedAt})
-		}
-		before := len(a.recent)
-		a.reduceRecent(entries, core.NormalizeRecent(), true)
-		if err := a.verifyRecentSaved(); err != nil {
-			a.operationFailed("settings_import_legacy_recent", err)
-			a.notifyError(i18n.SharedFormat(language, "desktop.legacyImport.failed", map[string]string{"error": err.Error()}))
+	entries := make([]core.RecentProject, 0, len(f.Recent))
+	for _, recent := range f.Recent {
+		entries = append(entries, core.RecentProject{Path: recent.Path, LastOpenedAt: recent.OpenedAt})
+	}
+	a.changeRecent(core.ImportRecentEntries(entries), func(result core.RecentProjectsResult, err error) {
+		if err != nil {
 			return
 		}
-		imported = max(len(a.recent)-before, 0)
-	}
-	a.notifySuccess(i18n.SharedFormat(language, "desktop.legacyImport.done", map[string]string{"recent": strconv.Itoa(imported)}))
+		a.notifySuccess(i18n.SharedFormat(a.language(), "desktop.legacyImport.done", map[string]string{"recent": strconv.Itoa(len(result.Added))}))
+	})
 }
 
 // legacyFonts puts the chosen earlier fonts in front of the current list, each for its
@@ -361,24 +378,6 @@ func legacyFonts(current []fontprefs.Font, f legacyimport.Found, editor, termina
 		return nil, false
 	}
 	return append(fonts, current...), true
-}
-
-// verifySettingsSaved reads settingsFile back and compares it with the settings in use.
-func (a *App) verifySettingsSaved() error {
-	var stored settings
-	if _, err := a.store.Load(settingsFile, &stored); err != nil {
-		return err
-	}
-	return sameJSON(stored, a.settings)
-}
-
-// verifyRecentSaved reads the recent project file back and compares it with the list in use.
-func (a *App) verifyRecentSaved() error {
-	var stored []core.RecentProject
-	if _, err := a.store.Load(recentFile, &stored); err != nil {
-		return err
-	}
-	return sameJSON(stored, a.recent)
 }
 
 func sameJSON(stored, current any) error {

@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"errors"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -36,7 +37,7 @@ type remoteTrustPrompt struct {
 
 // openRemoteFolderAt opens dir over the browser's session, asking first whether to trust it
 // when that was never decided.
-func (a *App) openRemoteFolderAt(dir string) {
+func (a *App) openRemoteFolderAt(dir string, checkDirectory bool) {
 	r := &a.remote
 	b := r.browser
 	if !r.open || b == nil || b.opening {
@@ -45,7 +46,28 @@ func (a *App) openRemoteFolderAt(dir string) {
 	b.opening, b.err = true, ""
 	generation, kernel, root, session := r.generation, a.kernel, a.globalToolchainRoot(), b.session.ID
 	a.background(nil, remoteReadTimeout, func(ctx context.Context) func(*App) {
-		trust, err := remoteconn.ReadTrust(ctx, kernel, root, session, dir)
+		var folderErr error
+		if checkDirectory {
+			// Direct opens bypass the folder chooser. Validate the target even
+			// when trust is known: a former directory can now be a file.
+			var metadata core.RemoteFileMetadata
+			metadata, folderErr = kernel.RemoteStat(ctx, session, dir)
+			if folderErr == nil && !metadata.IsDirectory() {
+				folderErr = &core.Error{Command: "remote.stat", Code: core.CodeWorkspaceNotFound}
+			}
+		}
+		var trust remoteconn.Trust
+		var trustErr error
+		if folderErr == nil {
+			trust, trustErr = remoteconn.ReadTrust(ctx, kernel, root, session, dir)
+			var refused *core.Error
+			if errors.As(trustErr, &refused) {
+				switch refused.Code {
+				case core.CodeWorkspaceNotFound, core.CodePermissionDenied, core.CodeConnectionClosed:
+					folderErr = trustErr
+				}
+			}
+		}
 		return func(a *App) {
 			r := &a.remote
 			if !r.open || r.generation != generation || r.browser != b {
@@ -54,10 +76,17 @@ func (a *App) openRemoteFolderAt(dir string) {
 			}
 			b.opening = false
 			switch of := trust.State.WorkspaceTrust; {
-			case err != nil:
-				// The folder opens in safe mode: a remote workspace runs none of its code until
-				// it is trusted, and the question comes back the next time.
-				a.backgroundFailed("remote_trust_read", documentLogError(err))
+			case folderErr != nil:
+				a.operationFailed("remote_workspace_open", remoteLogError(folderErr))
+				if remoteConnectionClosed(folderErr) {
+					a.leaveRemoteBrowser()
+					r.err = i18n.Shared(a.language(), "desktop.remote.browse.lost")
+				} else {
+					b.err = remoteReadDirFailureText(a.language(), folderErr)
+				}
+			case trustErr != nil:
+				// A failed trust read leaves an existing folder in safe mode.
+				a.backgroundFailed("remote_trust_read", remoteLogError(trustErr))
 				a.openRemoteFolderNow(dir, false)
 			case of != nil && of.State == core.WorkspaceTrustUnset:
 				r.trust = &remoteTrustPrompt{browser: b, dir: dir, trust: trust}

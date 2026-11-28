@@ -385,7 +385,37 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # and preserves the selected context and distribution through build, connection and trust.
 # Lithe-core-rust main at c269c411 (#201): built-in rainbow bracket/variable colors,
 # indent guide preferences, and Unicode whole-identifier document highlights.
-PINNED_CORE_REVISION="c269c41153c8da2f2e8d064c68550a8f23260e2c"
+# Lithe-core-rust main at 2b0a391c (#207): global executable settings for system-command debug adapters.
+# Lithe-core-rust main at 6a644acd (#209): polled MCP requests carry their remaining
+# enqueue budget so the workbench can enforce the deadline for each window action.
+# Lithe-core-rust main at ed924028 (#205): recent project pin order, tags, remote identities and filtering.
+# Lithe-core-rust main at d069224d (#210): extends workspace directory rules with built-in
+# test/generated roles, user-defined custom folder types, custom SVG icons, quick color
+# overrides, and workspace.resolveDirectoryPresentation.
+# Lithe-core-rust main at 63932f93 (#215, on top of #210): plugin directory types and marks
+# (workspace/setDirectoryTypes and workspace/setDirectoryMarks) as a layer between shared rules
+# and globs, with submission checks that match the resolver.
+# Lithe-core-rust main at f7b93972 (#214): bounded native HTML/Javadoc/Markdown doc rendering
+# commands (editor.renderDocComment, editor.renderHoverDoc) and the renderDocComments /
+# renderDocCommentsInReadOnly editor preferences (#2475).
+# Lithe-core-rust main at e4c2eb14 (#216): API-45 agents capability 0, native agent sessions
+# (agents.*) and local agent session records (agentSessions.*).
+# Lithe-core-rust main at 7fd652af (#217): per-model output speeds in usage and stats, paged
+# session reads (agentSessions.list's sessionID and readBytes, agentSessions.read's end), command
+# installers for agent CLIs (requirements' "agent" consumers), and the IDE connection's read-only
+# agent session tools (lithe_sessions_search and lithe_sessions_read).
+# Lithe-core-rust main at 690c2d70 (#219): agentSessions.list filters by directories (cwdUnder)
+# and orders by start, answers the whole list's total and per-directory groups (counts), and gives
+# each session its message and subagent counts, main model and last message range for the agent
+# history view.
+# Lithe-core-rust main at 12bf7302 (#220): native agent sessions report the settings the user may
+# change (configOptions: model, thought level, mode), changed through agents.setConfigOption and
+# passed to the plugin backend as lithe/host/agents/didSetConfigOption.
+# Lithe-core-rust main after #213 includes deferred empty-directory probes and partial expansion
+# diagnostics.
+# Lithe-core-rust main at 76ab4756 (#221, on top of #220): editor.fileTypeMappings.normalize and
+# .resolve for built-in and custom file type mappings.
+PINNED_CORE_REVISION="76ab4756319acb097dc6417659febf4fdd955716"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

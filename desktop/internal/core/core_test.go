@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -425,7 +426,7 @@ func TestReduceRecentProjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("record one: %v", err)
 	}
-	if want := []RecentProject{one}; !slices.Equal(result.Entries, want) {
+	if want := []RecentProject{one}; !reflect.DeepEqual(result.Entries, want) {
 		t.Fatalf("entries = %+v, want %+v", result.Entries, want)
 	}
 	if want := []string{one.Path}; !slices.Equal(result.Added, want) || len(result.Removed) != 0 {
@@ -437,7 +438,7 @@ func TestReduceRecentProjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("record two: %v", err)
 	}
-	if want := []RecentProject{two, one}; !slices.Equal(result.Entries, want) {
+	if want := []RecentProject{two, one}; !reflect.DeepEqual(result.Entries, want) {
 		t.Fatalf("entries = %+v, want %+v", result.Entries, want)
 	}
 	if want := []string{two.Path}; !slices.Equal(result.Added, want) || len(result.Removed) != 0 {
@@ -449,8 +450,8 @@ func TestReduceRecentProjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("toggle pin: %v", err)
 	}
-	pinnedOne := RecentProject{Path: one.Path, LastOpenedAt: one.LastOpenedAt, Pinned: true}
-	if want := []RecentProject{pinnedOne, two}; !slices.Equal(result.Entries, want) {
+	pinnedOne := RecentProject{Path: one.Path, LastOpenedAt: one.LastOpenedAt, Pinned: true, PinOrder: new(uint64(1))}
+	if want := []RecentProject{pinnedOne, two}; !reflect.DeepEqual(result.Entries, want) {
 		t.Fatalf("entries = %+v, want %+v", result.Entries, want)
 	}
 	if len(result.Added) != 0 || len(result.Removed) != 0 {
@@ -463,7 +464,7 @@ func TestReduceRecentProjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("record three: %v", err)
 	}
-	if want := []RecentProject{pinnedOne, three}; !slices.Equal(result.Entries, want) {
+	if want := []RecentProject{pinnedOne, three}; !reflect.DeepEqual(result.Entries, want) {
 		t.Fatalf("entries = %+v, want %+v", result.Entries, want)
 	}
 	if want := []string{three.Path}; !slices.Equal(result.Added, want) {
@@ -478,7 +479,7 @@ func TestReduceRecentProjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("remove: %v", err)
 	}
-	if want := []RecentProject{three}; !slices.Equal(result.Entries, want) {
+	if want := []RecentProject{three}; !reflect.DeepEqual(result.Entries, want) {
 		t.Fatalf("entries = %+v, want %+v", result.Entries, want)
 	}
 	if want := []string{one.Path}; !slices.Equal(result.Removed, want) || len(result.Added) != 0 {
@@ -504,7 +505,7 @@ func TestReduceRecentProjectsImportAndNormalize(t *testing.T) {
 		{Path: "/projects/x", LastOpenedAt: base.UnixMilli()},
 		{Path: "/projects/y", LastOpenedAt: base.UnixMilli() - 1},
 	}
-	if !slices.Equal(result.Entries, want) {
+	if !reflect.DeepEqual(result.Entries, want) {
 		t.Fatalf("entries = %+v, want %+v", result.Entries, want)
 	}
 	if wantAdded := []string{"/projects/x", "/projects/y"}; !slices.Equal(result.Added, wantAdded) {
@@ -526,7 +527,7 @@ func TestReduceRecentProjectsImportAndNormalize(t *testing.T) {
 		{Path: "/projects/new", LastOpenedAt: 20},
 		{Path: "/projects/old", LastOpenedAt: 10},
 	}
-	if !slices.Equal(result.Entries, wantSorted) {
+	if !reflect.DeepEqual(result.Entries, wantSorted) {
 		t.Fatalf("entries = %+v, want %+v", result.Entries, wantSorted)
 	}
 	if len(result.Added) != 0 || len(result.Removed) != 0 {

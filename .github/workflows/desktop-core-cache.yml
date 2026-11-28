@@ -1,0 +1,107 @@
+name: Desktop Core cache
+
+# Builds the release Core of the two targets Desktop CI does not build, as soon as main pins a
+# new Core revision, and saves it in main's cache scope. Desktop Release and Desktop AutoBuild
+# then restore all five staged Cores instead of compiling them while packaging:
+#   aarch64-apple-darwin, x86_64-unknown-linux-gnu, x86_64-pc-windows-gnu  Desktop CI on main
+#   x86_64-apple-darwin, aarch64-unknown-linux-gnu                         this workflow
+# Each target runs on the image its release package is built on, so the keys and the binaries
+# match what the packaging job would build itself. A target whose staged Core is already cached
+# finishes after the lookup.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      # PINNED_CORE_REVISION lives here; the Rust toolchain is pinned in this file.
+      - scripts/desktop/build-desktop-core.sh
+      - .github/workflows/desktop-core-cache.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer pin replaces the Core an older run is still building.
+concurrency:
+  group: desktop-core-cache
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  core:
+    name: Release Core ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            runner: macos-26
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-22.04-arm
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Rust
+        id: rust
+        uses: dtolnay/rust-toolchain@1.100.0
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Resolve pinned Core revision
+        id: core-pin
+        uses: ./.github/actions/resolve-desktop-core-pin
+
+      # The same key Desktop Release and AutoBuild restore for this target.
+      - name: Look up staged release Core
+        id: core-stage
+        uses: actions/cache/restore@v6
+        with:
+          path: .artifacts/desktop/lithe-core/${{ matrix.target }}/release
+          key: desktop-core-staged-${{ matrix.target }}-${{ steps.core-pin.outputs.libc }}${{ steps.rust.outputs.cachekey }}-release-${{ steps.core-pin.outputs.revision }}
+          lookup-only: true
+
+      - name: Restore the core build
+        id: core-build
+        if: steps.core-stage.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            .artifacts/desktop/lithe-core-rust
+          key: desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.core-pin.outputs.libc }}${{ steps.rust.outputs.cachekey }}-release-${{ matrix.target }}-${{ steps.core-pin.outputs.revision }}
+          restore-keys: |
+            desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.core-pin.outputs.libc }}${{ steps.rust.outputs.cachekey }}-release-${{ matrix.target }}-
+
+      # Packaging stages the Core through desktop-go.sh, which sets the same target, profile and
+      # macOS deployment target, so its fast path accepts the identity.txt written here.
+      - name: Build release Core
+        if: steps.core-stage.outputs.cache-hit != 'true'
+        env:
+          LITHE_CORE_TARGET: ${{ matrix.target }}
+        run: ./scripts/desktop/build-desktop-core.sh --release > /dev/null
+
+      - name: Save staged release Core
+        if: steps.core-stage.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: .artifacts/desktop/lithe-core/${{ matrix.target }}/release
+          key: ${{ steps.core-stage.outputs.cache-primary-key }}
+
+      - name: Save the core build
+        if: steps.core-build.outcome == 'success' && steps.core-build.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            .artifacts/desktop/lithe-core-rust
+          key: ${{ steps.core-build.outputs.cache-primary-key }}

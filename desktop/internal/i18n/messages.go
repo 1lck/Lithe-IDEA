@@ -69,7 +69,6 @@ type WelcomeMessages struct {
 	MenuPin    string
 	MenuUnpin  string
 	MenuRemove string
-	Pinned     string
 	// Missing marks a recent project whose folder no longer exists.
 	Missing string
 	// DropFolderOnly says that a dropped item was not a folder, so nothing opened.
@@ -130,6 +129,7 @@ type ToolMessages struct {
 	References    string
 	Run           string
 	Build         string
+	Agents        string
 	Tests         string
 	Security      string
 	Debug         string
@@ -572,8 +572,10 @@ type SettingsMessages struct {
 	General            string
 	Network            string
 	Editor             string
+	FileTypeMappings   string
 	Fonts              string
 	Keymap             string
+	DirectoryMarks     string
 	ProcessTermination string
 	Plugins            string
 	VersionControl     string
@@ -589,6 +591,7 @@ type SettingsMessages struct {
 	SearchPage         string
 	AI                 string
 	IDEAPI             string
+	Agents             string
 	// PageLater is the body of a page the new desktop client does not offer yet.
 	PageLater string
 

@@ -120,6 +120,7 @@ func TestWorkbenchWindowClosingPersistsResizedAndMaximizedGeometry(t *testing.T)
 			t.Fatalf("live resize wrote settings before close: %v", err)
 		}
 		h.driver.Close()
+		h.app.shutdownSessions()
 		var saved settings
 		found, err := st.Load(settingsFile, &saved)
 		if err != nil || !found {
@@ -181,6 +182,7 @@ func TestWorkbenchWindowClosingPersistsResizedAndMaximizedGeometry(t *testing.T)
 			t.Fatal(err)
 		}
 		h.driver.Close()
+		h.app.shutdownSessions()
 
 		var saved settings
 		found, err := st.Load(settingsFile, &saved)
@@ -222,6 +224,7 @@ func TestWorkbenchWindowClosingPersistsResizedAndMaximizedGeometry(t *testing.T)
 			t.Fatal(err)
 		}
 		restored.driver.Close()
+		restored.app.shutdownSessions()
 		var afterRestore settings
 		found, err = st.Load(settingsFile, &afterRestore)
 		if err != nil || !found {
@@ -242,6 +245,7 @@ func TestWorkbenchWindowClosingPersistsResizedAndMaximizedGeometry(t *testing.T)
 			t.Fatal(err)
 		}
 		h.driver.Close()
+		h.app.shutdownSessions()
 
 		var saved settings
 		found, err := st.Load(settingsFile, &saved)
@@ -270,6 +274,7 @@ func TestWorkbenchWindowSizeSurvivesOtherProjectTabSave(t *testing.T) {
 		t.Fatal(err)
 	}
 	second.setLanguage("en")
+	h.settleTabs()
 	var saved settings
 	if found, err := h.store.Load(settingsFile, &saved); err != nil || !found {
 		t.Fatalf("load saved settings: found=%v err=%v", found, err)

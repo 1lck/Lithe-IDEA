@@ -14,6 +14,7 @@ func toolMessages(language Language) ToolMessages {
 		References:    Shared(language, "desktop.semantics.references"),
 		Run:           Shared(language, "workbench.run"),
 		Build:         Shared(language, "workbench.build"),
+		Agents:        Shared(language, "desktop.agents.title"),
 		Tests:         Shared(language, "native.tests"),
 		Security:      Shared(language, "native.security"),
 		Debug:         Shared(language, "native.debug"),

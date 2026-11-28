@@ -15,7 +15,9 @@ Lithe 重新做 Agent，但只调用用户自己安装、自己登录好的官�
 
 调用记录、Token 统计、费用、速度和会话全文搜索，都从 CLI 自己写在本机的会话文件推导。解析会话文件的代码在各 Agent 插件的后端；Core 负责增量读取、SQLite 缓存、统计口径、全文搜索，并通过“IDE 连接”把会话搜索作为 MCP 工具提供出去。缓存里不存对话正文。
 
-插件 API 编号为 API-45（2026-11-25 用户批准新增），新能力 `agents` 从版本 0 开始。本阶段只做 Core 和契约，不做界面。
+插件 API 编号为 API-45（2026-11-25 用户批准新增），新能力 `agents` 从版本 0 开始。
+
+2026-11-28 用户要求在 Core 和契约之外，把宿主界面和三个插件也做出来：一个所有 Agent 通用的管理插件（会话、用量、额度、资源库、供应商），以及 Claude Code、Codex 两个插件。后两个插件通过跨插件函数（API-35）把各自的信息提供给管理插件。契约细节见第 9 节，管理插件和信息注入见第 10 节。
 
 ## 问题
 
@@ -198,6 +200,8 @@ Core 定义一套与具体 Agent 无关的会话事件，两种模式都翻译�
 | 新 crate `plugin-agents` | 启动方案解码、会话策略，参照 `plugin-language-servers` |
 | 新 crate `agent-model` | 会话事件类型 |
 | 新 crate `agent-acp` | ACP 客户端与事件翻译 |
+| 新 crate `agent-runtime` | CLI 进程、原生转发、会话事件队列、`agents/*` 宿主方法的回答 |
+| `rust/crates/lsp-engine/` | Core 内部调用插件函数的等待器；把 `agents` 宿主服务交给 `agent-runtime`；后端会话结束时通知它 |
 | 新 crate `agent-sessions` | SQLite 缓存、增量读取、统计、搜索、价格表 |
 | `rust/crates/ide-host/` | 两个 MCP 工具 |
 | `rust/crates/core/` | 新增 `agents.*`、`agentSessions.*` 两组命令和 `rust/fixtures/` |
@@ -208,14 +212,133 @@ Core 定义一套与具体 Agent 无关的会话事件，两种模式都翻译�
 - 四种官方 SDK（Rust、Go、Node、Java）。
 - 协议更新记录和 API 总表（按 API-45 登记）。
 
-**桌面端：** 只在界面阶段接入，本阶段不改。
+**桌面端：** Agent 工具窗口（对话、会话列表与搜索）、设置页（逐个 Agent 同意读取会话、MCP 会话搜索开关、CLI 安装与更新）、终端形态入口。桌面端只调用第 9 节的命令，不解析任何 Agent 的协议或文件。
+
+| 位置 | 内容 |
+| --- | --- |
+| `desktop/internal/agents/` | `agents.*`、`agentSessions.*` 命令的客户端；把会话事件合并成有上限的对话记录；按清单和用户同意算出授予的权限；会话目录用到的环境变量 |
+| `desktop/internal/pluginservice/agents.go`、`hostmethods.go` | 从已安装插件读出 `agents[]` 和权限；按需启动 Agent 的插件后端；把 `agents/*` 宿主方法交给 Core |
+| `desktop/internal/workbench/agents.go`、`agents_view.go` | 右侧 Agent 工具窗口：对话与历史两个页签、多会话、权限请求、计划、终端打开、CLI 更新确认；远程工作区不显示，安全模式先请求信任 |
+| `desktop/internal/workbench/agents_chat_view.go`、`agents_markdown.go` | 对话页：用户提示是右侧气泡；回复用原生 Markdown 视图排版（不用网页）；工具调用一行一条、连续的合成一组可折叠，结束的轮次折成“工作了 N”，最后列出改动文件；提示卡片里的模型菜单与推理等级滑块、上下文圆环和额度悬停卡片；离开末尾时的“滚动到底部”；左侧提问导航条 |
+| `desktop/internal/workbench/agents_tab.go`、`agents_title.go` | 同一个会话在侧栏和编辑区标签页之间双向移动（↗ 移到标签页，↙ 移回侧栏）；会话标题用 Agent 给的标题，没有时取首个提示的第一行 |
+| `desktop/internal/workbench/agents_history.go`、`agents_history_view.go` | 历史页：搜索、按 Agent 筛选、紧凑视图、按项目目录分组，数据来自 `agentSessions.list` |
+| `desktop/internal/workbench/agents_record.go` | 历史页打开一条已记录的会话：用 `agentSessions.read` 按整行分页读取，从头或从搜索命中处开始；文件变了或单行过长时说明原因 |
+| `desktop/internal/workbench/agents_install.go`、`command_installers.go` | CLI 找不到时提示，并打开插件管理里该插件的 `commandInstallers`；受管安装目录参与 CLI 解析。宿主不自己安装 |
+| `desktop/internal/workbench/agents_records_sync.go` | 配置完成后和窗口重新激活时（最多每分钟一次）在后台同步已同意 Agent 的会话记录，`lithe/host/agents/usage` 读到的是最近一次同步 |
+| `desktop/internal/workbench/ide_api_sessions.go` | IDE 连接的两个只读工具 `lithe_sessions_search`、`lithe_sessions_read`：IDE 连接开着、单独的会话搜索开关开着、Agent 已同意才列出；结果有上限，日志只记工具名、条数和耗时 |
+| `desktop/internal/workbench/settings_agents.go`、`desktop/internal/settingswindow/agents_*.go` | 设置 › AI › Agent：逐个插件同意读取本机会话记录，撤销同意时清掉已缓存的记录；“允许 MCP 客户端搜索本地会话”开关 |
+
+配置有先后：插件重新加载和设置里改同意都会重新配置 Core。每次配置在窗口线程领一个序号，后台执行时如果更新的配置已经送到 Core，旧的就不再发送，避免旧授权盖住新授权。
 
 ### 8. 分期
 
 1. **Core 会话记录**：SQLite 缓存、增量读取、统计、搜索、MCP 工具和日志。用合成测试插件 `dev.lithe.test.agent-sessions` 提供解析函数。
 2. **API-45 契约**：`agents[]` 清单、原生模式的启动与转发、ACP 客户端、四种 SDK。
-3. **官方插件**：Claude（原生 `-p` 加终端形态）、Codex（`app-server`）、反重力（原生或 ACP，不开放）。
-4. **桌面端界面**。
+3. **桌面端界面**。
+4. **插件**：同一个仓库 Lithe-IDEA/lithe-ai-plugins 的 `plugins/` 下分目录维护：通用管理插件 `plugins/hub`、Claude Code `plugins/claude-code`（原生 `-p` 加终端形态）、Codex `plugins/codex`（`app-server`）。反重力（原生或 ACP，不开放）以后再做。
+
+进度（2026-11-28）：
+
+- 第 1 期、第 2 期的原生模式已合入 Core（#216）。用量的速度排行、会话按整行分页读取、CLI 安装方式和 IDE 连接的会话搜索在 Core Draft PR Lithe-IDEA/Lithe-core-rust#217，属于 `agents` 0 内的补充。ACP 客户端还没做（#2487），目前没有只提供 ACP 的 Agent 插件。
+- 第 3 期在桌面端 Draft PR #2492，固定 Core main `76ab475`（#221，在 #220 的合入提交 `12bf730` 之后；#217、#219、#220 都已合入）。第 7 节表里的功能都已实现：对话文字可选择复制，历史页可查看已记录会话，CLI 缺失时引导安装，MCP 会话搜索开关，会话记录后台同步；2026-11-28 又照参考图重做了历史页和对话页，加上侧栏与标签页双向切换、模型与推理等级切换（#220 的会话配置项）和提问导航条。两端原生整机验收还没做。
+- 提问导航条跳到某个提问时，桌面端先让列表停止跟随末尾，列表离开末尾或有新行进来后再恢复（`agentConversation.jump`）。这是 Viva 的缺陷：跟随末尾的 `ui.List` 上调用 `ListState.ScrollTo`，滚动请求在本帧 `Follow(true)` 之前应用，不会脱离跟随，下一帧又被拉回末尾。按“Viva 的问题在 fork 修复”的规则，在 Lithe-IDEA/viva 修复并向上游提 PR，升级固定版本后删掉这段处理。
+- 第 4 期三个插件已在 Lithe-IDEA/lithe-ai-plugins 实现：Agent Hub 0.1.0、Claude Code 0.4.0、Codex 0.5.0（后两个已上报并切换会话配置项和权限模式），依赖未发布的宿主能力。插件版本由维护者自己发布，仓库里不放发版工作流和发布说明。管理插件的宿主端到端测试用真实 Core 和三个插件包，从隔离 HOME 里的 Claude Code、Codex 会话文件一路读到用量、速度和额度的界面。插件界面文字的多语言在 #2493。
+
+### 9. 契约细节（v0）
+
+**清单。** 插件声明 `"requires": {"agents": 0, "backend": 0}`，顶层 `agents[]` 每项：
+
+| 字段 | 含义 |
+| --- | --- |
+| `id`、`displayName`、`icon?` | Agent 的标识、名称和图标 |
+| `tool` | 本插件 `toolDefinitions` 里的工具 ID，CLI 只能是它 |
+| `native?: {function, timeoutMilliseconds?}` | 原生模式的启动函数 |
+| `acp?: {arguments}` | ACP 模式：对 `tool` 运行的参数 |
+| `terminal?: {arguments}` | 终端形态：对 `tool` 运行的参数 |
+| `update?: {arguments}` 或 `{installer}` | 更新：对 `tool` 运行的参数，或本插件的某个 `commandInstallers` |
+| `sessionSources[]: {id, roots, include, format, scan, read}` | 会话目录。`roots` 是候选路径，只能用 `${userHome}` 和 `${env:NAME}`，取第一个能解析的；`format` 只能是 `jsonLines` |
+
+`native`、`acp`、`terminal` 至少声明一种。激活事件是 `onAgent:<id>`。权限：
+
+| 权限 | 允许 |
+| --- | --- |
+| `agents.native` | 使用 `lithe/host/agents/write`、`lithe/host/agents/report`，并接收下面的 `didStart` 等通知，只针对本插件声明的 Agent 的会话 |
+| `agents.usage.read` | 使用 `lithe/host/agents/usage`：读取已同意 Agent 的用量和额度汇总，只有数字和模型名，没有正文、标题和路径 |
+
+**原生会话的转发。** CLI 进程由 Core 的 `agent-runtime` 持有，插件后端只做翻译：
+
+| 方向 | 方法 | 内容 |
+| --- | --- | --- |
+| Core → 后端 | `lithe/host/agents/didStart` | `{session, agentID, cwd, resume?}`，进程已启动，后端可以写握手行 |
+| Core → 后端 | `lithe/host/agents/didOutput` | `{session, lines}`，CLI 标准输出的完整行，按顺序、按批 |
+| Core → 后端 | `lithe/host/agents/didPrompt` | `{session, turn, text}`，用户发出的一轮提问 |
+| Core → 后端 | `lithe/host/agents/didCancel` | `{session, turn}` |
+| Core → 后端 | `lithe/host/agents/didDecidePermission` | `{session, permission, option}`，用户的选择 |
+| Core → 后端 | `lithe/host/agents/didExit` | `{session, exitCode?, signal?}` |
+| 后端 → Core | `lithe/host/agents/write` | `{session, lines}`，写进 CLI 标准输入，每行补换行 |
+| 后端 → Core | `lithe/host/agents/report` | `{session, events}`，第 2 节的会话事件 |
+
+- 这两个宿主方法由 Core 自己回答，不转给桌面端；Core 只接受本插件后端为本插件 Agent 开的会话。
+- 写入走每个会话自己的写线程和有上限的队列，后端的读线程不会等 CLI 的标准输入，避免两个进程互相等待。
+- 输出按会话的顺序队列发给后端；后端会话结束时，Core 结束它名下的全部 CLI 进程树。
+- `turn` 由 Core 分配；后端上报的事件必须属于正在进行的一轮。权限请求的选项由后端列出，用户只能从中选一个，Core 检查后再通知后端。
+
+**会话配置项（#220，`agents` 0 内补充）。** 模型、推理等级和模式都是“插件列出、用户选择”的数据，Core 不认识具体取值：
+
+| 方向 | 方法或事件 | 内容 |
+| --- | --- | --- |
+| 后端 → Core | `report` 里的 `configOptions` 事件 | 至多 16 项 `{id, name, description?, category?, currentValue, options}`，`category` 只能是 `model`、`thoughtLevel`、`mode`；每项 1–128 个 `{value, name, description?}` |
+| 桌面端 → Core | `agents.setConfigOption` | `{session, option, value}`，只接受来源为 `user` 的请求；只能选后端最近一次列出的设置和取值，否则报 `agents.unknownConfigOption`、`agents.unknownConfigValue` |
+| Core → 后端 | `lithe/host/agents/didSetConfigOption` | `{session, option, value}`；后端按 CLI 的方式写入（Codex 在下一轮 `turn/start` 带上，Claude Code 用 `set_model`、`apply_flag_settings`、`set_permission_mode` 控制请求），生效后再报一次 `configOptions` |
+
+- 选项由插件后端从 CLI 自己的回答里取（Codex `model/list`、`permissionProfile/list`，Claude Code `initialize` 的回答和 `get_settings`），不在插件或宿主里写死模型表。
+- 模式（权限模式、审批人等）的名单、名称和取值由各插件按自己 CLI 的叫法维护：CLI 能列出的就列出（Codex 的权限档案），列不出的（Claude Code 的权限模式）由插件跟着支持的 CLI 版本维护，名称照搬 CLI 自己菜单的叫法。各家叫法不同，宿主不按 ID 认某个模式，也不另起名字。
+- 桌面端只按 `category` 给 `model` 和 `thoughtLevel` 画专用控件（模型列表、推理等级滑块），其余设置一律以插件给的 `name` 作标题，点开二级页列出取值和说明；没有 `thoughtLevel` 时不显示滑块，没有任何配置项时只显示当前模型名，不放不能用的控件。
+
+**Core 内部调用插件函数。** 启动函数、`scan` 和 `read` 由 Core 直接调用插件后端，操作 ID 用 Core 保留的前缀，结果不进入桌面端的事件队列。这和跨插件调用的 relay 是同一种做法，桌面端不需要逐跳搬运。
+
+**命令（桌面端调用）。**
+
+| 命令 | 作用 |
+| --- | --- |
+| `agents.catalog` | 从已安装清单列出 Agent、可用的模式和形态、更新方式 |
+| `agents.start` | 检查来源（只接受 `user`）、工作区可信、非远程、并发上限；调用启动函数，检查结果（只能是本 Agent 的 `tool`、不能带环境变量），启动进程 |
+| `agents.prompt`、`agents.cancel`、`agents.respondPermission`、`agents.close` | 一轮提问、取消、回答权限请求、结束会话 |
+| `agents.waitEvents` | 有上限地等待会话事件 |
+| `agentSessions.configure` | 宿主传入 Caches 和 Application Support 里的绝对路径 |
+| `agentSessions.sync`、`agentSessions.forget` | 增量同步一个已同意的 Agent；撤销同意时删除它的缓存 |
+| `agentSessions.list`、`agentSessions.search`、`agentSessions.read`、`agentSessions.stats` | 会话列表、全文搜索、按字节范围读取、统计 |
+
+**额度。** 额度和限流状态也是与具体 Agent 无关的数据：插件的 `scan` 可以返回额度快照，原生会话的 `rateLimits` 事件也由 Core 记下。Core 只保留每个 Agent 每个额度窗口的最新一条，供 `agentSessions.stats` 和 `lithe/host/agents/usage` 使用。
+
+### 10. 管理插件与信息注入
+
+**管理插件只写一次通用部分。** `lithe-plugin-agent-hub`（插件 ID `io.github.lithe-idea.agent-hub`）用插件视图提供“Agent Hub”工具窗口：
+
+- **用量**：按日、Agent、模型汇总 Token、缓存命中率、按 API 价格折算的费用和速度，数据来自 `lithe/host/agents/usage`。
+- **额度**：每个 Agent 各额度窗口的已用比例和重置时间，同样来自 Core。
+- **资源库**：指令、记忆、MCP 服务器、技能、Hooks、环境变量、子代理、斜杠命令、规则九类。
+- **模型与供应商**。
+
+会话的对话内容只在宿主的 Agent 工具窗口里显示，管理插件拿不到正文和标题，符合 API-34。
+
+**Agent 插件通过 API-35 注入自己的信息。** 管理插件在 `pluginFunctions.calls` 里声明下面三个函数，Claude Code、Codex 插件在 `exports` 里提供（上下文 `workspace`）。管理插件用 `lithe/host/functions/providers` 找到所有提供者，再逐个调用：
+
+| 函数 | 版本 | 返回 |
+| --- | --- | --- |
+| `agentHub.describe` | 1 | 插件里有哪些 Agent：`agentID` 和显示名称 |
+| `agentHub.resources` | 1 | 每个 Agent 九个类别的全部条目：名称、类别、范围（用户、项目、本机、管理员下发、插件）、位置、一行摘要、是否停用。环境变量和任何密钥只给名字，不给值 |
+| `agentHub.providers` | 1 | 每个 Agent 当前的模型、模型来源、当前供应商，配置里的供应商（地址、存放密钥的环境变量名）和配置档，来自 CLI 的真实配置 |
+
+字段、上限和提供者规则以管理插件仓库的 `docs/agent-hub-functions.md` 为准，本节只记取舍：
+
+- 三个函数的 `params` 都是 `{}`，一次回答全部类别。按类别分次调用，每个插件要多 8 次往返；管理插件最多同时问 4 个插件，以免超过 Core 每个调用方 8 个转发中调用的上限，往返越多刷新越慢。回答本身很小，一次放得下（上限 256 KiB）。
+- 登录状态不进管理插件：登录提示需要账号信息或运行 CLI，既碰凭据又不是“名称和位置”，留给 Agent 工具窗口在会话报错时提示。
+- 资源位置只给“第几个项目文件夹 + 文件夹名 + 相对路径”，不给 Root ID：Root ID 每个插件各不相同，管理插件自己按位置找到文件夹，名字对不上就不打开。项目以外的文件只显示 `~/...`，不打开。
+- 清单里一个函数 ID 只能导出一个版本，Core 只转发版本相同的调用，所以管理插件只调用导出版本 1 的提供者。版本 1 内只加可选字段；不兼容的改动发版本 2，管理插件和提供者一起升级。
+- 资源条目的来源都是 CLI 自己的真实配置文件，项目里的文件双击打开来源文件，符合“设置必须反映工具的真实配置”。不维护影子配置，不在打开页面时写文件。
+- 提供者不读凭据文件，也不运行调用方指定的可执行文件或读调用方指定的路径；要区分调用方时读 Core 写入的顶层 `caller.pluginID`。
+- 以后新增一个 Agent 插件，只要实现这三个函数，管理插件不用改。
 
 ### 正确做法
 

@@ -899,6 +899,8 @@ func capabilityKindTitle(language i18n.Language, kind string) string {
 		return i18n.Shared(language, "native.command")
 	case CapabilityVersionControl:
 		return i18n.Shared(language, "native.versionControl")
+	case CapabilityAgent:
+		return i18n.Shared(language, "desktop.plugins.capabilityAgent")
 	}
 	return ""
 }
@@ -989,6 +991,14 @@ func capabilityDetail(language i18n.Language, capability PluginCapability) strin
 // returns "" and shows only its name.
 func permissionDescription(language i18n.Language, permission string) string {
 	switch permission {
+	case "agents.run":
+		return i18n.Shared(language, "desktop.marketplace.permissionAgentsRun")
+	case "agents.native":
+		return i18n.Shared(language, "desktop.marketplace.permissionAgentsNative")
+	case "agents.sessions.read":
+		return i18n.Shared(language, "desktop.marketplace.permissionAgentsSessionsRead")
+	case "agents.usage.read":
+		return i18n.Shared(language, "desktop.marketplace.permissionAgentsUsageRead")
 	case "languageServer.launch":
 		return i18n.Shared(language, "native.startALanguageServerWhenYouOpenFilesOfItsLanguage")
 	case "backend.launch":
@@ -1043,6 +1053,8 @@ func permissionDescription(language i18n.Language, permission string) string {
 		return i18n.Shared(language, "desktop.marketplace.permissionClipboardWrite")
 	case "workspace.reveal":
 		return i18n.Shared(language, "desktop.marketplace.permissionWorkspaceReveal")
+	case "workspace.directoryMarks":
+		return i18n.Shared(language, "desktop.marketplace.permissionWorkspaceDirectoryMarks")
 	case "network.request":
 		return i18n.Shared(language, "desktop.marketplace.permissionNetworkRequest")
 	case "preview.open":

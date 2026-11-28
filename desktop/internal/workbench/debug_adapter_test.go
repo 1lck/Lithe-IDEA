@@ -28,13 +28,14 @@ func TestDebugAdapterRunner(t *testing.T) {
 	if err != nil {
 		os.Exit(2)
 	}
-	os.Exit(serveFixtureAdapter(os.Stdin, os.Stdout, workspace))
+	os.Exit(serveFixtureAdapter(os.Stdin, os.Stdout, workspace, nil))
 }
 
 // serveFixtureAdapter speaks the fixture DAP over any byte stream, so the same
 // adapter answers over a process's stdio and over a TCP connection. It returns
 // the exit code the stdio runner reports, and 0 when the peer disconnects.
-func serveFixtureAdapter(input io.Reader, output io.Writer, workspace string) int {
+// In silent mode it observes initialize but sends no replies.
+func serveFixtureAdapter(input io.Reader, output io.Writer, workspace string, silentInitialize func()) int {
 	source := filepath.Join(workspace, "tests", "debug_source.go")
 	reader := bufio.NewReader(input)
 	seq := 1
@@ -88,6 +89,12 @@ func serveFixtureAdapter(input io.Reader, output io.Writer, workspace string) in
 			return 7
 		}
 		if request.Type != "request" {
+			continue
+		}
+		if silentInitialize != nil {
+			if request.Command == "initialize" {
+				silentInitialize()
+			}
 			continue
 		}
 		respond := func(result any) {

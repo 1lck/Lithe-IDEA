@@ -19,6 +19,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginsettings"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
+	"github.com/vivaui/viva/gfx"
 )
 
 // regionPlugin is the synthetic plugin whose settings page carries a region view.
@@ -467,6 +468,14 @@ func regionToolWindow(t *testing.T, loader ToolchainLoader, choose bool) (*windo
 	t.Helper()
 	view, _ := json.Marshal([]map[string]any{{"type": "tool", "tool": fixtureTool, "choose": choose}})
 	source := &regionSource{calls: make(chan regionCall, 32), view: view}
+	w, d := installedRegionWindow(t, source, loader)
+	d.until("the region's tool row", func() bool { return d.has("Compiler") })
+	d.pump()
+	return w, d
+}
+
+func installedRegionWindow(t *testing.T, source *regionSource, loader ToolchainLoader) (*window, *windowDriver) {
+	t.Helper()
 	fetch := func(context.Context) (marketplace.Snapshot, error) {
 		return marketplace.Snapshot{Index: core.MarketplaceIndex{Plugins: []core.MarketplacePlugin{{ID: regionPlugin, Name: "Region Fixture", LatestVersion: "1.0.0"}}}}, nil
 	}
@@ -479,10 +488,43 @@ func regionToolWindow(t *testing.T, loader ToolchainLoader, choose bool) (*windo
 	}), Values{})
 	w.sess.page = pagePlugins
 	w.installed.tab = installedSettings
-	d := openWindow(t, w)
-	d.until("the region's tool row", func() bool { return d.has("Compiler") })
+	return w, openWindow(t, w)
+}
+
+func TestNarrowInstalledRegionKeepsReadOnlyFieldActionClickable(t *testing.T) {
+	source := &regionSource{calls: make(chan regionCall, 32), view: json.RawMessage(`[{"type":"row","children":[
+		{"type":"textField","id":"location","label":"Location","value":"Selected location","enabled":false,"width":"fill"},
+		{"type":"button","id":"check","text":"Check"}]}]`)}
+	w, d := installedRegionWindow(t, source, nil)
+	d.until("the settings action", func() bool { return d.has("Check") })
+	if got := source.next(t).params["event"]; got != "open" {
+		t.Fatalf("initial event = %v", got)
+	}
+	if err := d.driver.Resize(760, 900); err != nil {
+		t.Fatal(err)
+	}
+	handle := d.hit(i18n.Shared(w.marketLanguage(), "settings.resizePlugins")).Bounds
+	x, y := handle.X+handle.Width/2, handle.Y+handle.Height/2
+	if err := d.driver.Press(x, y, gfx.PointerButtonPrimary); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.driver.Move(750, y); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.driver.Release(750, y, gfx.PointerButtonPrimary); err != nil {
+		t.Fatal(err)
+	}
+	d.until("the narrow detail pane", func() bool {
+		return w.region != nil && w.region.session.Width() > 0 && w.region.session.Width() <= marketMinDetail
+	})
 	d.pump()
-	return w, d
+	if button := d.hit("Check").Bounds; button.X+button.Width > 760 {
+		t.Fatalf("action extends beyond the window: %+v", button)
+	}
+	d.click("Check")
+	if call := source.next(t); call.params["event"] != "click" || call.params["node"] != "check" {
+		t.Fatalf("action sent %v", call.params)
+	}
 }
 
 // A tool row with choose opens the tool's choices under it in the plugin page's scope; a
