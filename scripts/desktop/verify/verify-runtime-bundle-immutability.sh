@@ -72,6 +72,7 @@ installed_package_workflows=(
     desktop/internal/plugininstall/pending_test.go:TestStageUpdateLeavesInstalledPackageUnchanged
     desktop/internal/pluginservice/package_lifecycle_test.go:TestUninstallWaitsForPackagePublicationInAnotherProcess
     desktop/internal/workbench/editor_preferences_publication_test.go:TestEditorPreferencesLeavesInstalledPackageUnchanged
+    desktop/internal/workbench/file_type_mappings_test.go:TestFileTypeMappingsStayOutsideInstalledPackage
     desktop/internal/workbench/welcome_recent_test.go:TestRecentProjectsLeaveInstalledPackageUnchanged
 )
 for workflow in $installed_package_workflows; do
