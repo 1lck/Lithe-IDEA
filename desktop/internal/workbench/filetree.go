@@ -112,7 +112,9 @@ type fileTree struct {
 	// listings again.
 	expandingAll bool
 	expandSeen   map[int]bool
-	refreshing   bool
+	// expandReadsLeft belongs to one Expand All. Empty results never refund reads.
+	expandReadsLeft int
+	refreshing      bool
 	// prompt is the open New File, New Directory or Rename dialog of a row
 	// (see filetree_menu.go).
 	prompt treePrompt

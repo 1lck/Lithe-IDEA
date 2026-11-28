@@ -27,6 +27,9 @@ const (
 // nearest the root and says the rest stayed closed.
 const treeExpandAllLimit = 512
 
+// Allow one extra batch to find populated siblings after empty probes release slots.
+const treeExpandAllReadLimit = treeExpandAllLimit + treeListingBatch
+
 // projectTreeActions declares the buttons of the Project tool window's header. They wait for
 // the root's listing, but refresh also asks again for a root that could not be listed.
 func (a *App) projectTreeActions(c ui.C, p *project) {
@@ -196,6 +199,7 @@ func (a *App) retryProjectTree(p *project) {
 func (a *App) expandProjectTree(p *project) {
 	t := &p.tree
 	t.expandingAll, t.expandSeen = true, make(map[int]bool)
+	t.expandReadsLeft = treeExpandAllReadLimit
 	a.stepTreeExpandAll(p)
 }
 
@@ -219,10 +223,11 @@ func (a *App) stepTreeExpandAll(p *project) {
 			if t.expandSeen[n.id] {
 				continue
 			}
-			if len(t.expandSeen) >= treeExpandAllLimit {
+			if t.expandReadsLeft == 0 || len(t.expandSeen) >= treeExpandAllLimit {
 				limited = true
-				continue
+				break
 			}
+			t.expandReadsLeft--
 			t.expandSeen[n.id] = true
 			n.expanded, t.rowsDirty = true, true
 			ask = append(ask, n.path)

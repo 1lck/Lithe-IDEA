@@ -301,6 +301,28 @@ func TestProjectTreeExpandAllStopsAtItsLimit(t *testing.T) {
 	}
 }
 
+func TestProjectTreeExpandAllBoundsEmptyProbes(t *testing.T) {
+	root := t.TempDir()
+	fixtures := make(map[string]core.DirectoryListing)
+	for i := 0; i < treeExpandAllReadLimit+2; i++ {
+		name := fmt.Sprintf("empty-%04d", i)
+		if err := os.Mkdir(filepath.Join(root, name), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		fixtures[name] = core.DirectoryListing{Path: name}
+	}
+	kernel := &expandLimitTreeKernel{testKernel: &testKernel{Client: core.NewClient()}, fixtures: fixtures, requested: make(map[string]bool)}
+	h := newHarness(t, kernel)
+	p := h.openTree(t, root)
+	h.app.expandProjectTree(p)
+	awaitDocumentState(t, h, func() bool { return !p.tree.expandingAll && treeIdle(p) })
+	kernel.mu.Lock()
+	defer kernel.mu.Unlock()
+	if got := len(kernel.requested); got != treeExpandAllReadLimit {
+		t.Fatalf("one Expand All read %d empty directories, want %d", got, treeExpandAllReadLimit)
+	}
+}
+
 // recordingTreeKernel records the folders each listing asks for.
 type recordingTreeKernel struct {
 	*testKernel
