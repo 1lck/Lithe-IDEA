@@ -1785,7 +1785,7 @@ func (a *App) requestCloseProject(after func()) {
 		return
 	}
 	a.closingProject = true
-	a.saveProjectDocuments(p, func(ok bool) {
+	saved := func(ok bool) {
 		a.closingProject = false
 		if !ok || a.project != p {
 			return
@@ -1797,14 +1797,17 @@ func (a *App) requestCloseProject(after func()) {
 		a.confirmProcessExit(p, lifecycle, func() {
 			// A remote workspace then decides the programs its host runs (remote_close.go).
 			a.confirmRemoteClose(p, func() {
-				p.tree.afterTreeRemovals(func() {
+				p.tree.afterWrites(func() {
 					if a.project == p {
 						a.finishCloseProject(p, after)
 					}
 				})
 			})
 		})
-	})
+	}
+	// A committed move can still have tabs at their old paths. Don't verify or
+	// save them for close until the result has installed their new paths.
+	p.tree.afterWrites(func() { a.saveProjectDocuments(p, saved) })
 }
 
 // finishCloseProject takes the project apart once saving and the exit

@@ -442,7 +442,8 @@ func (a *App) commitTreeMove(p *project, from, to string) {
 		a.notifyError(i18n.Shared(a.language(), "desktop.files.crossBoundaryMove"))
 		return
 	}
-	a.saveDocumentsThen(p, a.documentsUnder(p, source), func() {
+	p.tree.beginWrite()
+	a.saveDocumentsThenOrAbort(p, a.documentsUnder(p, source), func() {
 		a.background(p, 0, func(ctx context.Context) func(*App) {
 			var before []byte
 			var entry core.WorkspaceEntry
@@ -454,6 +455,7 @@ func (a *App) commitTreeMove(p *project, from, to string) {
 				entry, err = kernel.RenameWorkspaceEntry(ctx, root, from, to)
 			}
 			return func(a *App) {
+				defer p.tree.endWrite()
 				var refusal *core.Error
 				switch {
 				case errors.As(err, &refusal) && refusal.Code == core.CodeEntryExists:
@@ -478,7 +480,7 @@ func (a *App) commitTreeMove(p *project, from, to string) {
 				}
 			}
 		})
-	})
+	}, p.tree.endWrite)
 }
 
 // documentsUnder is the open files at target and, when target is a folder, below it.

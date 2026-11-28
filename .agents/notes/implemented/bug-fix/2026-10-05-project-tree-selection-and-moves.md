@@ -37,6 +37,8 @@ Linux 的递归监听需要逐目录注册，暂时沿用按需目录监听，�
 
 窗口可以提前提示重名，但不能用之前查到的空名额覆盖后来出现的条目。保存相关文档后，项目树在后台调用 Core 的 `workspace.renameEntry`，不再自行调用 `os.Rename`。Core 拒绝重名时提示「已有同名条目」，原标签页不动；只有成功后才迁移标签、目录标记和本地历史，再刷新项目树和 Git。只改大小写的合法重命名也由 Core 判定。
 
+移动过程中关项目或退出时，让窗口继续响应，把关闭推迟到移动结果已处理、目录标记和本地历史的写入都已结束。不能只等磁盘上的改名：例如 `src` 已变成 `lib`，但标记还没落盘，此时取消项目任务会让重新打开的项目仍把 `src` 当成源码目录。树和 Git 的读取可以随项目取消，不需要为了退出等待所有后台任务。
+
 这个约束只覆盖本地重命名和拖移，不代表剪切粘贴或远程移动也走同一入口。对不支持排他改名的卷，Core 契约允许降级为先检查再移动，因此不能把此修复当作所有文件系统都支持原子改名的保证。
 
 ### 批量移动（设计要求，Viva 尚未实现）
@@ -59,6 +61,7 @@ Linux 的递归监听需要逐目录注册，暂时沿用按需目录监听，�
 
 ## 验证
 
+- `scripts/desktop/desktop-go.sh test ./internal/workbench -run '^TestProjectCloseWaitsForTreeMove$' -count=1`：分别暂停改名回执、历史迁移和目录标记写入，确认关闭不会提前完成；关闭后从存储检查标记、历史路径和快照内容。
 - `scripts/desktop/desktop-go.sh test ./internal/workbench -run '^TestProjectTree(HonorsCoreRenameRefusal|CaseOnlyRenameKeepsOpenTab|RenameOntoExistingFile|DragOntoExistingFile|DragIntoAvailableName)$' -count=1`：检查 Core 拒绝时文件和标签不动、已有重名提示、无冲突拖移和仅改大小写。
 - `scripts/desktop/desktop-go.sh test -race ./internal/workbench -run TestProjectTree -count=3`：覆盖真实文件系统的新增、删除、空目录变化、视口锚定、过期结果、监听关闭和根目录重试。其中 `TestProjectTreeBatchSelectionFollowsCore` 覆盖批量选择与 Core 的一致性。
 - `scripts/desktop/desktop-go.sh test ./internal/workbench -run '^$' -bench '^BenchmarkProjectTreeResize1000$' -benchmem -benchtime=1s -count=3`：固定 1,000 行并反复改变窗口宽度，只统计无头布局。
