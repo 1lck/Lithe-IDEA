@@ -9,18 +9,20 @@ import (
 // EditorStoredPreferences preserves missing values from earlier settings versions.
 // Core alone supplies defaults and validates ranges and style identifiers.
 type EditorStoredPreferences struct {
-	LineNumbers               *bool    `json:"lineNumbers,omitempty"`
-	Whitespace                *bool    `json:"whitespace,omitempty"`
-	IndentGuides              *bool    `json:"indentGuides,omitempty"`
-	RainbowIndentGuides       *bool    `json:"rainbowIndentGuides,omitempty"`
-	InlayHints                *bool    `json:"inlayHints,omitempty"`
-	RainbowBrackets           *bool    `json:"rainbowBrackets,omitempty"`
-	RainbowVariables          *bool    `json:"rainbowVariables,omitempty"`
-	RainbowLightColors        []string `json:"rainbowLightColors,omitempty"`
-	RainbowDarkColors         []string `json:"rainbowDarkColors,omitempty"`
-	CursorStyle               string   `json:"cursorStyle,omitempty"`
-	CursorBlink               *bool    `json:"cursorBlink,omitempty"`
-	AutoSaveDelayMilliseconds *uint64  `json:"autoSaveDelayMilliseconds,omitempty"`
+	LineNumbers                 *bool    `json:"lineNumbers,omitempty"`
+	Whitespace                  *bool    `json:"whitespace,omitempty"`
+	IndentGuides                *bool    `json:"indentGuides,omitempty"`
+	RainbowIndentGuides         *bool    `json:"rainbowIndentGuides,omitempty"`
+	InlayHints                  *bool    `json:"inlayHints,omitempty"`
+	RenderDocComments           *bool    `json:"renderDocComments,omitempty"`
+	RenderDocCommentsInReadOnly *bool    `json:"renderDocCommentsInReadOnly,omitempty"`
+	RainbowBrackets             *bool    `json:"rainbowBrackets,omitempty"`
+	RainbowVariables            *bool    `json:"rainbowVariables,omitempty"`
+	RainbowLightColors          []string `json:"rainbowLightColors,omitempty"`
+	RainbowDarkColors           []string `json:"rainbowDarkColors,omitempty"`
+	CursorStyle                 string   `json:"cursorStyle,omitempty"`
+	CursorBlink                 *bool    `json:"cursorBlink,omitempty"`
+	AutoSaveDelayMilliseconds   *uint64  `json:"autoSaveDelayMilliseconds,omitempty"`
 }
 
 // EditorPreferences is the actual presentation configuration resolved by Core.
@@ -31,6 +33,8 @@ type EditorPreferences struct {
 	RainbowIndentGuides              bool     `json:"rainbowIndentGuides"`
 	RainbowIndentGuidesEffective     bool     `json:"rainbowIndentGuidesEffective"`
 	InlayHints                       bool     `json:"inlayHints"`
+	RenderDocComments                bool     `json:"renderDocComments"`
+	RenderDocCommentsInReadOnly      bool     `json:"renderDocCommentsInReadOnly"`
 	RainbowBrackets                  bool     `json:"rainbowBrackets"`
 	RainbowVariables                 bool     `json:"rainbowVariables"`
 	RainbowLightColors               []string `json:"rainbowLightColors"`

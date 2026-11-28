@@ -35,8 +35,20 @@ func TestEditorEssentialsResolveDefaultsAndKeepIndependentSchemes(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !prefs.LineNumbers || !prefs.CursorBlink || prefs.CursorStyle != "line" || prefs.AutoSaveDelayMilliseconds != 1500 {
+	if !prefs.LineNumbers || !prefs.CursorBlink || prefs.CursorStyle != "line" || prefs.AutoSaveDelayMilliseconds != 1500 ||
+		prefs.RenderDocComments || !prefs.RenderDocCommentsInReadOnly {
 		t.Fatalf("preferences: %+v", prefs)
+	}
+	renderAll, renderRO := true, false
+	explicit, err := c.ResolveEditorPreferences(ctx, EditorStoredPreferences{
+		RenderDocComments:           &renderAll,
+		RenderDocCommentsInReadOnly: &renderRO,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !explicit.RenderDocComments || explicit.RenderDocCommentsInReadOnly {
+		t.Fatalf("explicit doc comment preferences: %+v", explicit)
 	}
 	state, err := c.ReduceKeymapSchemes(ctx, KeymapSchemeRequest{Current: map[string][]string{"search.files": {"meta+f"}}})
 	if err != nil {

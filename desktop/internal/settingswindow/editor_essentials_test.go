@@ -316,3 +316,50 @@ func TestEditorEssentialsKeymapSchemesStayIndependent(t *testing.T) {
 		t.Fatal("default deleted")
 	}
 }
+
+func TestEditorDocCommentSettingsSaveAndRestoreDefault(t *testing.T) {
+	var stored core.EditorStoredPreferences
+	var resolved core.EditorPreferences
+	var writes int
+	w := newWindow(NewController(Options{SetEditorPreferences: func(s core.EditorStoredPreferences, r core.EditorPreferences) {
+		stored, resolved = s, r
+		writes++
+	}}), Values{Language: "en"})
+	w.sess.page = pageEditor
+	d := openWindow(t, w)
+	d.pump()
+
+	renderSwitch := i18n.Shared(i18n.English, "desktop.editorPrefs.renderDocComments")
+	readOnlySwitch := i18n.Shared(i18n.English, "desktop.editorPrefs.renderDocCommentsInReadOnly")
+	if writes != 0 || d.hit(renderSwitch).Checked || !d.hit(readOnlySwitch).Checked {
+		t.Fatalf("unexpected default doc comment switches: writes=%d render=%t readOnly=%t",
+			writes, d.hit(renderSwitch).Checked, d.hit(readOnlySwitch).Checked)
+	}
+
+	d.click(renderSwitch)
+	d.pump()
+	if writes != 1 || stored.RenderDocComments == nil || !*stored.RenderDocComments || !resolved.RenderDocComments || !resolved.RenderDocCommentsInReadOnly {
+		t.Fatalf("toggling renderDocComments did not save true: stored=%+v resolved=%+v", stored, resolved)
+	}
+
+	d.click(readOnlySwitch)
+	d.pump()
+	if writes != 2 || stored.RenderDocCommentsInReadOnly == nil || *stored.RenderDocCommentsInReadOnly || resolved.RenderDocCommentsInReadOnly {
+		t.Fatalf("toggling renderDocCommentsInReadOnly did not save false: stored=%+v resolved=%+v", stored, resolved)
+	}
+
+	reopened := newWindow(NewController(Options{}), Values{Language: "en", EditorStoredPreferences: stored})
+	reopened.sess.page = pageEditor
+	second := openWindow(t, reopened)
+	second.pump()
+	if !second.hit(renderSwitch).Checked || second.hit(readOnlySwitch).Checked {
+		t.Fatalf("reopened settings did not preserve doc comment switches: render=%t readOnly=%t",
+			second.hit(renderSwitch).Checked, second.hit(readOnlySwitch).Checked)
+	}
+
+	d.click(w.text.Settings.RestoreDefaults)
+	d.pump()
+	if stored.RenderDocComments != nil || stored.RenderDocCommentsInReadOnly != nil || resolved.RenderDocComments || !resolved.RenderDocCommentsInReadOnly {
+		t.Fatalf("restore defaults did not reset doc comment settings: stored=%+v resolved=%+v", stored, resolved)
+	}
+}

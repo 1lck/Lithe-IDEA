@@ -322,6 +322,8 @@ func cloneStoredEditorPreferences(p core.EditorStoredPreferences) core.EditorSto
 	p.IndentGuides = cloneSetting(p.IndentGuides)
 	p.RainbowIndentGuides = cloneSetting(p.RainbowIndentGuides)
 	p.InlayHints = cloneSetting(p.InlayHints)
+	p.RenderDocComments = cloneSetting(p.RenderDocComments)
+	p.RenderDocCommentsInReadOnly = cloneSetting(p.RenderDocCommentsInReadOnly)
 	p.RainbowBrackets = cloneSetting(p.RainbowBrackets)
 	p.RainbowVariables = cloneSetting(p.RainbowVariables)
 	p.RainbowLightColors = slices.Clone(p.RainbowLightColors)

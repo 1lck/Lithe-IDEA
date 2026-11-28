@@ -392,8 +392,8 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # Lithe-core-rust main at d069224d (#210): extends workspace directory rules with built-in
 # test/generated roles, user-defined custom folder types, custom SVG icons, quick color
 # overrides, and workspace.resolveDirectoryPresentation.
-# Core #215 (63932f9) provides plugin directory types and marks.
-# Core #213 adds deferred empty-directory probes for the project tree.
+# Core #215 provides plugin directory types and marks; #214 provides native doc rendering.
+# The #213 head includes both and adds deferred empty-directory probes for the project tree.
 PINNED_CORE_REVISION="f0d0ff8dd9b3f93094b83965611e4f9acfd0d1de"
 PROFILE="debug"
 CHECKOUT_ONLY="no"

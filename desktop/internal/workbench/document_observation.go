@@ -341,6 +341,7 @@ func (a *App) applyDocumentCheck(p *project, d *document, baseline rope.Rope, co
 				d.diskBytes = observed
 			}
 			d.savedRevision = d.view.Revision()
+			a.resetDocumentDocComments(d)
 			a.clearDocumentConflict(d)
 			a.recordLocalHistory(p, d.path, "externalChange", historyTexts{afterText: d.view.TextSnapshot()})
 		} else {

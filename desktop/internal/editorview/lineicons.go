@@ -57,7 +57,7 @@ func (v *View) lineIconColumn() float32 {
 func (v *View) paintLineIcons(canvas *gfx.Canvas, area gfx.Rect, look Look, firstLine, lastLine int) {
 	side := min(v.lineH-2, lineIconSize)
 	for _, icon := range v.gutter.icons {
-		if icon.Line < firstLine || icon.Line > lastLine || icon.Line >= v.text.LineCount() {
+		if icon.Line < firstLine || icon.Line > lastLine || icon.Line >= v.text.LineCount() || v.fold.hides(icon.Line) || v.docBlockHidesLine(icon.Line) {
 			continue
 		}
 		color := icon.Color

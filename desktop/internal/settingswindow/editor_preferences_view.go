@@ -46,6 +46,20 @@ func (w *window) editorPresentationCard(c ui.C) {
 			}
 			w.infoButton(c.Part("inlay-hints-info"), i18n.Shared(lang, "desktop.editorPrefs.inlayHintsHelp"))
 		})
+		ui.Row(c).FillWidth().Items(ui.Center).Gap(20).Children(func() {
+			ui.Row(c.Part("render-doc-comments-row")).Items(ui.Center).Gap(6).Children(func() {
+				if ui.Switch(c.Part("render-doc-comments"), &current.RenderDocComments, i18n.Shared(lang, "desktop.editorPrefs.renderDocComments")).Changed() {
+					w.setEditorPresentation(current)
+				}
+				w.infoButton(c.Part("render-doc-comments-info"), i18n.Shared(lang, "desktop.editorPrefs.renderDocCommentsHelp"))
+			})
+			ui.Row(c.Part("render-doc-comments-readonly-row")).Items(ui.Center).Gap(6).Children(func() {
+				if ui.Switch(c.Part("render-doc-comments-readonly"), &current.RenderDocCommentsInReadOnly, i18n.Shared(lang, "desktop.editorPrefs.renderDocCommentsInReadOnly")).Changed() {
+					w.setEditorPresentation(current)
+				}
+				w.infoButton(c.Part("render-doc-comments-readonly-info"), i18n.Shared(lang, "desktop.editorPrefs.renderDocCommentsInReadOnlyHelp"))
+			})
+		})
 		ui.Row(c).FillWidth().Items(ui.Center).Gap(6).Children(func() {
 			autoCompletion := !values.DisableAutoCompletion
 			if ui.Switch(c.Part("auto-completion"), &autoCompletion, i18n.Shared(lang, "desktop.editorPrefs.autoCompletion")).Changed() {
@@ -118,6 +132,12 @@ func (w *window) setEditorPresentation(value core.EditorPreferences) {
 	}
 	if value.RainbowIndentGuides != w.sess.values.EditorPreferences.RainbowIndentGuides {
 		stored.RainbowIndentGuides = &value.RainbowIndentGuides
+	}
+	if value.RenderDocComments != w.sess.values.EditorPreferences.RenderDocComments {
+		stored.RenderDocComments = &value.RenderDocComments
+	}
+	if value.RenderDocCommentsInReadOnly != w.sess.values.EditorPreferences.RenderDocCommentsInReadOnly {
+		stored.RenderDocCommentsInReadOnly = &value.RenderDocCommentsInReadOnly
 	}
 	if resolved, ok := w.resolveEditorPresentation(stored); ok {
 		stored.AutoSaveDelayMilliseconds = &resolved.AutoSaveDelayMilliseconds

@@ -181,6 +181,7 @@ func (a *App) documentView(c ui.C, group string, d *document) {
 	ui.FocusBind(box, &a.focus, focusTarget{doc: d.id})
 	if p := a.project; p != nil {
 		a.foldSync(c, p, d)
+		a.docCommentsSync(c, p, d)
 		a.linkSync(c, p, d)
 		a.inlayHintsSync(c, p, d)
 	}
@@ -191,9 +192,21 @@ func (a *App) documentView(c ui.C, group string, d *document) {
 			items(menu)
 		})
 		a.referenceMenuPainted(d, shown)
+		a.docCommentMenuPainted(d, shown)
 		at := d.actionPanel.menuAt
 		ui.ContextMenuAt(c, box, &d.actionPanel.menuOpen, gfx.Point{X: at.X, Y: at.Y + at.Height}, a.editorActionLaneMenu(c, p, d))
 		a.gitGutterPeek(c, p, d, box)
+	} else if p := a.project; p != nil && d.virtual && d.view.DocBlockCount() > 0 {
+		shown := false
+		ui.ContextMenu(c, box, func(menu *ui.MenuItems) {
+			shown = true
+			menu.WidthRange(240, 280)
+			if menu.Item(a.text.Commands.Find).Clicked() {
+				c.After(func() { a.selectDocument(p, d.id); a.openEditorFind(false, surfaceContextMenu) })
+			}
+			a.docCommentMenuItems(c, d, menu)
+		})
+		a.docCommentMenuPainted(d, shown)
 	}
 }
 
@@ -328,6 +341,11 @@ func (a *App) documentPointer(p *project, d *document, event gfx.PointerEvent) g
 	if event.Kind == gfx.PointerDown && event.Button == gfx.PointerButtonSecondary {
 		if line, column, ok := d.view.PositionAt(event.X, event.Y); ok {
 			a.editor.copyReference.click = &referenceClick{documentID: d.id, line: line, column: column}
+		}
+		if startLine, rendered, ok := d.view.DocBlockAtPoint(event.X, event.Y); ok {
+			d.docComments.menuClick = &docCommentMenuClick{startLine: startLine, rendered: rendered}
+		} else {
+			d.docComments.menuClick = nil
 		}
 	}
 	// A semantic popup or request belongs to the caret and symbol it was opened at; any
