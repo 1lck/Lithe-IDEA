@@ -187,8 +187,14 @@ func TestBuildOptionsIgnoredPathsAreSavedOnThisMachineAndRestored(t *testing.T) 
 	if e.instance != "" || len(e.fields) != 0 {
 		t.Fatalf("the header opened the options of instance %q with %d fields, want the ignored paths alone", e.instance, len(e.fields))
 	}
-	if !h.showsWrapped("Defaults for Fixture Build (dev.lithe.test.ignored-paths): snapshots/") {
-		t.Fatal("the dialog does not show the plugin default and its source")
+	const caption = "Defaults for Fixture Build: snapshots/"
+	at := center(h.hitLabeled(caption))
+	if err := h.driver.Move(at.X, at.Y); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+	if tips := h.tooltips(); !h.showsWrapped(caption) || len(tips) != 1 || tips[0].Value != "dev.lithe.test.ignored-paths" {
+		t.Fatalf("want %q with the declaring plugin in its tooltip, got %v", caption, tips)
 	}
 	if e.ignored.text != ".*" || !h.showsWrapped(h.shared("desktop.build.ignoredPathsDefault")) {
 		t.Fatalf("the field holds %q under %q, want the default", e.ignored.text, e.ignored.source)
