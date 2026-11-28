@@ -133,6 +133,27 @@ func TestAgentStatusTextShowsStateModelContextTokensAndCost(t *testing.T) {
 	}
 }
 
+func TestPermissionOptionLabelTranslatesKnownKindsAndKeepsTheAgentsOtherwise(t *testing.T) {
+	for _, tc := range []struct {
+		language i18n.Language
+		kind     string
+		want     string
+	}{
+		{i18n.English, "allowOnce", "Allow"},
+		{i18n.English, "allowAlways", "Always Allow"},
+		{i18n.English, "rejectOnce", "Deny"},
+		{i18n.English, "rejectAlways", "Always Deny"},
+		{i18n.Chinese, "allowAlways", "总是允许"},
+		{i18n.Chinese, "rejectOnce", "拒绝"},
+		{i18n.Chinese, "askLater", "Agent wording"},
+	} {
+		option := agents.PermissionOption{ID: "o", Label: "Agent wording", OptionKind: tc.kind}
+		if got := permissionOptionLabel(tc.language, option); got != tc.want {
+			t.Errorf("permissionOptionLabel(%v, %q) = %q, want %q", tc.language, tc.kind, got, tc.want)
+		}
+	}
+}
+
 func TestCompactCount(t *testing.T) {
 	for count, want := range map[uint64]string{0: "0", 9_999: "9999", 10_000: "10.0K", 123_456: "123.5K", 2_500_000: "2.5M"} {
 		if got := compactCount(count); got != want {

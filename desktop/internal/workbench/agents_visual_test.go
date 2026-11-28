@@ -107,9 +107,9 @@ func sampleConversation(agent agents.CatalogAgent) *agentConversation {
 		{Content: "Add a test with a large cart", Status: "pending"},
 	}})
 	t.Apply(agents.Event{Kind: "permissionRequested", Turn: 1, Permission: "p1", Title: "Edit src/order.go", ToolCallID: "c2", Options: []agents.PermissionOption{
-		{ID: "allow", Label: "Allow", OptionKind: "allow_once"},
-		{ID: "allowAlways", Label: "Always allow", OptionKind: "allow_always"},
-		{ID: "reject", Label: "Reject", OptionKind: "reject_once"},
+		{ID: "allow", Label: "Allow", OptionKind: "allowOnce"},
+		{ID: "allowSession", Label: "Allow for this session", OptionKind: "allowAlways"},
+		{ID: "reject", Label: "Reject", OptionKind: "rejectOnce"},
 	}})
 	cost := 0.42
 	t.Apply(agents.Event{Kind: "usage", ContextUsed: 18_400, ContextWindow: 200_000, Tokens: agents.Tokens{Input: 12_000, Output: 1_800, CacheRead: 4_600}, CostUSD: &cost})

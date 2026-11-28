@@ -448,7 +448,13 @@ func (a *App) agentPending(c ui.C, p *project, conversation *agentConversation) 
 					FontSize(a.theme.Metrics.FontSizeS).Color(a.colors.Text)
 				ui.Flow(k).FillWidth().Gap(6).Children(func() {
 					for j, option := range request.Options {
-						button := ui.Button(k.KeyInt(j), option.Label).Disabled(conversation.answering != "")
+						label := permissionOptionLabel(lang, option)
+						button := ui.Button(k.KeyInt(j), label).Disabled(conversation.answering != "")
+						if label != option.Label {
+							// The agent's own wording says what the choice covers,
+							// such as remembering it only for this session.
+							button = button.Tooltip(option.Label)
+						}
 						if !strings.HasPrefix(option.OptionKind, "allow") {
 							button = button.Outline()
 						}
@@ -461,6 +467,22 @@ func (a *App) agentPending(c ui.C, p *project, conversation *agentConversation) 
 			})
 		}
 	})
+}
+
+// permissionOptionLabel is the button text of a permission option: the translation of its
+// kind (the contract allows these four), or the agent's own label for any other kind.
+func permissionOptionLabel(lang i18n.Language, option agents.PermissionOption) string {
+	switch option.OptionKind {
+	case "allowOnce":
+		return i18n.Shared(lang, "desktop.agents.option.allowOnce")
+	case "allowAlways":
+		return i18n.Shared(lang, "desktop.agents.option.allowAlways")
+	case "rejectOnce":
+		return i18n.Shared(lang, "desktop.agents.option.rejectOnce")
+	case "rejectAlways":
+		return i18n.Shared(lang, "desktop.agents.option.rejectAlways")
+	}
+	return option.Label
 }
 
 // agentPlan declares the agent's latest plan, its first entries.

@@ -290,6 +290,34 @@
       }
     },
     {
+      "id": "desktop.agents.option.allowOnce",
+      "description": "Button that allows what the agent asked for this one time; the agent's own wording is the button's tooltip",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.option.allowAlways",
+      "description": "Button that allows what the agent asked for and lets the agent remember it, for as long as the agent's own wording in the tooltip says",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.option.rejectOnce",
+      "description": "Button that refuses what the agent asked for this one time",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.agents.option.rejectAlways",
+      "description": "Button that refuses what the agent asked for and lets the agent remember the refusal",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.agents.ended",
       "description": "Status line word for a conversation whose agent ended",
       "platforms": [
@@ -726,6 +754,10 @@
       "desktop.agents.turnEnded.refused": "The agent declined to answer.",
       "desktop.agents.turnEnded.failed": "The turn failed.",
       "desktop.agents.permission": "The agent asks: {title}",
+      "desktop.agents.option.allowOnce": "Allow",
+      "desktop.agents.option.allowAlways": "Always Allow",
+      "desktop.agents.option.rejectOnce": "Deny",
+      "desktop.agents.option.rejectAlways": "Always Deny",
       "desktop.agents.ended": "Ended",
       "desktop.agents.working": "Working",
       "desktop.agents.ready": "Ready",
@@ -816,6 +848,10 @@
       "desktop.agents.turnEnded.refused": "Agent 拒绝回答。",
       "desktop.agents.turnEnded.failed": "本轮失败。",
       "desktop.agents.permission": "Agent 请求：{title}",
+      "desktop.agents.option.allowOnce": "允许",
+      "desktop.agents.option.allowAlways": "总是允许",
+      "desktop.agents.option.rejectOnce": "拒绝",
+      "desktop.agents.option.rejectAlways": "总是拒绝",
       "desktop.agents.ended": "已结束",
       "desktop.agents.working": "处理中",
       "desktop.agents.ready": "就绪",
