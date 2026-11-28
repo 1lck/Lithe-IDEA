@@ -155,23 +155,28 @@ func (l *treeRecordingLog) Emit(level core.LogLevel, event, op string, fields ma
 	l.events = append(l.events, core.LogEvent{Level: level, Event: event, Fields: fields})
 }
 
-func TestProjectTreeBatchFailureLogsOnce(t *testing.T) {
+func openTreeForListingFailures(t *testing.T) (*harness, *project, *failingTreeListingKernel, *treeRecordingLog) {
+	t.Helper()
 	root := t.TempDir()
-	for _, name := range []string{"a", "b"} {
-		if err := os.Mkdir(filepath.Join(root, name), 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
+	writeTreeFiles(t, root, "a/one.txt", "b/two.txt")
 	kernel := &failingTreeListingKernel{testKernel: &testKernel{Client: core.NewClient()}}
 	h := newHarness(t, kernel)
-	h.open(root)
-	p := h.app.project
-	awaitDocumentState(t, h, func() bool { return p.tree.root != nil && p.tree.root.listed })
+	p := h.openTree(t, root)
+	// Registering the recursive watch starts a second root listing. Let it finish
+	// before injecting failures into the two child directories.
+	h.await("watch registration and initial tree listings", func() bool {
+		return (!treeUsesRecursiveWatch() || p.search.watchReady) && treeIdle(p)
+	})
 	logger := &treeRecordingLog{}
 	h.app.logSink = logger
+	return h, p, kernel, logger
+}
+
+func TestProjectTreeBatchFailureLogsOnce(t *testing.T) {
+	h, p, kernel, logger := openTreeForListingFailures(t)
 	kernel.armed.Store(true)
 	h.app.listTree(p, "a", "b")
-	awaitDocumentState(t, h, func() bool { return !p.tree.reading && !p.tree.find("a").loading && !p.tree.find("b").loading })
+	h.await("failed child listing", func() bool { return treeIdle(p) })
 	logger.mu.Lock()
 	defer logger.mu.Unlock()
 	// Folders that cannot be listed just close again, which the window shows by no notice: the
@@ -189,31 +194,17 @@ func treeFailureCount(logger *treeRecordingLog) int {
 }
 
 func TestProjectTreeRepeatedFailureLogsOnceUntilItListsAgain(t *testing.T) {
-	root := t.TempDir()
-	for _, name := range []string{"a", "b"} {
-		if err := os.Mkdir(filepath.Join(root, name), 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	kernel := &failingTreeListingKernel{testKernel: &testKernel{Client: core.NewClient()}}
-	h := newHarness(t, kernel)
-	h.open(root)
-	p := h.app.project
-	awaitDocumentState(t, h, func() bool { return p.tree.root != nil && p.tree.root.listed })
-	logger := &treeRecordingLog{}
-	h.app.logSink = logger
-	settled := func() bool {
-		return !p.tree.reading && !p.tree.find("a").loading && !p.tree.find("b").loading
-	}
+	h, p, kernel, logger := openTreeForListingFailures(t)
+	settled := func() bool { return treeIdle(p) }
 
 	kernel.armed.Store(true)
 	h.app.listTree(p, "a", "b")
-	awaitDocumentState(t, h, settled)
+	h.await("first failed listing", settled)
 	// One user action can need more than one request, because a frame that paints
 	// while the first is in flight adds more paths. Every one of them failing is
 	// still the same problem to the user.
 	h.app.listTree(p, "a", "b")
-	awaitDocumentState(t, h, settled)
+	h.await("repeated failed listing", settled)
 	if count := treeFailureCount(logger); count != 1 {
 		t.Fatalf("repeated failures logged %d events: %+v", count, logger.events)
 	}
@@ -221,10 +212,12 @@ func TestProjectTreeRepeatedFailureLogsOnceUntilItListsAgain(t *testing.T) {
 	// Once the tree lists again, a later failure is a new problem.
 	kernel.armed.Store(false)
 	h.app.listTree(p, "a", "b")
-	awaitDocumentState(t, h, settled)
+	h.await("successful listings of both children", func() bool {
+		return settled() && p.tree.find("a/one.txt") != nil && p.tree.find("b/two.txt") != nil
+	})
 	kernel.armed.Store(true)
 	h.app.listTree(p, "a", "b")
-	awaitDocumentState(t, h, settled)
+	h.await("new failed listing after recovery", settled)
 	if count := treeFailureCount(logger); count != 2 {
 		t.Fatalf("a failure after a successful listing logged %d events in total", count)
 	}
