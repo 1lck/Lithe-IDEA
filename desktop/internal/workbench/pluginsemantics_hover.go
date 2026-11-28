@@ -127,7 +127,23 @@ func (a *App) newHoverPage(contents string, isMarkdown bool, language string) *h
 	if isMarkdown {
 		page.fallback = language
 	}
-	page.doc.Parse(page.source)
+	normalized := strings.ReplaceAll(contents, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+	normalized = spreadHoverTabs(normalized)
+	ctx, cancel := context.WithTimeout(a.operationContext(context.Background()), kernelCallTimeout)
+	defer cancel()
+	ir, err := core.NewClient().RenderHoverDoc(ctx, []byte(normalized), isMarkdown, page.fallback)
+	if err != nil {
+		a.backgroundFailed("plugin_hover_render", err)
+		page.doc.Parse(page.source)
+	} else if ir.FallbackToSource {
+		page.doc.Parse(page.source)
+	} else {
+		lang := a.language()
+		populateMarkdownFromDocIR(&page.doc, ir, func(tagKind string) string {
+			return localizeDocTag(lang, tagKind)
+		})
+	}
 	page.style.Highlight = func(info, line string, dst []components.MarkdownCodeRun) []components.MarkdownCodeRun {
 		return a.hoverCodeRuns(page, info, line, dst)
 	}
@@ -219,25 +235,33 @@ func hoverCodeLanguage(info, fallback string) string {
 	return fallback
 }
 
+// hoverCodeBlock is one syntax-highlightable code block extracted from a hover page's Document.
+type hoverCodeBlock struct {
+	language string
+	text     string
+}
+
 // highlightHover colors the page's code blocks away from the window thread with the editor's
 // grammars. The tokens reach the page only while it is still the open hover.
 func (a *App) highlightHover(p *project, page *hoverPage) {
 	if p == nil {
 		return
 	}
-	hasCode := false
+	var blocks []hoverCodeBlock
 	for _, block := range page.doc.Blocks {
-		if block.Kind == markdown.Code && hoverCodeLanguage(block.Info, page.fallback) != "" {
-			hasCode = true
-			break
+		if block.Kind != markdown.Code {
+			continue
+		}
+		if language := hoverCodeLanguage(block.Info, page.fallback); language != "" {
+			blocks = append(blocks, hoverCodeBlock{language: language, text: block.Text})
 		}
 	}
-	if !hasCode {
+	if len(blocks) == 0 {
 		return
 	}
-	registry, source, fallback := a.syntaxRegistry(), page.source, page.fallback
+	registry := a.syntaxRegistry()
 	a.background(p, 0, func(context.Context) func(*App) {
-		tokens := hoverCodeTokens(registry, source, fallback)
+		tokens := hoverCodeTokens(registry, blocks)
 		return func(a *App) {
 			if a.semantics.hover.page == page {
 				page.tokens = tokens
@@ -246,30 +270,24 @@ func (a *App) highlightHover(p *project, page *hoverPage) {
 	})
 }
 
-// hoverCodeTokens highlights every line of the fenced blocks of source whose language the
-// registry knows. A whole block is read through one highlighter, so a comment or string that
-// spans lines is colored as the editor colors it.
-func hoverCodeTokens(registry *syntax.Registry, source, fallback string) map[hoverCodeKey][]syntax.Token {
+// hoverCodeTokens highlights every line of blocks whose language the registry knows.
+// A whole block is read through one highlighter, so a comment or string that spans
+// lines is colored as the editor colors it.
+func hoverCodeTokens(registry *syntax.Registry, blocks []hoverCodeBlock) map[hoverCodeKey][]syntax.Token {
 	tokens := map[hoverCodeKey][]syntax.Token{}
-	var doc markdown.Document
-	doc.Parse(source)
-	for _, block := range doc.Blocks {
-		if block.Kind != markdown.Code {
+	for _, block := range blocks {
+		if block.language == "" {
 			continue
 		}
-		language := hoverCodeLanguage(block.Info, fallback)
-		if language == "" {
-			continue
-		}
-		grammar := registry.Syntax(language)
+		grammar := registry.Syntax(block.language)
 		if grammar == nil {
 			continue
 		}
-		text := rope.FromString(block.Text)
+		text := rope.FromString(block.text)
 		highlighter := syntax.NewHighlighter(grammar, text, syntax.HighlighterOptions{})
 		for i := 0; i < text.LineCount(); i++ {
 			line := text.Line(i)
-			key := hoverCodeKey{language: language, line: line}
+			key := hoverCodeKey{language: block.language, line: line}
 			if len(line) > semanticHoverMaxCodeLine {
 				continue
 			}
@@ -491,6 +509,9 @@ func (a *App) paintHover(dc *ui.DrawContext, page *hoverPage) {
 // it (markdown.resolveReference); other links, such as a server's own document addresses, are
 // not followed. The hover belongs to no file, so it has no path to resolve a relative one.
 func (a *App) followHoverLink(destination string) {
+	if strings.HasPrefix(destination, "anchor:") || strings.HasPrefix(destination, "symbol:") {
+		return
+	}
 	kernel, ok := a.kernel.(markdownKernel)
 	if !ok {
 		return

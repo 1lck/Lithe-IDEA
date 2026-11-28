@@ -103,6 +103,8 @@ func (a *App) drainEditorPreferences() {
 func (a *App) applyEditorPreferences(stored core.EditorStoredPreferences, resolved core.EditorPreferences) {
 	a.settings.EditorPreferences = stored
 	inlayChanged := a.editorPreferences.InlayHints != resolved.InlayHints
+	docCommentsChanged := a.editorPreferences.RenderDocComments != resolved.RenderDocComments ||
+		a.editorPreferences.RenderDocCommentsInReadOnly != resolved.RenderDocCommentsInReadOnly
 	rainbowChanged := a.editorPreferences.RainbowBrackets != resolved.RainbowBrackets ||
 		a.editorPreferences.RainbowVariables != resolved.RainbowVariables ||
 		((resolved.RainbowBrackets || resolved.RainbowVariables) &&
@@ -111,6 +113,9 @@ func (a *App) applyEditorPreferences(stored core.EditorStoredPreferences, resolv
 	a.editorPreferences = resolved
 	if inlayChanged {
 		a.applyInlayHintsPreference(resolved.InlayHints)
+	}
+	if docCommentsChanged {
+		a.applyDocCommentPreferences()
 	}
 	if rainbowChanged {
 		a.refreshBuiltinRainbowColors()

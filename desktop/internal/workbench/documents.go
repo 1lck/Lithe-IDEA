@@ -62,6 +62,8 @@ type document struct {
 	codeActionGutter  codeActionGutterState
 	// folds is the document's code folding requests (folding.go).
 	folds documentFolds
+	// docComments is the document's native rendered doc-comment state (doc_comments.go).
+	docComments documentDocComments
 	// serverLinks are the links the language server reported for the text, and pluginLinks the
 	// plugin providers' (document_links.go); both are shown together.
 	serverLinks documentServerLinks
@@ -570,6 +572,7 @@ func (a *App) placeDocumentAs(p *project, path, name string, content editorview.
 	d.view.SetReadOnly(virtual || d.hostOutside)
 	d.view.SetVimExit(func(cmd string) bool { return a.vimExit(p, d, cmd) })
 	setupFolding(d)
+	a.setupDocComments(p, d)
 	d.breakpointText = d.view.TextSnapshot()
 	a.documentInput(p, d)
 	p.docs.list = append(p.docs.list, d)
@@ -957,6 +960,7 @@ func (a *App) removeDocument(p *project, d *document) {
 			a.semanticTokensDropped(d)
 			a.dropColorDecorations(d)
 			a.clearDocumentInlayHints(d)
+			a.clearDocumentDocComments(d)
 			d.closeEditorView()
 			p.docs.list = slices.DeleteFunc(p.docs.list, func(x *document) bool { return x.id == d.id })
 			// The preview's language features may have opened it in a server.
@@ -971,6 +975,7 @@ func (a *App) removeDocument(p *project, d *document) {
 	a.semanticTokensDropped(d)
 	a.dropColorDecorations(d)
 	a.clearDocumentInlayHints(d)
+	a.clearDocumentDocComments(d)
 	d.closeEditorView()
 	p.docs.list = slices.DeleteFunc(p.docs.list, func(x *document) bool { return x.id == d.id })
 	a.unwatchDocument(p, d)
@@ -1066,6 +1071,7 @@ func (a *App) closeDocuments(p *project) {
 		d.cancelAutoSave()
 		a.dropColorDecorations(d)
 		a.clearDocumentInlayHints(d)
+		a.clearDocumentDocComments(d)
 		d.closeEditorView()
 	}
 	p.docs = documentSet{}

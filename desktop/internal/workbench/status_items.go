@@ -66,4 +66,5 @@ func (a *App) toggleReadOnly(d *document) {
 		return
 	}
 	d.view.SetReadOnly(!d.view.ReadOnly())
+	a.updateDocCommentReadOnly(d)
 }

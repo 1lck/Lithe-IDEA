@@ -195,6 +195,7 @@ func (v *View) collapse(r FoldRange) {
 	if f.collapsed == nil {
 		f.collapsed = map[int]int{}
 	}
+	v.exitDocBlockAtLine(r.StartLine)
 	f.collapsed[r.StartLine] = r.EndLine
 	v.refold()
 	v.keepCaretShown()
@@ -248,6 +249,7 @@ func (v *View) refold() {
 	clear(v.rowCache)
 	if !v.mapped() {
 		v.wraps, v.rowStart = v.wraps[:0], v.rowStart[:0]
+		v.rebuildActiveDocBlocks()
 		return
 	}
 	if len(v.wraps) == v.text.LineCount() {
@@ -257,6 +259,7 @@ func (v *View) refold() {
 		v.rowsDirty = true
 	}
 	v.reflowInlayRows()
+	v.rebuildActiveDocBlocks()
 }
 
 // revealHiddenCaret unfolds every collapsed range that hides the caret's line. A move, a search
@@ -374,7 +377,7 @@ func (v *View) paintFoldArrows(canvas *gfx.Canvas, area gfx.Rect, look Look, fir
 	i := sort.Search(len(f.ranges), func(k int) bool { return f.ranges[k].StartLine >= firstLine })
 	for ; i < len(f.ranges) && f.ranges[i].StartLine <= lastLine; i++ {
 		line := f.ranges[i].StartLine
-		if f.hides(line) {
+		if f.hides(line) || v.docBlockHidesLine(line) {
 			continue
 		}
 		icon, color := f.expanded, look.Subtle
@@ -429,8 +432,11 @@ func (v *View) foldPointer(event gfx.PointerEvent) bool {
 	}
 	row := int((event.Y - v.area.Y + v.scroll) / max(v.lineH, 1))
 	row = min(max(row, 0), v.rowCount()-1)
-	line, _ := v.rowLine(row)
-	return v.ToggleFold(line)
+	dr := v.displayRowAt(row)
+	if dr.kind == displayDocBlock && dr.sub > 0 {
+		return false
+	}
+	return v.ToggleFold(dr.line)
 }
 
 // IndentFoldRanges works out folding ranges from indentation, for a text no language server or
