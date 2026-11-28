@@ -81,31 +81,14 @@ func (a *App) moveTreeItem(p *project, rel, dir string) {
 	if a.rejectRemovalWrite(p, "project_tree_move", rel, dir) {
 		return
 	}
-	language := a.language()
-	oldFull := filepath.Join(p.root, filepath.FromSlash(rel))
-	newFull := filepath.Join(p.root, filepath.FromSlash(dir), filepath.Base(filepath.FromSlash(rel)))
+	to := path.Join(dir, path.Base(rel))
+	newFull := filepath.Join(p.root, filepath.FromSlash(to))
 	if _, err := os.Lstat(newFull); err == nil {
-		a.notify(i18n.Shared(language, "desktop.files.nameExists"))
+		a.operationRejected("project_tree_move", "entry_exists")
+		a.notify(i18n.Shared(a.language(), "desktop.files.nameExists"))
 		return
 	}
-	if err := wslpath.CheckMove(oldFull, newFull); err != nil {
-		a.operationRejected("project_tree_move", "cross_wsl_boundary")
-		a.notifyError(i18n.Shared(language, "desktop.files.crossBoundaryMove"))
-		return
-	}
-	docs := a.documentsUnder(p, oldFull)
-	a.saveDocumentsThen(p, docs, func() {
-		if err := os.Rename(oldFull, newFull); err != nil {
-			a.operationFailed("project_tree_move", documentLogError(err))
-			a.notifyError(i18n.SharedFormat(language, "desktop.files.moveFailed", map[string]string{"reason": treeErrorReason(err)}))
-			return
-		}
-		a.moveOpenDocuments(p, oldFull, newFull)
-		a.relocateDirectoryRules(p, rel, path.Join(dir, path.Base(rel)))
-		a.listTree(p, path.Dir(rel))
-		a.listTree(p, dir)
-		a.loadGit(p)
-	})
+	a.commitTreeMove(p, rel, to)
 }
 
 // treeCut and treeCopy put the item of n on the tree clipboard.

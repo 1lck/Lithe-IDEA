@@ -14,4 +14,5 @@ type editorFeatures struct {
 	lsp              lspLogState
 	tokens           semanticTokensState
 	colorDecorations colorDecorationsState
+	docComments      docCommentsState
 }

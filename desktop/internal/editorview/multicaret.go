@@ -216,14 +216,19 @@ func (v *View) columnSelect(fromX, fromY, toX, toY float32) {
 	}
 	var all []span
 	for row := fromRow; ; row += step {
-		line, sub := v.rowLine(row)
-		start := v.text.LineStart(line)
-		a := start + v.columnOnRow(line, sub, fromCells)
-		c := start + v.columnOnRow(line, sub, toCells)
-		all = append(all, span{a, c})
+		dr := v.displayRowAt(row)
+		if dr.kind != displayDocBlock {
+			start := v.text.LineStart(dr.line)
+			a := start + v.columnOnRow(dr.line, dr.sub, fromCells)
+			c := start + v.columnOnRow(dr.line, dr.sub, toCells)
+			all = append(all, span{a, c})
+		}
 		if row == toRow {
 			break
 		}
+	}
+	if len(all) == 0 {
+		return
 	}
 	primary := len(all) - 1
 	slices.SortStableFunc(all, func(a, b span) int { return a.lo() - b.lo() })

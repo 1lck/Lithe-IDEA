@@ -392,17 +392,19 @@ PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # Lithe-core-rust main at d069224d (#210): extends workspace directory rules with built-in
 # test/generated roles, user-defined custom folder types, custom SVG icons, quick color
 # overrides, and workspace.resolveDirectoryPresentation.
-# Lithe-core-rust main at 63932f9 (#215): plugin directory types and marks
-# (workspace/setDirectoryTypes and workspace/setDirectoryMarks) as a layer between shared
-# rules and globs, with submission checks that match the resolver.
+# Lithe-core-rust main at 63932f93 (#215, on top of #210): plugin directory types and marks
+# (workspace/setDirectoryTypes and workspace/setDirectoryMarks) as a layer between shared rules
+# and globs, with submission checks that match the resolver.
+# Lithe-core-rust main at f7b93972 (#214): bounded native HTML/Javadoc/Markdown doc rendering
+# commands (editor.renderDocComment, editor.renderHoverDoc) and the renderDocComments /
+# renderDocCommentsInReadOnly editor preferences (#2475).
 # Lithe-core-rust main at e4c2eb14 (#216): API-45 agents capability 0, native agent sessions
 # (agents.*) and local agent session records (agentSessions.*).
-# Lithe-core-rust #217 head at b801e8fc (not yet on main; re-pin to its main commit once it
-# merges): per-model output speeds in usage and stats, paged session reads
-# (agentSessions.list's sessionID and readBytes, agentSessions.read's end), command
-# installers for agent CLIs (requirements' "agent" consumers), and the IDE connection's
-# read-only agent session tools (lithe_sessions_search and lithe_sessions_read).
-PINNED_CORE_REVISION="b801e8fcc51146ee0f891ba9d89247c7827de741"
+# Lithe-core-rust main at 7fd652af (#217): per-model output speeds in usage and stats, paged
+# session reads (agentSessions.list's sessionID and readBytes, agentSessions.read's end), command
+# installers for agent CLIs (requirements' "agent" consumers), and the IDE connection's read-only
+# agent session tools (lithe_sessions_search and lithe_sessions_read).
+PINNED_CORE_REVISION="7fd652af4b969819ed24da9e07bed4cf164fc0b0"
 PROFILE="debug"
 CHECKOUT_ONLY="no"
 while [[ $# -gt 0 ]]; do

@@ -77,6 +77,7 @@ type minimapMark struct {
 type minimapKey struct {
 	revision, wrapCols, cols int
 	gen                      uint64
+	docActiveGen             uint64
 	theme                    *syntax.Theme
 	valid                    bool
 	first, last              int
@@ -210,6 +211,9 @@ func (v *View) paintMinimap(canvas *gfx.Canvas, look Look, selStart, selEnd int)
 
 // lineRowEnd is the row after the last row of line.
 func (v *View) lineRowEnd(line int) int {
+	if len(v.docs.active) > 0 || v.docs.activeDirty {
+		return v.docOverlayLineRowEnd(line)
+	}
 	if !v.mapped() {
 		return line + 1
 	}
@@ -223,7 +227,7 @@ func (v *View) lineRowEnd(line int) int {
 func (v *View) buildMinimap(first, last, cols int) {
 	key := minimapKey{
 		revision: v.revision, wrapCols: v.wrapCols, cols: cols, gen: v.hlGen.Load(),
-		theme: v.theme, valid: true, first: first, last: last,
+		docActiveGen: v.docs.activeGen, theme: v.theme, valid: true, first: first, last: last,
 	}
 	old := v.mm.key
 	if key == old {
@@ -258,27 +262,69 @@ func (v *View) markRows(first, last, cols int) {
 	if first > last {
 		return
 	}
-	line, sub := v.rowLine(first)
-	row := first
-	for row <= last && line < v.text.LineCount() {
-		if v.fold.hides(line) {
-			line, _ = v.rowLine(row)
+	if !v.hasActiveDocBlocks() {
+		line, sub := v.rowLine(first)
+		row := first
+		for row <= last && line < v.text.LineCount() {
+			if v.fold.hides(line) {
+				line, _ = v.rowLine(row)
+			}
+			l := v.ref(line)
+			rows := v.minimapRows(l)
+			hints := v.lineInlayHints(line)
+			v.mm.tokens = v.hl.Line(v.mm.tokens[:0], line)
+			for k := sub; k < len(rows) && row <= last; k++ {
+				end := l.size
+				if k+1 < len(rows) {
+					end = rows[k+1].at
+				}
+				// A row shows its first cols columns, so of a long line only those are read.
+				p := v.part(l, rows[k], end, rows[k].cells, rows[k].cells+cols)
+				v.markRow(p.text, p.base, p.row, end, int32(row), cols, hints)
+				row++
+			}
+			line, sub = line+1, 0
 		}
-		l := v.ref(line)
+		return
+	}
+
+	commentColor := v.docMinimapColor()
+	barCols := min(max(cols*2/3, 8), cols)
+	row := first
+	for row <= last {
+		dr := v.displayRowAt(row)
+		if dr.kind == displayDocBlock {
+			ab := v.docs.active[dr.block]
+			docEnd := min(ab.displayStartRow+ab.rows-1, last)
+			for r := row; r <= docEnd; r++ {
+				w := barCols
+				if r == ab.displayStartRow+ab.rows-1 {
+					w = max(barCols/2, 4)
+				}
+				v.mm.marks = append(v.mm.marks, minimapMark{
+					row: int32(r), col: 2, cells: int32(w), color: commentColor,
+				})
+			}
+			row = docEnd + 1
+			continue
+		}
+		l := v.ref(dr.line)
 		rows := v.minimapRows(l)
-		hints := v.lineInlayHints(line)
-		v.mm.tokens = v.hl.Line(v.mm.tokens[:0], line)
-		for k := sub; k < len(rows) && row <= last; k++ {
+		if len(rows) == 0 {
+			row++
+			continue
+		}
+		hints := v.lineInlayHints(dr.line)
+		v.mm.tokens = v.hl.Line(v.mm.tokens[:0], dr.line)
+		for k := dr.sub; k < len(rows) && row <= last; k++ {
 			end := l.size
 			if k+1 < len(rows) {
 				end = rows[k+1].at
 			}
-			// A row shows its first cols columns, so of a long line only those are read.
 			p := v.part(l, rows[k], end, rows[k].cells, rows[k].cells+cols)
 			v.markRow(p.text, p.base, p.row, end, int32(row), cols, hints)
 			row++
 		}
-		line, sub = line+1, 0
 	}
 }
 

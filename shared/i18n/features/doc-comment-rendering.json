@@ -1,0 +1,182 @@
+{
+  "schemaVersion": 1,
+  "messages": [
+    {
+      "id": "desktop.editorPrefs.renderDocComments",
+      "description": "Switch for natively rendering documentation comments in the editor",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.renderDocCommentsHelp",
+      "description": "Information about native documentation comment rendering and toggling back to source editing",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.renderDocCommentsInReadOnly",
+      "description": "Switch for automatically rendering documentation comments in read-only files",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editorPrefs.renderDocCommentsInReadOnlyHelp",
+      "description": "Information about automatically opening documentation comments in rendered view for read-only or external library files",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editor.toggleRenderedDocComment",
+      "description": "Editor action to toggle rendered view for a documentation comment",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editor.renderDocComment",
+      "description": "Editor gutter tooltip and context menu action to render a documentation comment",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editor.editDocComment",
+      "description": "Editor gutter tooltip and context menu action to edit a documentation comment in source view",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editor.renderAllDocComments",
+      "description": "Editor action to render all documentation comments in the active file",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editor.editAllDocComments",
+      "description": "Editor action to show source for all documentation comments in the active file",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editor.copyRenderedDocComment",
+      "description": "Editor context menu action to copy plain text of a rendered documentation comment",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.docComment.tag.param",
+      "description": "Rendered documentation comment section label for function or method parameters",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.docComment.tag.typeParam",
+      "description": "Rendered documentation comment section label for generic type parameters",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.docComment.tag.returns",
+      "description": "Rendered documentation comment section label for return values",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.docComment.tag.throws",
+      "description": "Rendered documentation comment section label for thrown exceptions or errors",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.docComment.tag.since",
+      "description": "Rendered documentation comment section label for availability version",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.docComment.tag.see",
+      "description": "Rendered documentation comment section label for related references",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.docComment.tag.author",
+      "description": "Rendered documentation comment section label for authors",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.docComment.tag.deprecated",
+      "description": "Rendered documentation comment section label for deprecation notices",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.docComment.tag.version",
+      "description": "Rendered documentation comment section label for version metadata",
+      "platforms": [
+        "desktop"
+      ]
+    }
+  ],
+  "locales": {
+    "en-US": {
+      "desktop.editorPrefs.renderDocComments": "Render documentation comments",
+      "desktop.editorPrefs.renderDocCommentsHelp": "Renders HTML, Javadoc, and Markdown documentation comments natively inside the editor without a WebView. Click the gutter icon or double-click a rendered block to edit its source.",
+      "desktop.editorPrefs.renderDocCommentsInReadOnly": "Auto-render documentation comments in read-only files",
+      "desktop.editorPrefs.renderDocCommentsInReadOnlyHelp": "Automatically opens documentation comments in rendered view when browsing read-only or external library source files.",
+      "desktop.editor.toggleRenderedDocComment": "Toggle Rendered View",
+      "desktop.editor.renderDocComment": "Render Documentation Comment",
+      "desktop.editor.editDocComment": "Edit Documentation Comment",
+      "desktop.editor.renderAllDocComments": "Render All Doc Comments",
+      "desktop.editor.editAllDocComments": "Show Source for All Doc Comments",
+      "desktop.editor.copyRenderedDocComment": "Copy Rendered Comment Text",
+      "desktop.docComment.tag.param": "Params:",
+      "desktop.docComment.tag.typeParam": "Type parameters:",
+      "desktop.docComment.tag.returns": "Returns:",
+      "desktop.docComment.tag.throws": "Throws:",
+      "desktop.docComment.tag.since": "Since:",
+      "desktop.docComment.tag.see": "See also:",
+      "desktop.docComment.tag.author": "Author:",
+      "desktop.docComment.tag.deprecated": "Deprecated:",
+      "desktop.docComment.tag.version": "Version:"
+    },
+    "zh-CN": {
+      "desktop.editorPrefs.renderDocComments": "渲染文档注释",
+      "desktop.editorPrefs.renderDocCommentsHelp": "在编辑器内原生渲染含 HTML、Javadoc 与 Markdown 标签的文档注释（不走 WebView）。点击行号旁图标或双击渲染块可随时切回源码编辑。",
+      "desktop.editorPrefs.renderDocCommentsInReadOnly": "在只读文件中自动渲染文档注释",
+      "desktop.editorPrefs.renderDocCommentsInReadOnlyHelp": "浏览只读文件或外部依赖源码时自动以渲染视图展示文档注释。",
+      "desktop.editor.toggleRenderedDocComment": "切换注释渲染视图",
+      "desktop.editor.renderDocComment": "渲染文档注释",
+      "desktop.editor.editDocComment": "编辑文档注释",
+      "desktop.editor.renderAllDocComments": "渲染全部文档注释",
+      "desktop.editor.editAllDocComments": "全部文档注释显示源码",
+      "desktop.editor.copyRenderedDocComment": "复制渲染后的注释文本",
+      "desktop.docComment.tag.param": "参数:",
+      "desktop.docComment.tag.typeParam": "类型形参:",
+      "desktop.docComment.tag.returns": "返回:",
+      "desktop.docComment.tag.throws": "抛出:",
+      "desktop.docComment.tag.since": "自:",
+      "desktop.docComment.tag.see": "请参阅:",
+      "desktop.docComment.tag.author": "作者:",
+      "desktop.docComment.tag.deprecated": "已弃用:",
+      "desktop.docComment.tag.version": "版本:"
+    }
+  }
+}

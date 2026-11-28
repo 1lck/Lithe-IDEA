@@ -140,6 +140,12 @@ func (a *App) commands() []command {
 		add("editor.unfold", t.GroupEditor, t.Unfold, "", true, func() { a.foldCommand(d, func(v *editorview.View) { v.UnfoldAtCaret() }) })
 		add("editor.foldAll", t.GroupEditor, t.FoldAll, "", true, func() { a.foldCommand(d, (*editorview.View).FoldAll) })
 		add("editor.unfoldAll", t.GroupEditor, t.UnfoldAll, "", true, func() { a.foldCommand(d, (*editorview.View).UnfoldAll) })
+		hasDocs := d.view.DocBlockCount() > 0
+		caretLine, _ := d.view.CaretUTF16()
+		_, _, onDoc := d.view.DocBlockAtLine(caretLine)
+		add("editor.toggleRenderedDocComment", t.GroupEditor, i18n.Shared(a.language(), "desktop.editor.toggleRenderedDocComment"), "", onDoc, func() { a.toggleDocCommentAtCaret(d) })
+		add("editor.renderAllDocComments", t.GroupEditor, i18n.Shared(a.language(), "desktop.editor.renderAllDocComments"), "", hasDocs && d.view.CanRenderAllDocBlocks(), func() { a.setAllDocCommentsRendered(d, true) })
+		add("editor.editAllDocComments", t.GroupEditor, i18n.Shared(a.language(), "desktop.editor.editAllDocComments"), "", hasDocs && d.view.RequestedDocBlockCount() > 0, func() { a.setAllDocCommentsRendered(d, false) })
 	}
 	// The carets of the selected document: occurrences and clones of the primary caret (multicaret.go).
 	if d := p.selectedDocument(p.docs.group); d != nil {
